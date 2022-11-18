@@ -1,0 +1,7 @@
+{
+  "root": "../src",
+  "tests": [
+    "Page.Login.Login",
+    "Page.Home.EditAccount"
+  ]
+}

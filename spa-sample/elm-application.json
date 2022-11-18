@@ -1,0 +1,13 @@
+{
+    "name": "arowM/elm-procedure-architecture-spa-sample",
+    "summary": "Domain specific libraries for elm-procedure-architecture SPA sample app.",
+    "version": "1.0.0",
+    "exposed-modules": [
+        "App.Session",
+        "App.ZIndex",
+        "Page.Home.EditAccount",
+        "Page.Login.Login",
+        "Widget.Toast",
+        "Scenario"
+    ]
+}
