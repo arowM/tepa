@@ -423,7 +423,7 @@ closeByMessage props messageType descPrefix { message } =
                 |> LayerQuery.index 0
     in
     Scenario.concat
-        [ Scenario.userEvent props.session
+        [ Scenario.layerEvent props.session
             (descPrefix ++ message)
             { target = target
             , event = props.wrapEvent CloseToastItem

@@ -35,6 +35,9 @@ module Internal.Core exposing
     , Section
     , section
     , cases
+    , Operation
+    , runOperation
+    , customOperation
     , LayerQuery(..)
     , runQuery
     )
@@ -106,6 +109,13 @@ module Internal.Core exposing
 @docs cases
 
 
+# User Operation
+
+@docs Operation
+@docs runOperation
+@docs customOperation
+
+
 # LayerQuery
 
 @docs LayerQuery
@@ -128,6 +138,8 @@ import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Test exposing (Test)
+import Test.Html.Event as TestEvent
+import Test.Html.Query as TestQuery
 import Test.Sequence as SeqTest
 import Url exposing (Url)
 
@@ -1558,7 +1570,7 @@ type TestModel c m e
 
 
 type alias TestConfig flags c m e =
-    { view : m -> Document ()
+    { view : m -> Document (Msg e)
     , init : flags -> Url -> Result String (SessionContext c m e)
     , onUrlChange : Route -> Msg e
     }
@@ -1709,10 +1721,7 @@ toTest o =
                                 o.props.view (Layer LayerId.init m)
                         in
                         { title = document.title
-                        , body =
-                            List.map
-                                (Html.map (\_ -> ()))
-                                document.body
+                        , body = document.body
                         }
                 , init =
                     \flags url ->
@@ -1912,6 +1921,33 @@ cases sections =
                             context []
                                 :: markups
         }
+
+
+
+-- User Operation
+
+
+{-| -}
+type Operation e
+    = Operation (TestQuery.Single (Msg e) -> TestEvent.Event (Msg e))
+
+
+{-| -}
+runOperation : Operation e -> TestQuery.Single (Msg e) -> Result String (Msg e)
+runOperation (Operation f) single =
+    f single
+        |> TestEvent.toResult
+
+
+{-| -}
+customOperation : ( String, Value ) -> Operation e
+customOperation p =
+    TestEvent.simulate p
+        |> Operation
+
+
+
+-- LayerQuery
 
 
 {-| -}

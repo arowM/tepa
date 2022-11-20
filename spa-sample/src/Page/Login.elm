@@ -24,6 +24,7 @@ import Tepa exposing (Layer, Msg, Void)
 import Tepa.Navigation as Nav exposing (NavKey)
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
+import Tepa.Scenario.Operation as Operation
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
 import Url exposing (Url)
@@ -119,9 +120,10 @@ loginFormView memory =
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
                 , Mixin.attribute "value" memory.form.id
-                , Mixin.boolAttribute "disabled" memory.isBusy
+                , Mixin.disabled memory.isBusy
                 , Events.onChange ChangeLoginId
                     |> Tepa.eventMixin
+                , localClass "loginForm_input-id"
                 ]
                 []
             ]
@@ -132,7 +134,7 @@ loginFormView memory =
             , Html.node "input"
                 [ Mixin.attribute "type" "password"
                 , Mixin.attribute "value" memory.form.pass
-                , Mixin.boolAttribute "disabled" memory.isBusy
+                , Mixin.disabled memory.isBusy
                 , Events.onChange ChangeLoginPass
                     |> Tepa.eventMixin
                 ]
@@ -142,7 +144,7 @@ loginFormView memory =
             [ localClass "loginForm_submitLogin"
             , Events.onClick ClickSubmitLogin
                 |> Tepa.eventMixin
-            , Mixin.boolAttribute "disabled" memory.isBusy
+            , Mixin.disabled memory.isBusy
             ]
             [ Html.text "Login"
             ]
@@ -458,18 +460,19 @@ scenario props =
 
 changeLoginId : ScenarioProps c m e -> String -> Scenario flags c m e
 changeLoginId props str =
-    Scenario.userEvent props.session
+    Scenario.userOperation props.session
         ("Type \"" ++ str ++ "\" for Login ID field")
-        { target = props.querySelf
-        , event =
-            ChangeLoginId str
-                |> props.wrapEvent
+        { target =
+            Query.find
+                [ localClassSelector "loginForm_input-id"
+                ]
+        , operation = Operation.change str
         }
 
 
 changeLoginPass : ScenarioProps c m e -> String -> Scenario flags c m e
 changeLoginPass props str =
-    Scenario.userEvent props.session
+    Scenario.layerEvent props.session
         ("Type \"" ++ str ++ "\" for Login Password field")
         { target = props.querySelf
         , event =
@@ -480,12 +483,15 @@ changeLoginPass props str =
 
 clickSubmitLogin : ScenarioProps c m e -> Scenario flags c m e
 clickSubmitLogin props =
-    Scenario.userEvent props.session
+    Scenario.userOperation props.session
         "Click \"Login\" button."
-        { target = props.querySelf
-        , event =
-            ClickSubmitLogin
-                |> props.wrapEvent
+        { target =
+            Query.find
+                [ localClassSelector "loginForm_submitLogin"
+                , Selector.disabled False
+                ]
+        , operation =
+            Operation.click
         }
 
 

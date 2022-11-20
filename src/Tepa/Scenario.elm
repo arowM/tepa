@@ -16,7 +16,8 @@ module Tepa.Scenario exposing
     , expectMemory
     , expectAppView
     , loadApp
-    , userEvent
+    , userOperation
+    , layerEvent
     , listenerEvent
     , portResponse
     , customResponse
@@ -74,7 +75,8 @@ module Tepa.Scenario exposing
 ## Event Simulators
 
 @docs loadApp
-@docs userEvent
+@docs userOperation
+@docs layerEvent
 @docs listenerEvent
 
 
@@ -103,7 +105,9 @@ import Mixin.Html as Html exposing (Html)
 import Tepa exposing (ApplicationProps, Msg)
 import Tepa.Navigation exposing (Route)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
+import Tepa.Scenario.Operation exposing (Operation)
 import Test exposing (Test)
+import Test.Html.Query exposing (Single)
 import Test.Sequence as SeqTest
 
 
@@ -422,7 +426,7 @@ expectAppView :
     Session
     -> String
     ->
-        { expectation : Document () -> Expectation
+        { expectation : Document (Msg event) -> Expectation
         }
     -> Scenario flags c m event
 expectAppView (Session session) description { expectation } =
@@ -506,7 +510,7 @@ loadApp (Session session) description o =
             \config context ->
                 case config.init o.flags (Core.testUrl o.route) of
                     Err err ->
-                        SeqTest.fail "Page navigation" <|
+                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                             \_ -> Expect.fail err
 
                     Ok initSessionContext ->
@@ -530,7 +534,7 @@ Suppose your application has a popup:
     myScenario =
         [ Debug.todo "After some operations..."
         , onLayer popup
-            [ userEvent sakuraChanMainSession
+            [ layerEvent sakuraChanMainSession
                 "Click cancel button."
                 { event = ClickPopupCancelButton
                 }
@@ -541,7 +545,7 @@ Suppose your application has a popup:
 The example above publishes `ClickPopupCancelButton` event to the LayerId for the `popup` Layer.
 
 -}
-userEvent :
+layerEvent :
     Session
     -> String
     ->
@@ -549,7 +553,7 @@ userEvent :
         , event : event
         }
     -> Scenario flags c m event
-userEvent (Session session) description o =
+layerEvent (Session session) description o =
     let
         (User user) =
             session.user
@@ -562,7 +566,7 @@ userEvent (Session session) description o =
                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                             \_ ->
                                 Expect.fail
-                                    "userEvent: The application is not active on the session. Use `loadApp` beforehand."
+                                    "layerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case Core.runQuery o.target sessionContext.model of
@@ -570,7 +574,7 @@ userEvent (Session session) description o =
                                 SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                     \_ ->
                                         Expect.fail
-                                            "userEvent: No Layers for the query."
+                                            "layerEvent: No Layers for the query."
 
                             layer1s ->
                                 let
@@ -590,7 +594,78 @@ userEvent (Session session) description o =
                                 in
                                 case resSessionContext of
                                     Err err ->
-                                        SeqTest.fail "Page navigation" <|
+                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                            \_ -> Expect.fail err
+
+                                    Ok nextSessionContext ->
+                                        Dict.insert session.uniqueName
+                                            nextSessionContext
+                                            context
+                                            |> Core.OnGoingTest
+                                            |> SeqTest.pass
+        , markup =
+            Core.putListItemMarkup <|
+                listItemParagraph
+                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
+                    description
+        }
+
+
+{-| -}
+userOperation :
+    Session
+    -> String
+    ->
+        { target : Single (Msg e) -> Single (Msg e)
+        , operation : Operation e
+        }
+    -> Scenario flags c m e
+userOperation (Session session) description o =
+    let
+        (User user) =
+            session.user
+    in
+    Core.Scenario
+        { test =
+            \config context ->
+                case Dict.get session.uniqueName context of
+                    Nothing ->
+                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                            \_ ->
+                                Expect.fail
+                                    "userOperation: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        let
+                            rmsg =
+                                Core.memoryState sessionContext.model
+                                    |> config.view
+                                    |> .body
+                                    |> Html.div []
+                                    |> Test.Html.Query.fromHtml
+                                    |> o.target
+                                    |> Core.runOperation o.operation
+                        in
+                        case rmsg of
+                            Err str ->
+                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                    \_ ->
+                                        Expect.fail
+                                            ("userOperation: " ++ str)
+
+                            Ok msg ->
+                                let
+                                    resSessionContext =
+                                        [ msg
+                                        ]
+                                            |> applyMsgsTo
+                                                { onUrlChange = config.onUrlChange
+                                                }
+                                                sessionContext
+                                in
+                                case resSessionContext of
+                                    Err err ->
+                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -685,7 +760,7 @@ listenerEvent (Session session) description o =
                                         in
                                         case resSessionContext of
                                             Err err ->
-                                                SeqTest.fail "Page navigation" <|
+                                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                                     \_ -> Expect.fail err
 
                                             Ok nextSessionContext ->
@@ -783,7 +858,7 @@ portResponse (Session session) description o =
                                 in
                                 case resSessionContext of
                                     Err err ->
-                                        SeqTest.fail "Page navigation" <|
+                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -872,7 +947,7 @@ customResponse (Session session) description o =
                                 in
                                 case resSessionContext of
                                     Err err ->
-                                        SeqTest.fail "Page navigation" <|
+                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->

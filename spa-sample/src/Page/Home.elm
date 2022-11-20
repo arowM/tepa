@@ -414,7 +414,7 @@ scenario props =
 
 changeEditAccountFormAccountId : ScenarioProps c m e -> String -> Scenario flags c m e
 changeEditAccountFormAccountId props str =
-    Scenario.userEvent props.session
+    Scenario.layerEvent props.session
         ("Type \"" ++ str ++ "\" for Account ID field")
         { target = props.querySelf
         , event =
@@ -425,7 +425,7 @@ changeEditAccountFormAccountId props str =
 
 clickSubmitEditAccount : ScenarioProps c m e -> Scenario flags c m e
 clickSubmitEditAccount props =
-    Scenario.userEvent props.session
+    Scenario.layerEvent props.session
         "Click \"Save\" button for edit account form."
         { target = props.querySelf
         , event =
