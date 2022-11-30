@@ -138,6 +138,8 @@ import Internal.ResponseType as ResponseType exposing (ResponseBody, ResponseTyp
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
+import Process
+import Task
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
 import Test.Html.Query as TestQuery
@@ -187,7 +189,7 @@ type alias OnGoing_ c m e =
     , listeners : List (Listener e)
 
     -- New state to evaluate next time.
-    , next : Msg e -> Context m -> List (Listener e) -> ( Model c m e, List ( LayerId, c ), List AppCmd )
+    , next : Msg e -> Context m -> List (Listener e) -> ( Model c m e, List ( LayerId, c ), List (AppCmd (Msg e)) )
     }
 
 
@@ -230,7 +232,7 @@ wrapListener wrap listener1 =
 
 
 {-| -}
-type AppCmd
+type AppCmd msg
     = PushPath
         { key : NavKey
         , path : AbsolutePath
@@ -240,10 +242,26 @@ type AppCmd
         { key : NavKey
         , steps : Int
         }
+    | Sleep
+        { duration : Float
+        , onWakeUp : msg
+        }
+
+
+mapAppCmd : (msg1 -> msg2) -> AppCmd msg1 -> AppCmd msg2
+mapAppCmd f appCmd =
+    case appCmd of
+        PushPath o -> PushPath o
+        Back o -> Back o
+        Sleep o ->
+            Sleep
+                { duration = o.duration
+                , onWakeUp = f o.onWakeUp
+                }
 
 
 {-| -}
-runAppCmd : AppCmd -> Cmd msg
+runAppCmd : AppCmd msg -> Cmd msg
 runAppCmd appCmd =
     case appCmd of
         PushPath o ->
@@ -270,8 +288,12 @@ runAppCmd appCmd =
                 RealKey key ->
                     Nav.back key o.steps
 
+        Sleep o ->
+            Process.sleep o.duration
+                |> Task.perform (\() -> o.onWakeUp)
 
-runAppCmdOnTest : AppCmd -> History -> Result String ( History, AbsolutePath )
+
+runAppCmdOnTest : AppCmd msg -> History -> Result String ( History, AbsolutePath )
 runAppCmdOnTest appCmd history =
     case appCmd of
         PushPath o ->
@@ -297,6 +319,8 @@ runAppCmdOnTest appCmd history =
                         ( newHistory
                         , History.current newHistory
                         )
+        Sleep o ->
+            Ok ( history, History.current history )
 
 
 
@@ -464,7 +488,7 @@ type Promise c m e a
 type alias PromiseEffect c m e a =
     { newContext : Context m
     , cmds : List ( LayerId, c )
-    , appCmds : List AppCmd
+    , appCmds : List (AppCmd (Msg e))
     , addListeners : List (Listener e)
     , closedLayers : List LayerId
     , closedRequests : List RequestId
@@ -813,7 +837,7 @@ liftPromiseEvent o (Promise prom1) =
             in
             { newContext = eff1.newContext
             , cmds = eff1.cmds
-            , appCmds = eff1.appCmds
+            , appCmds = List.map (mapAppCmd (mapMsg o.wrap)) eff1.appCmds
             , addListeners = List.map (wrapListener o.wrap) eff1.addListeners
             , closedLayers = eff1.closedLayers
             , closedRequests = eff1.closedRequests
@@ -993,7 +1017,7 @@ lazy f =
 
 
 {-| -}
-pushAppCmd : AppCmd -> Promise c m e Void
+pushAppCmd : AppCmd (Msg e) -> Promise c m e Void
 pushAppCmd appCmd =
     Promise <|
         \context ->
@@ -1478,7 +1502,7 @@ layerEvent =
 init :
     memory
     -> Promise cmd memory event Void
-    -> ( Model cmd memory event, List ( LayerId, cmd ), List AppCmd )
+    -> ( Model cmd memory event, List ( LayerId, cmd ), List (AppCmd (Msg event)) )
 init m prom =
     toModel (initContext m) [] prom
 
@@ -1492,7 +1516,7 @@ initContext memory =
     }
 
 
-toModel : Context m -> List (Listener e) -> Promise c m e Void -> ( Model c m e, List ( LayerId, c ), List AppCmd )
+toModel : Context m -> List (Listener e) -> Promise c m e Void -> ( Model c m e, List ( LayerId, c ), List (AppCmd (Msg e)) )
 toModel context listeners (Promise prom) =
     let
         eff =
@@ -1541,7 +1565,7 @@ toModel context listeners (Promise prom) =
 
 
 {-| -}
-update : Msg event -> Model cmd memory event -> ( Model cmd memory event, List ( LayerId, cmd ), List AppCmd )
+update : Msg event -> Model cmd memory event -> ( Model cmd memory event, List ( LayerId, cmd ), List (AppCmd (Msg event)) )
 update msg model =
     case model of
         EndOfProcess r ->
@@ -1792,7 +1816,7 @@ toTest o =
 applyAppCmds :
     { onUrlChange : AbsolutePath -> Msg e
     }
-    -> List AppCmd
+    -> List (AppCmd (Msg e))
     -> SessionContext c m e
     -> Result String (SessionContext c m e)
 applyAppCmds config appCmds sessionContext =
@@ -1828,9 +1852,9 @@ applyAppCmds config appCmds sessionContext =
 applyAppCmd :
     { onUrlChange : AbsolutePath -> Msg e
     }
-    -> AppCmd
+    -> AppCmd (Msg e)
     -> SessionContext c m e
-    -> Result String ( SessionContext c m e, List AppCmd )
+    -> Result String ( SessionContext c m e, List (AppCmd (Msg e)))
 applyAppCmd config appCmd sessionContext =
     runAppCmdOnTest appCmd sessionContext.history
         |> Result.map
