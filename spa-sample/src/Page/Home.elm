@@ -17,18 +17,19 @@ import App.Route as Route
 import App.Session exposing (Session)
 import Expect
 import Expect.Builder
-import Http
-import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
 import Tepa exposing (Layer, Msg, Void)
-import Tepa.Navigation exposing (NavKey)
+import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
+import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
+import Url exposing (Url)
 import Widget.Toast as Toast
 
 
@@ -74,7 +75,10 @@ view =
                     ]
                     [ Html.a
                         [ localClass "dashboard_links_linkButton-users"
-                        , Mixin.attribute "href" <| Route.toPath Route.Users
+                        , Mixin.attribute "href"
+                            (Route.toAbsolutePath Route.Users
+                                |> AbsolutePath.toString
+                            )
                         ]
                         [ Html.text "Users"
                         ]
@@ -175,7 +179,7 @@ editAccountFormView memory =
 {-| -}
 type Command
     = ToastCommand Toast.Command
-    | RequestEditAccount EditAccount.EditAccount (Result Http.Error Value -> Msg Event)
+    | RequestEditAccount EditAccount.EditAccount (Tepa.HttpResult String -> Msg Event)
 
 
 {-| -}
@@ -201,6 +205,7 @@ type alias Pointer m =
 
 type alias Bucket =
     { key : NavKey
+    , requestPath : AbsolutePath
     , toastPointer : Pointer Toast.Memory
     }
 
@@ -217,8 +222,8 @@ currentSession =
 
 
 {-| -}
-procedure : NavKey -> Promise Void
-procedure key =
+procedure : NavKey -> Url -> Promise Void
+procedure key url =
     -- Initialize Widget
     Tepa.putMaybeLayer
         { get = .toast
@@ -230,6 +235,7 @@ procedure key =
                 let
                     bucket =
                         { key = key
+                        , requestPath = AbsolutePath.fromUrl url
                         , toastPointer = toastPointer
                         }
                 in
@@ -310,7 +316,7 @@ submitAccountProcedure bucket =
                                         case response of
                                             Err err ->
                                                 Tepa.syncAll
-                                                    [ Toast.pushHttpError err
+                                                    [ Toast.pushHttpRequestError err
                                                         |> runToastPromise bucket.toastPointer
                                                         |> Tepa.void
                                                     , Tepa.sequence
@@ -323,7 +329,26 @@ submitAccountProcedure bucket =
                                                         ]
                                                     ]
 
-                                            Ok resp ->
+                                            Ok EditAccount.OtherError ->
+                                                Tepa.syncAll
+                                                    [ Toast.pushError
+                                                        "Internal error, please contact our support team."
+                                                        |> runToastPromise bucket.toastPointer
+                                                        |> Tepa.void
+                                                    , Tepa.sequence
+                                                        [ modifyEditAccountForm <|
+                                                            \m ->
+                                                                { m | isBusy = False }
+                                                        , Tepa.lazy <|
+                                                            \_ ->
+                                                                editAccountFormProcedure bucket
+                                                        ]
+                                                    ]
+
+                                            Ok EditAccount.LoginRequired ->
+                                                Nav.pushPath bucket.key bucket.requestPath
+
+                                            Ok (EditAccount.GoodResponse resp) ->
                                                 Tepa.sequence
                                                     [ Tepa.modify <|
                                                         \m ->
@@ -346,12 +371,13 @@ submitAccountProcedure bucket =
         ]
 
 
-requestEditAccount : EditAccount.EditAccount -> Promise (Result Http.Error EditAccount.Response)
+requestEditAccount : EditAccount.EditAccount -> Promise (Result Tepa.HttpRequestError EditAccount.Response)
 requestEditAccount editAccount =
     Tepa.httpRequest
         { name = "requestEditAccount"
+        , bodyType = ResponseType.string
         , request = RequestEditAccount editAccount
-        , decoder = EditAccount.responseDecoder
+        , response = EditAccount.response
         }
 
 
@@ -387,7 +413,7 @@ runToastPromise pointer prom =
 type alias ScenarioSet flags c m e =
     { changeEditAccountFormAccountId : String -> Scenario flags c m e
     , clickSubmitEditAccount : Scenario flags c m e
-    , receiveEditAccountResp : Result Http.Error Value -> Scenario flags c m e
+    , receiveEditAccountResp : Tepa.HttpResult String -> Scenario flags c m e
     , expectAvailable : String -> Scenario flags c m e
     , expectEditAccountFormShowNoErrors : Scenario flags c m e
     }
@@ -434,7 +460,7 @@ clickSubmitEditAccount props =
         }
 
 
-receiveEditAccountResp : ScenarioProps c m e -> Result Http.Error Value -> Scenario flags c m e
+receiveEditAccountResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario flags c m e
 receiveEditAccountResp props res =
     Scenario.customResponse props.session
         "Backend responds to the edit account request."

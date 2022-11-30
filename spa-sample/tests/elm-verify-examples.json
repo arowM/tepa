@@ -1,6 +1,7 @@
 {
   "root": "../src",
   "tests": [
+    "App.FetchProfile",
     "Page.Login.Login",
     "Page.Home.EditAccount"
   ]

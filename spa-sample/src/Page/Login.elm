@@ -11,23 +11,23 @@ module Page.Login exposing
     , view
     )
 
+import App.Route as Route
 import App.Session exposing (Session)
 import Expect
 import Expect.Builder
-import Http
-import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
 import Tepa exposing (Layer, Msg, Void)
+import Tepa.AbsolutePath as AbsolutePath
 import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
 import Tepa.Scenario.Operation as Operation
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
-import Url exposing (Url)
 import Widget.Toast as Toast
 
 
@@ -87,6 +87,7 @@ type alias LoginFormMemory =
     { form : Login.Form
     , isBusy : Bool
     , showError : Bool
+    , incorrectIdOrPass : Bool
     }
 
 
@@ -99,6 +100,7 @@ initLoginForm =
     -- the user with "Input required" errors
     -- when they has not yet entered the information.
     , showError = False
+    , incorrectIdOrPass = False
     }
 
 
@@ -106,7 +108,15 @@ loginFormView : LoginFormMemory -> Html (Msg Event)
 loginFormView memory =
     let
         errors =
-            Login.toFormErrors memory.form
+            List.concat
+                [ if memory.incorrectIdOrPass then
+                    [ Login.IncorrectIdOrPass
+                    ]
+
+                  else
+                    []
+                , Login.toFormErrors memory.form
+                ]
     in
     Html.div
         [ localClass "loginForm"
@@ -194,7 +204,7 @@ loginFormView memory =
 {-| -}
 type Command
     = ToastCommand Toast.Command
-    | RequestLogin Login.Login (Result Http.Error Value -> Msg Event)
+    | RequestLogin Login.Login (Tepa.HttpResult String -> Msg Event)
 
 
 {-| -}
@@ -219,7 +229,7 @@ type alias Pointer m =
 
 type alias Bucket =
     { key : NavKey
-    , requestUrl : Url
+    , props : Route.LoginProps
     , toastPointer : Pointer Toast.Memory
     }
 
@@ -236,8 +246,8 @@ currentSession =
 
 
 {-| -}
-procedure : Url -> NavKey -> Promise Void
-procedure url key =
+procedure : Route.LoginProps -> NavKey -> Promise Void
+procedure props key =
     -- Initialize Widget
     Tepa.putMaybeLayer
         { get = .toast
@@ -249,7 +259,7 @@ procedure url key =
                 let
                     bucket =
                         { key = key
-                        , requestUrl = url
+                        , props = props
                         , toastPointer = toastPointer
                         }
                 in
@@ -263,33 +273,41 @@ procedure url key =
 loginFormProcedure : Bucket -> Promise Void
 loginFormProcedure bucket =
     let
-        modifyForm f =
+        modifyLoginForm f =
             Tepa.modify <|
-                \m ->
-                    { m
-                        | loginForm =
-                            let
-                                loginForm =
-                                    m.loginForm
-                            in
-                            { loginForm
-                                | form = f loginForm.form
-                            }
-                    }
+                \m -> { m | loginForm = f m.loginForm }
     in
     Tepa.withLayerEvent <|
         \e ->
             case e of
                 ChangeLoginId str ->
-                    [ modifyForm <|
-                        \m -> { m | id = str }
+                    [ modifyLoginForm <|
+                        \m ->
+                            { m
+                                | form =
+                                    let
+                                        form =
+                                            m.form
+                                    in
+                                    { form | id = str }
+                                , incorrectIdOrPass = False
+                            }
                     , Tepa.lazy <|
                         \_ -> loginFormProcedure bucket
                     ]
 
                 ChangeLoginPass str ->
-                    [ modifyForm <|
-                        \m -> { m | pass = str }
+                    [ modifyLoginForm <|
+                        \m ->
+                            { m
+                                | form =
+                                    let
+                                        form =
+                                            m.form
+                                    in
+                                    { form | pass = str }
+                                , incorrectIdOrPass = False
+                            }
                     , Tepa.lazy <| \_ -> loginFormProcedure bucket
                     ]
 
@@ -336,7 +354,7 @@ submitLoginProcedure bucket =
                                         case response of
                                             Err err ->
                                                 Tepa.syncAll
-                                                    [ Toast.pushHttpError err
+                                                    [ Toast.pushHttpRequestError err
                                                         |> runToastPromise bucket.toastPointer
                                                         |> Tepa.void
                                                     , Tepa.sequence
@@ -349,7 +367,38 @@ submitLoginProcedure bucket =
                                                         ]
                                                     ]
 
-                                            Ok resp ->
+                                            Ok Login.OtherError ->
+                                                Tepa.syncAll
+                                                    [ Toast.pushError
+                                                        "Internal error, please contact our support team."
+                                                        |> runToastPromise bucket.toastPointer
+                                                        |> Tepa.void
+                                                    , Tepa.sequence
+                                                        [ modifyLoginForm <|
+                                                            \m ->
+                                                                { m | isBusy = False }
+                                                        , Tepa.lazy <|
+                                                            \_ ->
+                                                                loginFormProcedure bucket
+                                                        ]
+                                                    ]
+
+                                            Ok Login.IncorrectIdOrPassword ->
+                                                Tepa.syncAll
+                                                    [ Tepa.sequence
+                                                        [ modifyLoginForm <|
+                                                            \m ->
+                                                                { m
+                                                                    | isBusy = False
+                                                                    , incorrectIdOrPass = True
+                                                                }
+                                                        , Tepa.lazy <|
+                                                            \_ ->
+                                                                loginFormProcedure bucket
+                                                        ]
+                                                    ]
+
+                                            Ok (Login.GoodResponse resp) ->
                                                 Tepa.sequence
                                                     [ Tepa.modify <|
                                                         \m ->
@@ -364,19 +413,24 @@ submitLoginProcedure bucket =
                                                                         | isBusy = False
                                                                     }
                                                             }
-                                                    , Nav.pushRoute bucket.key (Nav.extractRoute bucket.requestUrl)
+                                                    , Nav.pushPath bucket.key
+                                                        (bucket.props.backUrl
+                                                            |> Maybe.map AbsolutePath.fromUrl
+                                                            |> Maybe.withDefault (Route.toAbsolutePath Route.Home)
+                                                        )
                                                     ]
                                     )
                 )
         ]
 
 
-requestLogin : Login.Login -> Promise (Result Http.Error Login.Response)
+requestLogin : Login.Login -> Promise (Result Tepa.HttpRequestError Login.Response)
 requestLogin login =
     Tepa.httpRequest
         { name = "requestLogin"
+        , bodyType = ResponseType.string
         , request = RequestLogin login
-        , decoder = Login.responseDecoder
+        , response = Login.response
         }
 
 
@@ -413,7 +467,7 @@ type alias ScenarioSet flags c m e =
     { changeLoginId : String -> Scenario flags c m e
     , changeLoginPass : String -> Scenario flags c m e
     , clickSubmitLogin : Scenario flags c m e
-    , receiveLoginResp : Result Http.Error Value -> Scenario flags c m e
+    , receiveLoginResp : Tepa.HttpResult String -> Scenario flags c m e
     , expectAvailable : String -> Scenario flags c m e
     , expectLoginFormShowNoErrors : String -> Scenario flags c m e
     , expectLoginFormShowError : String -> Scenario flags c m e
@@ -495,7 +549,7 @@ clickSubmitLogin props =
         }
 
 
-receiveLoginResp : ScenarioProps c m e -> Result Http.Error Value -> Scenario flags c m e
+receiveLoginResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario flags c m e
 receiveLoginResp props res =
     Scenario.customResponse props.session
         "Backend responds to the login request."

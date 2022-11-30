@@ -7,10 +7,10 @@ module Scenario exposing (main, test)
 -}
 
 import App exposing (Command, Event, Memory)
+import Dict
 import Html exposing (Html)
-import Http
-import Json.Decode as JD
 import Json.Encode as JE exposing (Value)
+import Tepa.AbsolutePath exposing (absolutePath)
 import Tepa.Scenario as Scenario exposing (Scenario, userComment)
 import Test exposing (Test)
 
@@ -99,6 +99,11 @@ sections =
     ]
 
 
+pathPrefix : String
+pathPrefix =
+    "tepa"
+
+
 introduction1 : List Scenario
 introduction1 =
     [ userComment sakuraChan "Hi. I'm Sakura-chan, the cutest goat girl in the world."
@@ -106,15 +111,22 @@ introduction1 =
     , userComment sakuraChan "I'll try to access the URL."
     , Scenario.loadApp sakuraChanMainSession
         "Load the home page."
-        { route =
-            { path = "tepa/"
-            , query = Nothing
-            , fragment = Nothing
-            }
+        { path = absolutePath [ pathPrefix ] [] Nothing
         , flags = JE.object []
         }
-    , onSakuraChanMainSession.app.receiveSession <|
-        Err (Http.BadStatus 403)
+    , onSakuraChanMainSession.app.receiveProfile <|
+        Ok
+            ( { url = "https://example.com/api/profile"
+              , statusCode = 401
+              , statusText = "Unauthorized"
+              , headers = Dict.empty
+              }
+            , """
+              {
+                "code": "LoginRequired"
+              }
+              """
+            )
     , onSakuraChanMainSession.login.expectAvailable
         "Displays login page."
     , userComment sakuraChan
@@ -146,30 +158,40 @@ introduction1 =
         "It looks good."
     , onSakuraChanMainSession.login.clickSubmitLogin
     , onSakuraChanMainSession.login.receiveLoginResp <|
-        Err (Http.BadStatus 401)
-    , onSakuraChanMainSession.login.toast.expectErrorMessage
-        { message = "Incorrect ID or Password." }
-        "Toast popup shows error: \"Incorrect ID or Password.\""
+        Ok
+            ( { url = "https://example.com/api/login"
+              , statusCode = 401
+              , statusText = "Unauthorized"
+              , headers = Dict.empty
+              }
+            , """
+          {
+            "code": "IncorrectIdOrPassword"
+          }
+          """
+            )
+    , onSakuraChanMainSession.login.expectLoginFormShowError
+        "Incorrect ID or password."
     , userComment sakuraChan "Oops!"
-    , onSakuraChanMainSession.login.toast.awaitAllToDisappear
-    , onSakuraChanMainSession.login.toast.expectNoMessages
-        "No error popup messages now."
     , userComment yabugarashiKun "Maybe you typed the password wrong."
     , userComment sakuraChan "That may be true. It's hard to type with my two-fingered hooves..."
     , onSakuraChanMainSession.login.changeLoginPass "guestPass"
     , onSakuraChanMainSession.login.clickSubmitLogin
-    , Scenario.fromOk "Sample response"
-        (JD.decodeString JD.value """
-            {
-              "profile": {
-                "id": "Sakura-chan-ID"
+    , onSakuraChanMainSession.login.receiveLoginResp <|
+        Ok
+            ( { url = "https://example.com/api/login"
+              , statusCode = 200
+              , statusText = "OK"
+              , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
               }
+            , """
+          {
+            "profile": {
+              "id": "Sakura-chan-ID"
             }
-          """)
-      <|
-        \resp ->
-            [ onSakuraChanMainSession.login.receiveLoginResp <| Ok resp
-            ]
+          }
+          """
+            )
     , onSakuraChanMainSession.home.expectAvailable
         "Redirect to home page."
     , userComment sakuraChan "Yes!"

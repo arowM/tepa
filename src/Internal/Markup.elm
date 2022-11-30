@@ -5,6 +5,15 @@ module Internal.Markup exposing
     , toHtml
     )
 
+{-| A Brief Markup module for Scenario documents.
+
+@docs BlockElement
+@docs InlineElement
+@docs Section
+@docs toHtml
+
+-}
+
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
 
@@ -39,6 +48,7 @@ type InlineElement
     | StrongText String
 
 
+{-| -}
 toHtml : Section -> Html ()
 toHtml =
     htmlSection 1

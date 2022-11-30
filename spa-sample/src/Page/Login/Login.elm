@@ -1,8 +1,9 @@
 module Page.Login.Login exposing
     ( request
     , Login
-    , Response
-    , responseDecoder
+    , Response(..)
+    , GoodResponseBody
+    , response
     , Form
     , initForm
     , FormError(..)
@@ -18,8 +19,13 @@ module Page.Login.Login exposing
 
 @docs request
 @docs Login
+
+
+# Response
+
 @docs Response
-@docs responseDecoder
+@docs GoodResponseBody
+@docs response
 
 
 # Form decoding
@@ -40,7 +46,8 @@ import Form.Decoder as FD
 import Http
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
-import Json.Encode as JE exposing (Value)
+import Json.Encode as JE
+import Tepa
 import Url.Builder as Url
 
 
@@ -54,51 +61,15 @@ type Login
     = Login Login_
 
 
-{-|
-
-    import Json.Decode as JD
-
-    sampleResponse : String
-    sampleResponse = """
-    {
-      "profile": {
-        "id": "Sakura-chan-ID"
-      }
-    }
-    """
-
-    JD.decodeString responseDecoder sampleResponse
-    --> Ok { session = { id = "Sakura-chan-ID" } }
-
--}
-responseDecoder : JD.Decoder Response
-responseDecoder =
-    JD.succeed Response
-        |> JDP.required "profile" sessionDecoder
-
-
-sessionDecoder : JD.Decoder Session
-sessionDecoder =
-    JD.succeed Session
-        |> JDP.required "id" JD.string
-
-
 type alias Login_ =
     { id : String
     , pass : String
     }
 
 
-{-| Response type for `request`.
--}
-type alias Response =
-    { session : Session
-    }
-
-
 {-| Request server for login.
 -}
-request : Login -> (Result Http.Error Value -> msg) -> Cmd msg
+request : Login -> (Tepa.HttpResult String -> msg) -> Cmd msg
 request (Login login) toMsg =
     Http.post
         { url =
@@ -113,9 +84,167 @@ request (Login login) toMsg =
                     [ ( "id", JE.string login.id )
                     , ( "pass", JE.string login.pass )
                     ]
-        , expect =
-            Http.expectJson toMsg JD.value
+        , expect = Tepa.expectStringResponse toMsg
         }
+
+
+
+-- Response
+
+
+{-| Successful response body.
+-}
+type alias GoodResponseBody =
+    { session : Session
+    }
+
+
+{-| Response type for `request`.
+-}
+type Response
+    = GoodResponse GoodResponseBody
+    | IncorrectIdOrPassword
+    | OtherError
+
+
+{-|
+
+    import Dict
+    import Http
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 200
+        , statusText = "OK"
+        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        }
+        """
+        {
+          "profile": {
+            "id": "Sakura-chan-ID"
+          }
+        }
+        """
+    --> GoodResponse
+    -->     { session =
+    -->         { id = "Sakura-chan-ID"
+    -->         }
+    -->     }
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 200
+        , statusText = "OK"
+        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        }
+        """
+        {
+          "profile": {
+            "ID": "Sakura-chan-ID"
+          }
+        }
+        """
+    --> OtherError
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 200
+        , statusText = "OK"
+        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        }
+        """
+        {
+          "profile": {
+            "id": "Sakura-chan-ID"
+          }
+        """
+    --> OtherError
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 401
+        , statusText = "Unauthorized"
+        , headers = Dict.empty
+        }
+        """
+        {
+          "code": "IncorrectIdOrPassword"
+        }
+        """
+    --> IncorrectIdOrPassword
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 401
+        , statusText = "Unauthorized"
+        , headers = Dict.empty
+        }
+        """
+        {
+          "code": "OtherErrorCode"
+        }
+        """
+    --> OtherError
+
+    response
+        { url = "https://example.com/api/login"
+        , statusCode = 404
+        , statusText = "Not Found"
+        , headers = Dict.empty
+        }
+        """
+        {
+          "code": "ValidErrorCode"
+        }
+        """
+    --> OtherError
+
+-}
+response : Http.Metadata -> String -> Response
+response meta str =
+    if Tepa.isGoodStatus meta then
+        case JD.decodeString goodStatusDecoder str of
+            Ok body ->
+                GoodResponse body
+
+            Err _ ->
+                OtherError
+
+    else
+        case ( meta.statusCode, JD.decodeString badStatusDecoder str ) of
+            ( 401, Ok body ) ->
+                case body.code of
+                    "IncorrectIdOrPassword" ->
+                        IncorrectIdOrPassword
+
+                    _ ->
+                        OtherError
+
+            _ ->
+                OtherError
+
+
+type alias BadStatusResponse =
+    { code : String
+    }
+
+
+badStatusDecoder : JD.Decoder BadStatusResponse
+badStatusDecoder =
+    JD.map BadStatusResponse <|
+        JD.field "code" JD.string
+
+
+goodStatusDecoder : JD.Decoder GoodResponseBody
+goodStatusDecoder =
+    JD.succeed GoodResponseBody
+        |> JDP.required "profile" sessionDecoder
+
+
+sessionDecoder : JD.Decoder Session
+sessionDecoder =
+    JD.succeed Session
+        |> JDP.required "id" JD.string
 
 
 
@@ -144,6 +273,7 @@ initForm =
 type FormError
     = IdRequired
     | PassRequired
+    | IncorrectIdOrPass
 
 
 {-| Format error to display UI.
@@ -156,6 +286,9 @@ displayFormError error =
 
         PassRequired ->
             "Password is required."
+
+        IncorrectIdOrPass ->
+            "Incorrect ID or password."
 
 
 {-| Decode form.

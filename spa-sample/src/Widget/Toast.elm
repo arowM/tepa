@@ -8,7 +8,7 @@ module Widget.Toast exposing
     , Closed
     , pushWarning
     , pushError
-    , pushHttpError
+    , pushHttpRequestError
     , scenario
     , ScenarioSet
     , ScenarioProps
@@ -36,7 +36,7 @@ module Widget.Toast exposing
 
 # Utilities
 
-@docs pushHttpError
+@docs pushHttpRequestError
 
 
 # Scenario
@@ -49,7 +49,6 @@ module Widget.Toast exposing
 
 import App.ZIndex as ZIndex
 import Expect
-import Http
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
@@ -257,23 +256,17 @@ toastItemProcedure =
 -- Utilities
 
 
-{-| Helper function to show HTTP errors.
+{-| Helper function to show HTTP request errors.
 -}
-pushHttpError :
-    Http.Error
+pushHttpRequestError :
+    Tepa.HttpRequestError
     -> Promise Command Memory Event Closed
-pushHttpError err =
+pushHttpRequestError err =
     case err of
-        Http.BadStatus 401 ->
-            pushError """Incorrect ID or Password."""
-
-        Http.BadStatus 403 ->
-            pushError """Operation not permitted."""
-
-        Http.Timeout ->
+        Tepa.Timeout ->
             pushError """Network error, please try again."""
 
-        Http.NetworkError ->
+        Tepa.NetworkError ->
             pushError """Network error, please try again."""
 
         _ ->

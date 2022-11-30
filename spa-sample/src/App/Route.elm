@@ -1,7 +1,8 @@
 module App.Route exposing
     ( Route(..)
     , fromUrl
-    , toPath
+    , toAbsolutePath
+    , LoginProps
     )
 
 {-|
@@ -11,13 +12,20 @@ module App.Route exposing
 
 @docs Route
 @docs fromUrl
-@docs toPath
+@docs toAbsolutePath
+
+
+# Props
+
+@docs LoginProps
 
 -}
 
+import Tepa.AbsolutePath exposing (AbsolutePath, absolutePath)
 import Url exposing (Url)
 import Url.Builder as Builder
-import Url.Parser as Parser exposing ((</>), Parser, s)
+import Url.Parser as Parser exposing ((</>), (<?>), Parser, s)
+import Url.Parser.Query as Query
 
 
 pathPrefix : String
@@ -29,9 +37,15 @@ pathPrefix =
 -}
 type Route
     = NotFound
-    | Catalog
     | Home
     | Users
+    | Login LoginProps
+    | Catalog
+
+
+type alias LoginProps =
+    { backUrl : Maybe Url
+    }
 
 
 {-| -}
@@ -49,28 +63,44 @@ parser =
                     |> Parser.map Home
                 , s "users"
                     |> Parser.map Users
+                , s "login"
+                    <?> Query.string "back"
+                    |> Parser.map
+                        (\murl ->
+                            Login
+                                { backUrl = Maybe.andThen Url.fromString murl
+                                }
+                        )
                 , s "catalog"
                     |> Parser.map Catalog
                 ]
 
 
 {-| -}
-toPath : Route -> String
-toPath route =
+toAbsolutePath : Route -> AbsolutePath
+toAbsolutePath route =
     case route of
         NotFound ->
-            buildPath [ "not-found" ]
+            absolutePath
+                [ pathPrefix, "not-found" ]
+                []
+                Nothing
 
         Home ->
-            buildPath []
+            absolutePath [ pathPrefix ] [] Nothing
 
         Users ->
-            buildPath [ "users" ]
+            absolutePath [ pathPrefix, "users" ] [] Nothing
+
+        Login login ->
+            absolutePath
+                [ pathPrefix, "login" ]
+                [ Maybe.map (Builder.string "back")
+                    (login.backUrl
+                        |> Maybe.map Url.toString
+                    )
+                ]
+                Nothing
 
         Catalog ->
-            buildPath [ "catalog" ]
-
-
-buildPath : List String -> String
-buildPath ps =
-    Builder.absolute (pathPrefix :: ps) []
+            absolutePath [ pathPrefix, "catalog" ] [] Nothing

@@ -12,23 +12,22 @@ module App exposing
 
 -- import Page.Users as PageUsers
 
+import App.FetchProfile as FetchProfile
 import App.Route as Route
 import App.Session exposing (Session)
 import Browser exposing (Document)
 import Browser.Navigation
-import Http
-import Json.Decode as JD exposing (Decoder)
-import Json.Decode.Pipeline as JDP
-import Json.Encode as JE exposing (Value)
+import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
 import Tepa exposing (Layer, Msg, Void)
+import Tepa.AbsolutePath as AbsolutePath
 import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery
 import Url exposing (Url)
-import Url.Builder as Url
 
 
 
@@ -149,7 +148,7 @@ type Command
     = PageLoginCommand PageLogin.Command
     | PageHomeCommand PageHome.Command
       -- | PageUsersCommand PageUsers.Command
-    | FetchSession (Result Http.Error Value -> Msg Event)
+    | FetchProfile (Tepa.HttpResult String -> Msg Event)
     | LoadPage String
 
 
@@ -166,48 +165,11 @@ runCommand cmd =
             PageHome.runCommand c
                 |> Cmd.map (Tepa.mapMsg PageHomeEvent)
 
-        FetchSession toMsg ->
-            fetchSession toMsg
+        FetchProfile toMsg ->
+            FetchProfile.request toMsg
 
         LoadPage url ->
             Browser.Navigation.load url
-
-
-{-| Fetch user information from the server.
--}
-fetchSession : (Result Http.Error Value -> msg) -> Cmd msg
-fetchSession toMsg =
-    Http.post
-        { url =
-            Url.absolute
-                [ "api"
-                , "profile"
-                ]
-                []
-        , body =
-            Http.jsonBody <|
-                JE.object
-                    []
-        , expect =
-            Http.expectJson toMsg JD.value
-        }
-
-
-type alias FetchSessionResponse =
-    { session : Session
-    }
-
-
-fetchSessionResponseDecoder : Decoder FetchSessionResponse
-fetchSessionResponseDecoder =
-    let
-        sessionDecoder : JD.Decoder Session
-        sessionDecoder =
-            JD.succeed Session
-                |> JDP.required "id" JD.string
-    in
-    JD.succeed FetchSessionResponse
-        |> JDP.required "profile" sessionDecoder
 
 
 {-| -}
@@ -246,7 +208,7 @@ linkControllProcedure key =
                 LinkClicked urlRequest ->
                     case urlRequest of
                         Browser.Internal url ->
-                            [ Nav.pushRoute key (Nav.extractRoute url)
+                            [ Nav.pushPath key (AbsolutePath.fromUrl url)
                             , Tepa.lazy <|
                                 \_ -> linkControllProcedure key
                             ]
@@ -296,48 +258,102 @@ pageControllProcedure url key msession =
                                 []
                 ]
 
+        ( Route.Login login, _ ) ->
+            Tepa.putVariantLayer
+                { get = .page
+                , set = \v m -> { m | page = v }
+                , wrap = PageLogin
+                , unwrap =
+                    \m ->
+                        case m of
+                            PageLogin a ->
+                                Just a
+
+                            _ ->
+                                Nothing
+                , init = PageLogin.init
+                }
+                |> Tepa.andThen
+                    (\pageLoginPointer ->
+                        Tepa.syncAll
+                            -- When login succeed, `PageLogin.procedure` issues `Nav.pushPath` request.
+                            [ PageLogin.procedure login key
+                                |> runPageLoginPromise pageLoginPointer
+
+                            -- When users do not log in and move to another page:
+                            , Tepa.withLayerEvent <|
+                                \e2 ->
+                                    case e2 of
+                                        UrlChanged newUrl ->
+                                            [ runPageLoginPromise pageLoginPointer PageLogin.currentSession
+                                                |> Tepa.andThen (pageControllProcedure newUrl key)
+                                            ]
+
+                                        _ ->
+                                            []
+                            ]
+                    )
+
         ( _, Nothing ) ->
-            requestSession
+            requestFetchProfile
                 |> Tepa.andThen
                     (\response ->
                         case response of
                             Err _ ->
-                                Tepa.putVariantLayer
-                                    { get = .page
-                                    , set = \v m -> { m | page = v }
-                                    , wrap = PageLogin
-                                    , unwrap =
-                                        \m ->
-                                            case m of
-                                                PageLogin a ->
-                                                    Just a
+                                Tepa.sequence
+                                    [ Nav.pushPath key
+                                        (Route.Login { backUrl = Just url }
+                                            |> Route.toAbsolutePath
+                                        )
+                                    , Tepa.withLayerEvent <|
+                                        \e ->
+                                            case e of
+                                                UrlChanged newUrl ->
+                                                    [ pageControllProcedure newUrl key Nothing
+                                                    ]
 
                                                 _ ->
-                                                    Nothing
-                                    , init = PageLogin.init
-                                    }
-                                    |> Tepa.andThen
-                                        (\pageLoginPointer ->
-                                            Tepa.syncAll
-                                                [ PageLogin.procedure url key
-                                                    |> runPageLoginPromise pageLoginPointer
-                                                , Tepa.withLayerEvent <|
-                                                    \e2 ->
-                                                        case e2 of
-                                                            UrlChanged newUrl ->
-                                                                [ runPageLoginPromise pageLoginPointer PageLogin.currentSession
-                                                                    |> Tepa.andThen (pageControllProcedure newUrl key)
-                                                                ]
+                                                    []
+                                    ]
 
-                                                            _ ->
-                                                                []
-                                                ]
+                            Ok FetchProfile.LoginRequired ->
+                                Tepa.sequence
+                                    [ Nav.pushPath key
+                                        (Route.Login { backUrl = Just url }
+                                            |> Route.toAbsolutePath
                                         )
+                                    , Tepa.withLayerEvent <|
+                                        \e ->
+                                            case e of
+                                                UrlChanged newUrl ->
+                                                    [ pageControllProcedure newUrl key Nothing
+                                                    ]
 
-                            Ok { session } ->
+                                                _ ->
+                                                    []
+                                    ]
+
+                            Ok FetchProfile.OtherError ->
+                                Tepa.sequence
+                                    [ Nav.pushPath key
+                                        (Route.Login { backUrl = Just url }
+                                            |> Route.toAbsolutePath
+                                        )
+                                    , Tepa.withLayerEvent <|
+                                        \e ->
+                                            case e of
+                                                UrlChanged newUrl ->
+                                                    [ pageControllProcedure newUrl key Nothing
+                                                    ]
+
+                                                _ ->
+                                                    []
+                                    ]
+
+                            Ok (FetchProfile.GoodResponse resp) ->
                                 Tepa.lazy <|
                                     \_ ->
-                                        pageControllProcedure url key (Just session)
+                                        pageControllProcedure url key (Just { id = resp.id })
                     )
 
         ( Route.Home, Just session ) ->
@@ -358,7 +374,7 @@ pageControllProcedure url key msession =
                 |> Tepa.andThen
                     (\pageHomePointer ->
                         Tepa.syncAll
-                            [ PageHome.procedure key
+                            [ PageHome.procedure key url
                                 |> runPageHomePromise pageHomePointer
                             , Tepa.withLayerEvent <|
                                 \e ->
@@ -378,12 +394,13 @@ pageControllProcedure url key msession =
             Tepa.none
 
 
-requestSession : Promise (Result Http.Error FetchSessionResponse)
-requestSession =
+requestFetchProfile : Promise (Result Tepa.HttpRequestError FetchProfile.Response)
+requestFetchProfile =
     Tepa.httpRequest
-        { name = "requestSession"
-        , request = FetchSession
-        , decoder = fetchSessionResponseDecoder
+        { name = "requestFetchProfile"
+        , bodyType = ResponseType.string
+        , request = FetchProfile
+        , response = FetchProfile.response
         }
 
 
@@ -436,7 +453,7 @@ type alias ScenarioSet flags =
     { login : PageLogin.ScenarioSet flags Command Memory Event
     , home : PageHome.ScenarioSet flags Command Memory Event
     , app :
-        { receiveSession : Result Http.Error Value -> Scenario flags Command Memory Event
+        { receiveProfile : Tepa.HttpResult String -> Scenario flags Command Memory Event
         }
     }
 
@@ -493,20 +510,20 @@ scenario session =
             , session = session
             }
     , app =
-        { receiveSession = receiveSession session
+        { receiveProfile = receiveProfile session
         }
     }
 
 
-receiveSession : Scenario.Session -> Result Http.Error Value -> Scenario flags Command Memory Event
-receiveSession session res =
+receiveProfile : Scenario.Session -> Tepa.HttpResult String -> Scenario flags Command Memory Event
+receiveProfile session res =
     Scenario.customResponse session
         "Backend responds to the session fetch request."
         { target = LayerQuery.self
         , response =
             \cmd ->
                 case cmd of
-                    FetchSession toMsg ->
+                    FetchProfile toMsg ->
                         Just <| toMsg res
 
                     _ ->

@@ -1,18 +1,18 @@
 {
     "type": "package",
-    "name": "arowM/tepa",
-    "summary": "Web application framework for creating applications with user-centered design",
+    "name": "arowM/tepa-internal",
+    "summary": "Domain specific libraries for tepa",
     "license": "MIT",
     "version": "1.0.0",
     "exposed-modules": [
-        "Expect.Builder",
-        "Tepa",
-        "Tepa.AbsolutePath",
-        "Tepa.Navigation",
-        "Tepa.ResponseType",
-        "Tepa.Scenario",
-        "Tepa.Scenario.LayerQuery",
-        "Tepa.Scenario.Operation"
+      "Internal.AbsolutePath",
+      "Internal.Core",
+      "Internal.History",
+      "Internal.LayerId",
+      "Internal.Markup",
+      "Internal.RequestId",
+      "Internal.ResponseType",
+      "Internal.SafeInt"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

@@ -103,7 +103,7 @@ import Json.Encode exposing (Value)
 import Mixin
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (ApplicationProps, Msg)
-import Tepa.Navigation exposing (Route)
+import Tepa.AbsolutePath exposing (AbsolutePath)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
 import Tepa.Scenario.Operation exposing (Operation)
 import Test exposing (Test)
@@ -462,6 +462,7 @@ expectAppView (Session session) description { expectation } =
 {-| Load the app. You can also use `loadApp` to reload the app.
 
     import Json.Encode as JE
+    import Tepa.AbsolutePath exposing (absolutePath)
 
     myScenario =
         [ userComment sakuraChan
@@ -470,11 +471,7 @@ expectAppView (Session session) description { expectation } =
             "I'll open the home page..."
         , loadApp sakuraChanMainSession
             "Load the home page."
-            { route =
-                { path = "/"
-                , query = Nothing
-                , fragment = Nothing
-                }
+            { path = absolutePath [] [] Nothing
             , flags =
                 JE.object []
             }
@@ -484,11 +481,7 @@ expectAppView (Session session) description { expectation } =
             "Oops, I accidentally hit the F5 button..."
         , loadApp sakuraChanMainSession
             "Reload the page."
-            { route =
-                { path = "/"
-                , query = Nothing
-                , fragment = Nothing
-                }
+            { path = absolutePath [] [] Nothing
             , flags =
                 JE.object []
             }
@@ -500,7 +493,7 @@ loadApp :
     Session
     -> String
     ->
-        { route : Route
+        { path : AbsolutePath
         , flags : flags
         }
     -> Scenario flags c m e
@@ -508,7 +501,7 @@ loadApp (Session session) description o =
     Core.Scenario
         { test =
             \config context ->
-                case config.init o.flags (Core.testUrl o.route) of
+                case config.init o.flags (Core.testUrl o.path) of
                     Err err ->
                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                             \_ -> Expect.fail err
@@ -1049,7 +1042,7 @@ toTest =
     Core.toTest
 
 
-applyMsgsTo : { onUrlChange : Route -> Msg e } -> Core.SessionContext c m e -> List (Msg e) -> Result String (Core.SessionContext c m e)
+applyMsgsTo : { onUrlChange : AbsolutePath -> Msg e } -> Core.SessionContext c m e -> List (Msg e) -> Result String (Core.SessionContext c m e)
 applyMsgsTo config sessionContext msgs =
     let
         ( updatedModel, updatedCmds, updatedAppCmds ) =

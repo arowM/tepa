@@ -20,6 +20,12 @@ $ npm run format
 $ npm start
 ```
 
+## Run doc server for internal modules
+
+```sh
+$ npm run start:internal
+```
+
 ## Fix warnings
 
 ```sh

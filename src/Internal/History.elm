@@ -2,8 +2,8 @@ module Internal.History exposing
     ( History
     , init
     , current
-    , pushRoute
-    , replaceRoute
+    , pushPath
+    , replacePath
     , back
     , forward
     )
@@ -13,78 +13,85 @@ module Internal.History exposing
 @docs History
 @docs init
 @docs current
-@docs pushRoute
-@docs replaceRoute
+@docs pushPath
+@docs replacePath
 @docs back
 @docs forward
 
 -}
 
-
-type alias Route =
-    { path : String
-    , query : Maybe String
-    , fragment : Maybe String
-    }
+import Internal.AbsolutePath exposing (AbsolutePath)
 
 
 {-|
 
+    import Internal.AbsolutePath exposing (AbsolutePath(..))
+
     entry : History
     entry =
-        init
-            { path = "/"
-            , query = Nothing
-            , fragment = Nothing
-            }
+        init <|
+            AbsolutePath
+                { path = "/"
+                , query = Nothing
+                , fragment = Nothing
+                }
 
     sample1 : Maybe History
     sample1 =
         entry
-            |> replaceRoute
-                { path = "/"
-                , query = Nothing
-                , fragment = Just "foo"
-                }
-            |> pushRoute
-                { path = "/users"
-                , query = Nothing
-                , fragment = Nothing
-                }
-            |> back 1
-            |> Maybe.andThen (forward 1)
-            |> Maybe.map
-                (replaceRoute
-                    { path = "/users"
+            |> replacePath
+                ( AbsolutePath
+                    { path = "/"
                     , query = Nothing
-                    , fragment = Just "user-3"
+                    , fragment = Just "foo"
                     }
                 )
-            |> Maybe.map
-                (pushRoute
-                    { path = "/user/3"
-                    , query = Just "from=users"
+            |> pushPath
+                ( AbsolutePath
+                    { path = "/users"
+                    , query = Nothing
                     , fragment = Nothing
                     }
                 )
+            |> back 1
+            |> Maybe.andThen (forward 1)
+            |> Maybe.map
+                (replacePath <|
+                    AbsolutePath
+                        { path = "/users"
+                        , query = Nothing
+                        , fragment = Just "user-3"
+                        }
+                )
+            |> Maybe.map
+                (pushPath <|
+                    AbsolutePath
+                        { path = "/user/3"
+                        , query = Just "from=users"
+                        , fragment = Nothing
+                        }
+                )
 
 
     sample1
         |> Maybe.andThen (back 1)
         |> Maybe.map current
-    --> Just { path = "/users", query = Nothing, fragment = Just "user-3" }
+    --> Just <| AbsolutePath
+    -->     { path = "/users", query = Nothing, fragment = Just "user-3" }
 
     sample1
         |> Maybe.andThen (back 1)
         |> Maybe.andThen (back 1)
         |> Maybe.map current
-    --> Just { path = "/", query = Nothing, fragment = Just "foo" }
+    --> Just <| AbsolutePath
+    -->     { path = "/", query = Nothing, fragment = Just "foo" }
 
     sample1
         |> Maybe.andThen (back 2)
         |> Maybe.andThen (forward 1)
         |> Maybe.map current
-    --> Just { path = "/users", query = Nothing, fragment = Just "user-3" }
+    --> Just <| AbsolutePath
+    -->     { path = "/users", query = Nothing, fragment = Just "user-3" }
 
     sample1
         |> Maybe.andThen (back 3)
@@ -103,9 +110,9 @@ type History
 
 
 type alias History_ =
-    { prev : List Route -- reversed
-    , curr : Route
-    , succ : List Route
+    { prev : List AbsolutePath -- reversed
+    , curr : AbsolutePath
+    , succ : List AbsolutePath
     }
 
 
@@ -149,35 +156,35 @@ back n (History history) =
 
 
 {-| -}
-pushRoute : Route -> History -> History
-pushRoute route (History history) =
+pushPath : AbsolutePath -> History -> History
+pushPath path (History history) =
     History
         { prev = history.curr :: history.prev
-        , curr = route
+        , curr = path
         , succ = []
         }
 
 
 {-| -}
-replaceRoute : Route -> History -> History
-replaceRoute route (History history) =
+replacePath : AbsolutePath -> History -> History
+replacePath path (History history) =
     History
         { history
-            | curr = route
+            | curr = path
         }
 
 
 {-| -}
-init : Route -> History
-init route =
+init : AbsolutePath -> History
+init path =
     History
         { prev = []
-        , curr = route
+        , curr = path
         , succ = []
         }
 
 
 {-| -}
-current : History -> Route
+current : History -> AbsolutePath
 current (History history) =
     history.curr

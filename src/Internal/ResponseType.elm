@@ -2,9 +2,10 @@ module Internal.ResponseType exposing
     ( ResponseType
     , ResponseBody
     , encode, decode
-    , string, int, float, bool, unit, value, maybe, result, tuple, list
-    , httpError
+    , string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
+    , httpError, httpMetadata, httpResponse
     , RecordType, record, field, fromRecordType
+    , variant
     )
 
 {-|
@@ -16,20 +17,26 @@ module Internal.ResponseType exposing
 
 # Primitives
 
-@docs string, int, float, bool, unit, value, maybe, result, tuple, list
+@docs string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
 
 
 # Common Types
 
-@docs httpError
+@docs httpError, httpMetadata, httpResponse
 
 
 # Record Type
 
 @docs RecordType, record, field, fromRecordType
 
+
+# Variant
+
+@docs variant
+
 -}
 
+import Bytes exposing (Bytes)
 import Http
 import Json.Encode exposing (Value)
 
@@ -50,12 +57,16 @@ type ResponseBody
     | BoolResponse Bool
     | UnitResponse
     | ValueResponse Value
+    | BytesResponse Bytes
     | MaybeResponse (Maybe ResponseBody)
     | ResultResponse (Result ResponseBody ResponseBody)
     | TupleResponse ( ResponseBody, ResponseBody )
     | ListResponse (List ResponseBody)
     | RecordResponse (List ResponseBody)
     | HttpError Http.Error
+    | HttpMetadata Http.Metadata
+    | HttpResponse (Http.Response ResponseBody)
+    | VariantResponse ( String, ResponseBody )
 
 
 {-| -}
@@ -70,6 +81,7 @@ decode (ResponseType r) =
     r.decode
 
 
+{-| -}
 string : ResponseType String
 string =
     ResponseType
@@ -85,6 +97,7 @@ string =
         }
 
 
+{-| -}
 int : ResponseType Int
 int =
     ResponseType
@@ -100,6 +113,7 @@ int =
         }
 
 
+{-| -}
 float : ResponseType Float
 float =
     ResponseType
@@ -115,6 +129,7 @@ float =
         }
 
 
+{-| -}
 bool : ResponseType Bool
 bool =
     ResponseType
@@ -130,6 +145,7 @@ bool =
         }
 
 
+{-| -}
 unit : ResponseType ()
 unit =
     ResponseType
@@ -145,6 +161,7 @@ unit =
         }
 
 
+{-| -}
 value : ResponseType Value
 value =
     ResponseType
@@ -160,6 +177,23 @@ value =
         }
 
 
+{-| -}
+bytes : ResponseType Bytes
+bytes =
+    ResponseType
+        { encode = BytesResponse
+        , decode =
+            \body ->
+                case body of
+                    BytesResponse a ->
+                        Just a
+
+                    _ ->
+                        Nothing
+        }
+
+
+{-| -}
 maybe : ResponseType a -> ResponseType (Maybe a)
 maybe (ResponseType typeA) =
     ResponseType
@@ -181,6 +215,7 @@ maybe (ResponseType typeA) =
         }
 
 
+{-| -}
 result : ResponseType e -> ResponseType a -> ResponseType (Result e a)
 result (ResponseType typeE) (ResponseType typeA) =
     ResponseType
@@ -206,6 +241,7 @@ result (ResponseType typeE) (ResponseType typeA) =
         }
 
 
+{-| -}
 tuple : ResponseType a1 -> ResponseType a2 -> ResponseType ( a1, a2 )
 tuple (ResponseType typeA1) (ResponseType typeA2) =
     ResponseType
@@ -225,6 +261,7 @@ tuple (ResponseType typeA1) (ResponseType typeA2) =
         }
 
 
+{-| -}
 list : ResponseType a -> ResponseType (List a)
 list (ResponseType typeA) =
     ResponseType
@@ -249,6 +286,7 @@ list (ResponseType typeA) =
         }
 
 
+{-| -}
 type RecordType r a
     = RecordType
         { encode : r -> List ResponseBody
@@ -315,6 +353,97 @@ httpError =
                 case body of
                     HttpError a ->
                         Just a
+
+                    _ ->
+                        Nothing
+        }
+
+
+{-| -}
+httpMetadata : ResponseType Http.Metadata
+httpMetadata =
+    ResponseType
+        { encode =
+            \a ->
+                HttpMetadata a
+        , decode =
+            \body ->
+                case body of
+                    HttpMetadata a ->
+                        Just a
+
+                    _ ->
+                        Nothing
+        }
+
+
+{-| -}
+httpResponse : ResponseType body -> ResponseType (Http.Response body)
+httpResponse (ResponseType bodyType) =
+    ResponseType
+        { encode =
+            \a ->
+                HttpResponse <|
+                    case a of
+                        Http.BadUrl_ str ->
+                            Http.BadUrl_ str
+
+                        Http.Timeout_ ->
+                            Http.Timeout_
+
+                        Http.NetworkError_ ->
+                            Http.NetworkError_
+
+                        Http.BadStatus_ meta b ->
+                            bodyType.encode b
+                                |> Http.BadStatus_ meta
+
+                        Http.GoodStatus_ meta b ->
+                            bodyType.encode b
+                                |> Http.GoodStatus_ meta
+        , decode =
+            \body ->
+                case body of
+                    HttpResponse resp ->
+                        case resp of
+                            Http.BadUrl_ str ->
+                                Just <| Http.BadUrl_ str
+
+                            Http.Timeout_ ->
+                                Just <| Http.Timeout_
+
+                            Http.NetworkError_ ->
+                                Just <| Http.NetworkError_
+
+                            Http.BadStatus_ meta b ->
+                                bodyType.decode b
+                                    |> Maybe.map
+                                        (Http.BadStatus_ meta)
+
+                            Http.GoodStatus_ meta b ->
+                                bodyType.decode b
+                                    |> Maybe.map
+                                        (Http.GoodStatus_ meta)
+
+                    _ ->
+                        Nothing
+        }
+
+
+{-| -}
+variant :
+    { encode : a -> ( String, ResponseBody )
+    , decode : ( String, ResponseBody ) -> Maybe a
+    }
+    -> ResponseType a
+variant o =
+    ResponseType
+        { encode = o.encode >> VariantResponse
+        , decode =
+            \body ->
+                case body of
+                    VariantResponse p ->
+                        o.decode p
 
                     _ ->
                         Nothing

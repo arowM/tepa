@@ -17,7 +17,8 @@ module Tepa exposing
     , succeed
     , currentState, layerEvent
     , portRequest
-    , httpRequest
+    , httpRequest, HttpResult, HttpRequestError(..), isGoodStatus
+    , expectStringResponse, expectBytesResponse
     , customRequest
     , anyRequest
     , withLayerEvent
@@ -87,7 +88,8 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs succeed
 @docs currentState, layerEvent
 @docs portRequest
-@docs httpRequest
+@docs httpRequest, HttpResult, HttpRequestError, isGoodStatus
+@docs expectStringResponse, expectBytesResponse
 @docs customRequest
 @docs anyRequest
 
@@ -134,6 +136,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 -}
 
 import Browser
+import Bytes exposing (Bytes)
 import Html exposing (Attribute, Html)
 import Http
 import Internal.Core as Core
@@ -143,7 +146,7 @@ import Internal.Core as Core
         )
 import Internal.RequestId exposing (RequestId)
 import Internal.ResponseType as ResponseType
-import Json.Decode as JD exposing (Decoder)
+import Json.Decode exposing (Decoder)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Tepa.Navigation exposing (NavKey)
@@ -585,29 +588,105 @@ portRequest =
 {-| -}
 httpRequest :
     { name : String
-    , request : (Result Http.Error Value -> Msg e) -> c
-    , decoder : Decoder a
+    , bodyType : ResponseType body
+    , request : (HttpResult body -> Msg e) -> c
+    , response : Http.Metadata -> body -> a
     }
-    -> Promise c m e (Result Http.Error a)
+    -> Promise c m e (Result HttpRequestError a)
 httpRequest o =
     customRequest
         { name = o.name
         , responseType =
             ResponseType.result
-                ResponseType.httpError
-                ResponseType.value
+                httpRequestError
+                (ResponseType.tuple
+                    ResponseType.httpMetadata
+                    o.bodyType
+                )
         , request = o.request
         }
-        |> map
-            (Result.andThen <|
-                \v ->
-                    case JD.decodeValue o.decoder v of
-                        Ok a ->
-                            Ok a
+        |> map (Result.map (\( meta, b ) -> o.response meta b))
 
-                        Err err ->
-                            Err <| Http.BadBody <| JD.errorToString err
-            )
+
+{-| -}
+expectStringResponse : (HttpResult String -> msg) -> Http.Expect msg
+expectStringResponse toMsg =
+    Http.expectStringResponse toMsg toHttpResult
+
+
+{-| -}
+expectBytesResponse : (HttpResult Bytes -> msg) -> Http.Expect msg
+expectBytesResponse toMsg =
+    Http.expectBytesResponse toMsg toHttpResult
+
+
+toHttpResult : Http.Response body -> HttpResult body
+toHttpResult resp =
+    case resp of
+        Http.BadUrl_ str ->
+            Err <| BadUrl str
+
+        Http.Timeout_ ->
+            Err Timeout
+
+        Http.NetworkError_ ->
+            Err NetworkError
+
+        Http.BadStatus_ meta b ->
+            Ok ( meta, b )
+
+        Http.GoodStatus_ meta b ->
+            Ok ( meta, b )
+
+
+{-| -}
+isGoodStatus : Http.Metadata -> Bool
+isGoodStatus meta =
+    200 <= meta.statusCode && meta.statusCode < 300
+
+
+{-| -}
+type alias HttpResult body =
+    Result HttpRequestError ( Http.Metadata, body )
+
+
+{-| -}
+type HttpRequestError
+    = BadUrl String
+    | Timeout
+    | NetworkError
+
+
+httpRequestError : ResponseType HttpRequestError
+httpRequestError =
+    ResponseType.variant
+        { encode =
+            \a ->
+                case a of
+                    BadUrl str ->
+                        ( "BadUrl", ResponseType.encode ResponseType.string str )
+
+                    Timeout ->
+                        ( "Timeout", ResponseType.encode ResponseType.unit () )
+
+                    NetworkError ->
+                        ( "NetworkError", ResponseType.encode ResponseType.unit () )
+        , decode =
+            \body ->
+                case body of
+                    ( "BadUrl", v ) ->
+                        ResponseType.decode ResponseType.string v
+                            |> Maybe.map BadUrl
+
+                    ( "Timeout", _ ) ->
+                        Just Timeout
+
+                    ( "NetworkError", _ ) ->
+                        Just NetworkError
+
+                    _ ->
+                        Nothing
+        }
 
 
 {-| -}

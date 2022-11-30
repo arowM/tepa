@@ -1,6 +1,8 @@
 {
   "root": "../src",
   "tests": [
+    "Tepa.AbsolutePath",
+    "Internal.AbsolutePath",
     "Internal.History"
   ]
 }

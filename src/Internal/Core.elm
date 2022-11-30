@@ -129,6 +129,7 @@ import Dict exposing (Dict)
 import Expect
 import Html exposing (Attribute, Html)
 import Html.Attributes as Attributes
+import Internal.AbsolutePath as AbsolutePath exposing (AbsolutePath(..))
 import Internal.History as History exposing (History)
 import Internal.LayerId as LayerId exposing (LayerId)
 import Internal.Markup as Markup
@@ -148,11 +149,13 @@ import Url exposing (Url)
 -- Model
 
 
+{-| -}
 type Model cmd memory event
     = OnGoing (OnGoing_ cmd memory event)
     | EndOfProcess (EndOfProcess_ memory)
 
 
+{-| -}
 memoryState : Model cmd memory event -> memory
 memoryState model =
     case model of
@@ -163,6 +166,7 @@ memoryState model =
             lastState
 
 
+{-| -}
 layerState : Model cmd memory event -> Maybe (Layer memory)
 layerState model =
     case model of
@@ -225,10 +229,11 @@ wrapListener wrap listener1 =
 -- AppCmd
 
 
+{-| -}
 type AppCmd
-    = PushRoute
+    = PushPath
         { key : NavKey
-        , route : Route
+        , path : AbsolutePath
         , replace : Bool
         }
     | Back
@@ -237,30 +242,11 @@ type AppCmd
         }
 
 
-type alias Route =
-    { path : String
-    , query : Maybe String
-    , fragment : Maybe String
-    }
-
-
-buildRoute : Route -> String
-buildRoute r =
-    String.concat
-        [ r.path
-        , r.query
-            |> Maybe.map (\str -> "?" ++ str)
-            |> Maybe.withDefault ""
-        , r.fragment
-            |> Maybe.map (\str -> "#" ++ str)
-            |> Maybe.withDefault ""
-        ]
-
-
+{-| -}
 runAppCmd : AppCmd -> Cmd msg
 runAppCmd appCmd =
     case appCmd of
-        PushRoute o ->
+        PushPath o ->
             let
                 op =
                     if o.replace then
@@ -274,7 +260,7 @@ runAppCmd appCmd =
                     Cmd.none
 
                 RealKey key ->
-                    op key <| buildRoute o.route
+                    op key <| AbsolutePath.toString o.path
 
         Back o ->
             case o.key of
@@ -285,20 +271,20 @@ runAppCmd appCmd =
                     Nav.back key o.steps
 
 
-runAppCmdOnTest : AppCmd -> History -> Result String ( History, Route )
+runAppCmdOnTest : AppCmd -> History -> Result String ( History, AbsolutePath )
 runAppCmdOnTest appCmd history =
     case appCmd of
-        PushRoute o ->
+        PushPath o ->
             if o.replace then
                 Ok
-                    ( History.replaceRoute o.route history
-                    , o.route
+                    ( History.replacePath o.path history
+                    , o.path
                     )
 
             else
                 Ok
-                    ( History.pushRoute o.route history
-                    , o.route
+                    ( History.pushPath o.path history
+                    , o.path
                     )
 
         Back o ->
@@ -317,6 +303,7 @@ runAppCmdOnTest appCmd history =
 -- Msg
 
 
+{-| -}
 type Msg event
     = LayerMsg
         { layerId : LayerId
@@ -343,6 +330,7 @@ type Msg event
     | NoOp
 
 
+{-| -}
 rootLayerMsg : e -> Msg e
 rootLayerMsg e =
     LayerMsg
@@ -351,6 +339,7 @@ rootLayerMsg e =
         }
 
 
+{-| -}
 mapMsg : (event1 -> event0) -> Msg event1 -> Msg event0
 mapMsg f msg1 =
     case msg1 of
@@ -457,6 +446,7 @@ unwrapMsg f msg1 =
 -- NavKey
 
 
+{-| -}
 type NavKey
     = RealKey Nav.Key
     | SimKey
@@ -466,6 +456,7 @@ type NavKey
 -- Promise
 
 
+{-| -}
 type Promise c m e a
     = Promise (Context m -> PromiseEffect c m e a)
 
@@ -487,6 +478,7 @@ type PromiseHandler c m e a
     | AwaitMsg (Msg e -> m -> Promise c m e a)
 
 
+{-| -}
 mapPromise : (a -> b) -> Promise c m e a -> Promise c m e b
 mapPromise f (Promise prom) =
     Promise <|
@@ -516,6 +508,7 @@ mapPromise f (Promise prom) =
             }
 
 
+{-| -}
 succeedPromise : a -> Promise c m e a
 succeedPromise a =
     Promise <|
@@ -571,6 +564,7 @@ justAwaitPromise f =
             }
 
 
+{-| -}
 syncPromise : Promise c m e a -> Promise c m e (a -> b) -> Promise c m e b
 syncPromise (Promise promA) (Promise promF) =
     Promise <|
@@ -616,6 +610,7 @@ syncPromise (Promise promA) (Promise promF) =
             }
 
 
+{-| -}
 andRacePromise : Promise c m e a -> Promise c m e a -> Promise c m e a
 andRacePromise (Promise prom2) (Promise prom1) =
     Promise <|
@@ -656,6 +651,7 @@ andRacePromise (Promise prom2) (Promise prom1) =
             }
 
 
+{-| -}
 andThenPromise : (a -> Promise c m e b) -> Promise c m e a -> Promise c m e b
 andThenPromise f (Promise promA) =
     Promise <|
@@ -707,6 +703,7 @@ andThenPromise f (Promise promA) =
                     }
 
 
+{-| -}
 liftPromiseMemory :
     Pointer_ m m1
     -> Promise c m1 e a
@@ -770,6 +767,7 @@ liftPromiseMemory o (Promise prom1) =
                     }
 
 
+{-| -}
 mapPromiseCmd : (c -> cmd) -> Promise c m e a -> Promise cmd m e a
 mapPromiseCmd f (Promise prom) =
     Promise <|
@@ -799,6 +797,7 @@ mapPromiseCmd f (Promise prom) =
             }
 
 
+{-| -}
 liftPromiseEvent :
     { wrap : e1 -> e0
     , unwrap : e0 -> Maybe e1
@@ -841,11 +840,13 @@ liftPromiseEvent o (Promise prom1) =
 -- Primitive Promises
 
 
+{-| -}
 none : Promise c m e Void
 none =
     succeedPromise OnGoingProcedure
 
 
+{-| -}
 sequence : List (Promise c m e Void) -> Promise c m e Void
 sequence =
     List.foldl
@@ -864,6 +865,7 @@ sequence =
         none
 
 
+{-| -}
 concurrent : List (Promise c m e Void) -> Promise c m e Void
 concurrent =
     List.foldl
@@ -875,6 +877,7 @@ concurrent =
         none
 
 
+{-| -}
 currentState : Promise c m e m
 currentState =
     Promise <|
@@ -910,16 +913,19 @@ genNewLayerId =
             }
 
 
+{-| -}
 type Void
     = OnGoingProcedure
     | CompletedProcedure
 
 
+{-| -}
 void : Promise c m e a -> Promise c m e Void
 void =
     andThenPromise (\_ -> none)
 
 
+{-| -}
 modify : (m -> m) -> Promise c m e Void
 modify f =
     Promise <|
@@ -937,6 +943,7 @@ modify f =
             }
 
 
+{-| -}
 push : (m -> List c) -> Promise c m e Void
 push f =
     Promise <|
@@ -957,6 +964,8 @@ push f =
             }
 
 
+{-| Must be harmfull and confusing.
+-}
 return : Promise c m e Void
 return =
     Promise <|
@@ -971,6 +980,7 @@ return =
             }
 
 
+{-| -}
 lazy : (() -> Promise c m e Void) -> Promise c m e Void
 lazy f =
     Promise <|
@@ -982,6 +992,7 @@ lazy f =
             prom context
 
 
+{-| -}
 pushAppCmd : AppCmd -> Promise c m e Void
 pushAppCmd appCmd =
     Promise <|
@@ -996,10 +1007,12 @@ pushAppCmd appCmd =
             }
 
 
+{-| -}
 type Layer m
     = Layer LayerId m
 
 
+{-| -}
 newLayer :
     { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
     , modify : (Layer m1 -> Layer m1) -> m -> m
@@ -1042,11 +1055,13 @@ newLayer o m1 =
             )
 
 
+{-| -}
 onLayer : Pointer m m1 -> Promise c m1 e a -> Promise c m e a
 onLayer (Pointer layer) procs =
     liftPromiseMemory layer procs
 
 
+{-| -}
 layerView : (m -> Html (Msg e)) -> Layer m -> Html (Msg e)
 layerView f (Layer layerId m) =
     f m
@@ -1064,6 +1079,7 @@ layerView f (Layer layerId m) =
             )
 
 
+{-| -}
 keyedLayerView : (m -> Html (Msg e)) -> Layer m -> ( String, Html (Msg e) )
 keyedLayerView f (Layer layerId m) =
     ( LayerId.toString layerId
@@ -1083,6 +1099,7 @@ keyedLayerView f (Layer layerId m) =
     )
 
 
+{-| -}
 layerDocument : (m -> Document (Msg e)) -> Layer m -> Document (Msg e)
 layerDocument f (Layer layerId m) =
     f m
@@ -1108,12 +1125,14 @@ layerDocument f (Layer layerId m) =
            )
 
 
+{-| -}
 eventAttr : Attribute event -> Attribute (Msg event)
 eventAttr =
     Attributes.map
         (\e -> ViewStubMsg { event = e })
 
 
+{-| -}
 eventMixin : Mixin e -> Mixin (Msg e)
 eventMixin =
     Mixin.map
@@ -1124,6 +1143,7 @@ type ThisLayerId m
     = ThisLayerId LayerId
 
 
+{-| -}
 type Pointer m m1
     = Pointer (Pointer_ m m1)
 
@@ -1135,6 +1155,7 @@ type alias Pointer_ m m1 =
     }
 
 
+{-| -}
 isPointedBy : Pointer m m1 -> Layer m1 -> Bool
 isPointedBy (Pointer pointer) (Layer layerId _) =
     let
@@ -1144,6 +1165,7 @@ isPointedBy (Pointer pointer) (Layer layerId _) =
     pointerLayerId == layerId
 
 
+{-| -}
 listen :
     { name : String
     , subscription : m -> Sub e
@@ -1205,6 +1227,7 @@ listen { name, subscription, handler } =
             }
 
 
+{-| -}
 portRequest :
     { name : String
     , request : m -> { requestId : Value } -> c
@@ -1282,6 +1305,7 @@ portRequest o =
             }
 
 
+{-| -}
 customRequest :
     { name : String
     , request : (a -> Msg e) -> c
@@ -1414,6 +1438,7 @@ anyRequest o =
             }
 
 
+{-| -}
 layerEvent : Promise c m e e
 layerEvent =
     Promise <|
@@ -1449,6 +1474,7 @@ layerEvent =
 -- TEA
 
 
+{-| -}
 init :
     memory
     -> Promise cmd memory event Void
@@ -1514,6 +1540,7 @@ toModel context listeners (Promise prom) =
             )
 
 
+{-| -}
 update : Msg event -> Model cmd memory event -> ( Model cmd memory event, List ( LayerId, cmd ), List AppCmd )
 update msg model =
     case model of
@@ -1531,16 +1558,19 @@ update msg model =
             onGoing.next msg context listeners
 
 
+{-| -}
 elementView : (Layer memory -> Html (Msg event)) -> Model cmd memory event -> Html (Msg event)
 elementView f model =
     f (Layer LayerId.init (memoryState model))
 
 
+{-| -}
 documentView : (Layer memory -> Document (Msg event)) -> Model cmd memory event -> Document (Msg event)
 documentView f model =
     f (Layer LayerId.init (memoryState model))
 
 
+{-| -}
 subscriptions : Model cmd memory event -> Sub (Msg event)
 subscriptions model =
     case model of
@@ -1557,6 +1587,7 @@ subscriptions model =
 -- Scenario
 
 
+{-| -}
 type Scenario flags c m e
     = Scenario
         { test : TestConfig flags c m e -> TestContext c m e -> SeqTest.Sequence (TestModel c m e)
@@ -1564,6 +1595,7 @@ type Scenario flags c m e
         }
 
 
+{-| -}
 type TestModel c m e
     = OnGoingTest (TestContext c m e)
     | TestAfterCases
@@ -1572,7 +1604,7 @@ type TestModel c m e
 type alias TestConfig flags c m e =
     { view : m -> Document (Msg e)
     , init : flags -> Url -> Result String (SessionContext c m e)
-    , onUrlChange : Route -> Msg e
+    , onUrlChange : AbsolutePath -> Msg e
     }
 
 
@@ -1580,6 +1612,7 @@ type alias TestContext c m e =
     Dict SessionId (SessionContext c m e)
 
 
+{-| -}
 type alias SessionContext c m e =
     { model : Model c m e
     , cmds : List ( LayerId, c )
@@ -1601,16 +1634,19 @@ type MarkupBuilder
     | InvalidMarkup InvalidMarkupReason
 
 
+{-| -}
 invalidMarkup : InvalidMarkupReason -> MarkupContext -> MarkupBuilder
 invalidMarkup reason _ =
     InvalidMarkup reason
 
 
+{-| -}
 type InvalidMarkupReason
     = SiblingScenarioAfterCases
     | OtherInvalidMarkup String
 
 
+{-| -}
 noneScenario : Scenario flags c m e
 noneScenario =
     Scenario
@@ -1619,6 +1655,7 @@ noneScenario =
         }
 
 
+{-| -}
 noneTest : TestConfig flags c m e -> TestContext c m e -> SeqTest.Sequence (TestModel c m e)
 noneTest _ =
     SeqTest.pass >> SeqTest.map OnGoingTest
@@ -1629,6 +1666,7 @@ noneMarkup =
     OnGoingMarkup
 
 
+{-| -}
 putListItemMarkup : Markup.BlockElement -> MarkupContext -> MarkupBuilder
 putListItemMarkup item context =
     OnGoingMarkup <|
@@ -1636,6 +1674,7 @@ putListItemMarkup item context =
             context (( Mixin.none, item ) :: ls)
 
 
+{-| -}
 concatScenario : List (Scenario flags c m e) -> Scenario flags c m e
 concatScenario =
     List.foldl
@@ -1676,17 +1715,19 @@ mappendScenario (Scenario s1) (Scenario s2) =
         }
 
 
-testUrl : Route -> Url
-testUrl route =
+{-| -}
+testUrl : AbsolutePath -> Url
+testUrl (AbsolutePath path) =
     { protocol = Url.Https
     , host = "example.com"
     , port_ = Nothing
-    , path = route.path
-    , query = route.query
-    , fragment = route.fragment
+    , path = path.path
+    , query = path.query
+    , fragment = path.fragment
     }
 
 
+{-| -}
 toTest :
     { props :
         { init : memory
@@ -1700,11 +1741,11 @@ toTest :
     -> Test
 toTest o =
     let
-        onUrlChange route =
+        onUrlChange path =
             LayerMsg
                 { layerId = LayerId.init
                 , event =
-                    o.props.onUrlChange (testUrl route)
+                    o.props.onUrlChange (testUrl path)
                 }
     in
     List.map
@@ -1732,11 +1773,7 @@ toTest o =
                         { model = model
                         , cmds = cmds
                         , history =
-                            History.init
-                                { path = url.path
-                                , query = url.query
-                                , fragment = url.fragment
-                                }
+                            History.init <| AbsolutePath.fromUrl url
                         }
                             |> applyAppCmds
                                 { onUrlChange = onUrlChange
@@ -1751,8 +1788,9 @@ toTest o =
         |> Test.describe "Scenario tests"
 
 
+{-| -}
 applyAppCmds :
-    { onUrlChange : Route -> Msg e
+    { onUrlChange : AbsolutePath -> Msg e
     }
     -> List AppCmd
     -> SessionContext c m e
@@ -1788,7 +1826,7 @@ applyAppCmds config appCmds sessionContext =
 
 
 applyAppCmd :
-    { onUrlChange : Route -> Msg e
+    { onUrlChange : AbsolutePath -> Msg e
     }
     -> AppCmd
     -> SessionContext c m e
@@ -1796,10 +1834,10 @@ applyAppCmd :
 applyAppCmd config appCmd sessionContext =
     runAppCmdOnTest appCmd sessionContext.history
         |> Result.map
-            (\( newHistory, route ) ->
+            (\( newHistory, path ) ->
                 let
                     ( newModel, newCmds, newAppCmds ) =
-                        update (config.onUrlChange route)
+                        update (config.onUrlChange path)
                             sessionContext.model
                 in
                 ( { model = newModel
@@ -1811,6 +1849,7 @@ applyAppCmd config appCmd sessionContext =
             )
 
 
+{-| -}
 toMarkup :
     { title : String
     , sections : List (Section flags c m e)
@@ -1864,6 +1903,7 @@ toMarkupSection (Section sec) =
             Err reason
 
 
+{-| -}
 type Section flags command memory event
     = Section
         { title : String
@@ -1871,6 +1911,7 @@ type Section flags command memory event
         }
 
 
+{-| -}
 section : String -> List (Scenario flags c m e) -> Section flags c m e
 section title scenarios =
     Section
@@ -1879,6 +1920,7 @@ section title scenarios =
         }
 
 
+{-| -}
 cases : List (Section flags c m e) -> Scenario flags c m e
 cases sections =
     Scenario
@@ -1960,6 +2002,7 @@ type alias LayerQuery_ m m1 =
     }
 
 
+{-| -}
 runQuery : LayerQuery m m1 -> Model c m e -> List (Layer m1)
 runQuery (LayerQuery query) model =
     layerState model

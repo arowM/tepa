@@ -1,7 +1,7 @@
 module Tepa.ResponseType exposing
     ( ResponseType
-    , string, int, float, bool, unit, value, maybe, result, tuple, list
-    , httpError
+    , string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
+    , httpError, httpMetadata, httpResponse
     , RecordType, record, field, fromRecordType
     )
 
@@ -15,12 +15,12 @@ module Tepa.ResponseType exposing
 
 # Primitives
 
-@docs string, int, float, bool, unit, value, maybe, result, tuple, list
+@docs string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
 
 
 # Common Types
 
-@docs httpError
+@docs httpError, httpMetadata, httpResponse
 
 
 # Record Type
@@ -29,6 +29,7 @@ module Tepa.ResponseType exposing
 
 -}
 
+import Bytes exposing (Bytes)
 import Http
 import Internal.ResponseType as Internal
 import Json.Encode exposing (Value)
@@ -84,6 +85,12 @@ value =
 
 
 {-| -}
+bytes : ResponseType Bytes
+bytes =
+    Internal.bytes
+
+
+{-| -}
 maybe : ResponseType a -> ResponseType (Maybe a)
 maybe =
     Internal.maybe
@@ -115,6 +122,18 @@ list =
 httpError : ResponseType Http.Error
 httpError =
     Internal.httpError
+
+
+{-| -}
+httpMetadata : ResponseType Http.Metadata
+httpMetadata =
+    Internal.httpMetadata
+
+
+{-| -}
+httpResponse : ResponseType body -> ResponseType (Http.Response body)
+httpResponse =
+    Internal.httpResponse
 
 
 

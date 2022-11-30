@@ -1,9 +1,7 @@
 module Tepa.Navigation exposing
     ( NavKey
-    , Route
-    , extractRoute
-    , pushRoute
-    , replaceRoute
+    , pushPath
+    , replacePath
     , back
     , forward
     )
@@ -13,24 +11,22 @@ module Tepa.Navigation exposing
 This module helps you manage the browser’s URL yourself.
 
 
-# Core
+# NavKey
 
 @docs NavKey
-@docs Route
-@docs extractRoute
 
 
 # Navigation Procedures
 
-@docs pushRoute
-@docs replaceRoute
+@docs pushPath
+@docs replacePath
 @docs back
 @docs forward
 
 -}
 
 import Internal.Core as Core exposing (Promise, Void)
-import Url exposing (Url)
+import Tepa.AbsolutePath exposing (AbsolutePath)
 
 
 {-| Alternative to [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
@@ -40,27 +36,6 @@ A navigation Key is needed to create navigation Procedures that change the URL.
 -}
 type alias NavKey =
     Core.NavKey
-
-
-{-| Subset of [Url](https://package.elm-lang.org/packages/elm/url/latest/Url#Url) for your application URL.
-
-Each field has the same meaning as `Url`.
-
--}
-type alias Route =
-    { path : String
-    , query : Maybe String
-    , fragment : Maybe String
-    }
-
-
-{-| -}
-extractRoute : Url -> Route
-extractRoute url =
-    { path = url.path
-    , query = url.query
-    , fragment = url.fragment
-    }
 
 
 
@@ -74,12 +49,12 @@ Change the URL, but do not trigger a page load.
 This will add a new entry to the browser history.
 
 -}
-pushRoute : NavKey -> Route -> Promise c m e Void
-pushRoute key route =
+pushPath : NavKey -> AbsolutePath -> Promise c m e Void
+pushPath key path =
     Core.pushAppCmd <|
-        Core.PushRoute
+        Core.PushPath
             { key = key
-            , route = route
+            , path = path
             , replace = False
             }
 
@@ -91,12 +66,12 @@ Change the URL, but do not trigger a page load.
 This _will not_ add a new entry to the browser history.
 
 -}
-replaceRoute : NavKey -> Route -> Promise c m e Void
-replaceRoute key route =
+replacePath : NavKey -> AbsolutePath -> Promise c m e Void
+replacePath key path =
     Core.pushAppCmd <|
-        Core.PushRoute
+        Core.PushPath
             { key = key
-            , route = route
+            , path = path
             , replace = True
             }
 
