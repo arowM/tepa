@@ -78,6 +78,7 @@ module Tepa.Scenario exposing
 @docs userOperation
 @docs layerEvent
 @docs listenerEvent
+@docs sleep
 
 
 ## Response Simulators
@@ -774,6 +775,72 @@ listenerEvent (Session session) description o =
 
 
 
+sleep :
+    Session
+    -> String
+    -> Float
+    -> Scenario flags c m e
+sleep (Session session) description msec =
+    Core.Scenario
+        { test =
+            \config context ->
+                case Dict.get session.uniqueName context of
+                    Nothing ->
+                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                            \_ ->
+                                Expect.fail
+                                    "sleep: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case sessionContext.model of
+                            Core.OnGoing onGoing ->
+                                onGoing.listeners
+                                    |> List.filterMap
+                                        (\listener ->
+                                            if listener.
+
+                        let
+                            resSessionContext =
+                                List.map
+                                    (
+                                    )
+                                    sessionContext.
+                                List.concatMap
+                                    (\(Core.Layer thisLid _) ->
+                                        List.filterMap
+                                            (\( lid, c ) ->
+                                                if lid == thisLid then
+                                                    o.response c
+
+                                                else
+                                                    Nothing
+                                            )
+                                            sessionContext.cmds
+                                    )
+                                    layer1s
+                                    |> applyMsgsTo
+                                        { onUrlChange = config.onUrlChange
+                                        }
+                                        sessionContext
+                        in
+                        case resSessionContext of
+                            Err err ->
+                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                    \_ -> Expect.fail err
+
+                            Ok nextSessionContext ->
+                                Dict.insert session.uniqueName
+                                    nextSessionContext
+                                    context
+                                    |> Core.OnGoingTest
+                                    |> SeqTest.pass
+        , markup =
+            Core.putListItemMarkup <|
+                listItemParagraph
+                    ("[" ++ session.uniqueName ++ "]")
+                    description
+        }
+
 -- -- Response Simulators
 
 
@@ -1356,3 +1423,39 @@ unexpectedReasonHtml reason =
 --     -> String
 -- toMarkdown _ =
 --     "todo"
+
+
+
+
+runAppCmdOnTest : AppCmd -> History -> Result String ( History, AbsolutePath )
+runAppCmdOnTest appCmd history =
+    case appCmd of
+        PushPath o ->
+            if o.replace then
+                Ok
+                    ( History.replacePath o.path history
+                    , o.path
+                    )
+
+            else
+                Ok
+                    ( History.pushPath o.path history
+                    , o.path
+                    )
+
+        Back o ->
+            case History.back o.steps history of
+                Nothing ->
+                    Err "Scenario test does not support navigation to pages outside of the application."
+
+                Just newHistory ->
+                    Ok
+                        ( newHistory
+                        , History.current newHistory
+                        )
+        Sleep _ ->
+            Ok (history, History.current history)
+
+
+
+
