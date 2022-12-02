@@ -955,12 +955,11 @@ type alias Document a =
 update : Msg event -> Model (Cmd (Msg event)) memory event -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
 update msg model =
     let
-        ( newModel, cmds, appCmds ) =
-            Core.update msg model
+        newState = Core.update msg model
     in
-    ( newModel
-    , [ List.map Tuple.second cmds
-      , List.map Core.runAppCmd appCmds
+    ( newState.nextModel
+    , [ List.map Tuple.second newState.cmds
+      , newState.realCmds
       ]
         |> List.concat
         |> Cmd.batch
@@ -996,12 +995,11 @@ init :
     -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
 init memory procs =
     let
-        ( model, cmds, appCmds ) =
-            Core.init memory procs
+        newState = Core.init memory procs
     in
-    ( model
-    , [ List.map Tuple.second cmds
-      , List.map Core.runAppCmd appCmds
+    ( newState.nextModel
+    , [ List.map Tuple.second newState.cmds
+      , newState.realCmds
       ]
         |> List.concat
         |> Cmd.batch
