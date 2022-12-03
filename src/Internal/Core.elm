@@ -1,5 +1,5 @@
 module Internal.Core exposing
-    ( Model(..), memoryState, layerState
+    ( Model(..), Model_, memoryState, layerState
     , Msg(..), rootLayerMsg
     , mapMsg
     , NavKey(..)
@@ -49,7 +49,7 @@ module Internal.Core exposing
 
 # Core
 
-@docs Model, memoryState, layerState
+@docs Model, Model_, memoryState, layerState
 @docs Msg, rootLayerMsg
 @docs mapMsg
 
@@ -160,6 +160,7 @@ type Model cmd memory event
     = Model (Model_ cmd memory event)
 
 
+{-| -}
 type alias Model_ c m e =
     -- New context after the evaluation.
     { context : Context m e
@@ -244,7 +245,8 @@ type Log
     = SetTimer RequestId LayerId Float
     | StartTimeEvery RequestId LayerId Float
     | AddListener RequestId LayerId String
-    | ResolvePortRequest RequestId LayerId
+    | ResolvePortRequest RequestId
+    | ResolveRequest RequestId
     | LayerExpired LayerId
     | PushPath AbsolutePath
     | ReplacePath AbsolutePath
@@ -1268,7 +1270,7 @@ portRequest o =
                                     if requestId == myRequestId then
                                         succeedPromise resp
                                             |> setLogs
-                                                [ ResolvePortRequest myRequestId thisLayerId
+                                                [ ResolvePortRequest myRequestId
                                                 ]
 
                                     else
@@ -1350,6 +1352,9 @@ customRequest o =
 
                                     Just a ->
                                         succeedPromise a
+                                            |> setLogs
+                                                [ ResolveRequest myRequestId
+                                                ]
 
                             else
                                 justAwaitPromise nextPromise
@@ -1410,6 +1415,9 @@ anyRequest o =
 
                                     Just a ->
                                         succeedPromise a
+                                            |> setLogs
+                                                [ ResolveRequest myRequestId
+                                                ]
 
                             else
                                 justAwaitPromise nextPromise

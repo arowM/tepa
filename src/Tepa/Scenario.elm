@@ -3,7 +3,7 @@ module Tepa.Scenario exposing
     , none
     , concat
     , toTest
-    , toHtml
+    -- , toHtml
     , Section
     , section
     , cases
@@ -19,6 +19,7 @@ module Tepa.Scenario exposing
     , userOperation
     , layerEvent
     , listenerEvent
+    , sleep
     , portResponse
     , customResponse
     , fromJust
@@ -134,13 +135,14 @@ The Scenario you built can be converted to tests with `toTest`, and to documents
 type Scenario flags cmd memory event
     = Scenario
         { test : TestConfig flags cmd memory event -> TestContext cmd memory event -> SeqTest.Sequence (TestModel cmd memory event)
-        , markup : MarkupContext -> MarkupBuilder
+        -- , markup : MarkupBuilderContext -> MarkupBuilder
         }
 
 
 type TestModel c m e
     = OnGoingTest (TestContext c m e)
     | TestAfterCases
+    | InvalidTest
 
 
 type alias TestConfig flags c m e =
@@ -186,26 +188,27 @@ type alias Listener =
     , layerId : LayerId
     }
 
-type alias MarkupContext =
-    List ( Mixin (), Markup.BlockElement ) -> Markup.Section
+
+-- type alias MarkupBuilderContext =
+--     List ( Mixin (), Markup.BlockElement ) -> Markup.Section
+-- 
+-- 
+-- type MarkupBuilder
+--     = OnGoingMarkup MarkupBuilderContext
+--     | MarkupAfterCases (List Markup.Section)
+--     | InvalidMarkup InvalidMarkupReason
 
 
-type MarkupBuilder
-    = OnGoingMarkup MarkupContext
-    | MarkupAfterCases (List Markup.Section)
-    | InvalidMarkup InvalidMarkupReason
-
-
-{-| -}
-invalidMarkup : InvalidMarkupReason -> MarkupContext -> MarkupBuilder
-invalidMarkup reason _ =
-    InvalidMarkup reason
-
-
-{-| -}
-type InvalidMarkupReason
-    = SiblingScenarioAfterCases
-    | OtherInvalidMarkup String
+-- {-| -}
+-- invalidMarkup : InvalidMarkupReason -> MarkupBuilderContext -> MarkupBuilder
+-- invalidMarkup reason _ =
+--     InvalidMarkup reason
+-- 
+-- 
+-- {-| -}
+-- type InvalidMarkupReason
+--     = SiblingScenarioAfterCases
+--     | OtherInvalidMarkup String
 
 
 
@@ -215,7 +218,7 @@ none : Scenario flags c m e
 none =
     Scenario
         { test = noneTest
-        , markup = noneMarkup
+        -- , markup = noneMarkup
         }
 
 
@@ -225,16 +228,16 @@ noneTest _ =
     SeqTest.pass >> SeqTest.map OnGoingTest
 
 
-noneMarkup : MarkupContext -> MarkupBuilder
-noneMarkup =
-    OnGoingMarkup
+-- noneMarkup : MarkupBuilderContext -> MarkupBuilder
+-- noneMarkup =
+--     OnGoingMarkup
 
 
-putListItemMarkup : Markup.BlockElement -> MarkupContext -> MarkupBuilder
-putListItemMarkup item context =
-    OnGoingMarkup <|
-        \ls ->
-            context (( Mixin.none, item ) :: ls)
+-- putListItemMarkup : Markup.BlockElement -> MarkupBuilderContext -> MarkupBuilder
+-- putListItemMarkup item context =
+--     OnGoingMarkup <|
+--         \ls ->
+--             context (( Mixin.none, item ) :: ls)
 
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
@@ -260,22 +263,24 @@ mappend (Scenario s1) (Scenario s2) =
                                 OnGoingTest nextContext ->
                                     s2.test config nextContext
 
+                                InvalidTest ->
+                                    SeqTest.pass InvalidTest -- just ignore.
                                 TestAfterCases ->
                                     SeqTest.fail "Scenario structure" <|
                                         \_ ->
                                             Expect.fail "should not have sibling scenarios after `cases`."
                         )
-        , markup =
-            \context ->
-                case s1.markup context of
-                    MarkupAfterCases _ ->
-                        InvalidMarkup SiblingScenarioAfterCases
+        -- , markup =
+        --     \context ->
+        --         case s1.markup context of
+        --             MarkupAfterCases _ ->
+        --                 InvalidMarkup SiblingScenarioAfterCases
 
-                    InvalidMarkup reason ->
-                        InvalidMarkup reason
+        --             InvalidMarkup reason ->
+        --                 InvalidMarkup reason
 
-                    OnGoingMarkup nextContext ->
-                        s2.markup nextContext
+        --             OnGoingMarkup nextContext ->
+        --                 s2.markup nextContext
         }
 
 
@@ -364,25 +369,25 @@ cases sections =
                                 sections
                         )
                     |> SeqTest.map (\_ -> TestAfterCases)
-        , markup =
-            \context ->
-                let
-                    sectionMarkups =
-                        List.foldl
-                            (\a acc ->
-                                Result.map2 (++) acc a
-                            )
-                            (Ok [])
-                            (List.map toMarkupSection sections)
-                in
-                case sectionMarkups of
-                    Err err ->
-                        InvalidMarkup err
+        -- , markup =
+        --     \context ->
+        --         let
+        --             sectionMarkups =
+        --                 List.foldl
+        --                     (\a acc ->
+        --                         Result.map2 (++) acc a
+        --                     )
+        --                     (Ok [])
+        --                     (List.map toMarkupSection sections)
+        --         in
+        --         case sectionMarkups of
+        --             Err err ->
+        --                 InvalidMarkup err
 
-                    Ok markups ->
-                        MarkupAfterCases <|
-                            context []
-                                :: markups
+        --             Ok markups ->
+        --                 MarkupAfterCases <|
+        --                     context []
+        --                         :: markups
         }
 
 
@@ -471,24 +476,24 @@ userComment : User -> String -> Scenario flags c m e
 userComment (User user) comment =
     Scenario
         { test = noneTest
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph user.name comment
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph user.name comment
         }
 
 
-listItemParagraph : String -> String -> Markup.BlockElement
-listItemParagraph name content =
-    Markup.Paragraph
-        [ ( Mixin.none
-          , Markup.StrongText name
-          )
-        , ( Mixin.none
-          , Markup.PlainText <|
-                ": "
-                    ++ content
-          )
-        ]
+-- -- listItemParagraph : String -> String -> Markup.BlockElement
+-- -- listItemParagraph name content =
+-- --     Markup.Paragraph
+-- --         [ ( Mixin.none
+-- --           , Markup.StrongText name
+-- --           )
+-- --         , ( Mixin.none
+-- --           , Markup.PlainText <|
+-- --                 ": "
+-- --                     ++ content
+-- --           )
+-- --         ]
 
 
 {-| System comment.
@@ -500,11 +505,11 @@ systemComment : Session -> String -> Scenario flags c m e
 systemComment (Session session) comment =
     Scenario
         { test = noneTest
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] System")
-                    comment
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] System")
+        --             comment
         }
 
 
@@ -566,11 +571,11 @@ expectMemory (Session session) description o =
                                     |> SeqTest.assert description
                                         (ExpBuilder.applyTo o.expectation)
                                     |> SeqTest.map (\_ -> OnGoingTest context)
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] System")
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] System")
+        --             description
         }
 
 
@@ -639,11 +644,11 @@ expectAppView (Session session) description { expectation } =
                             )
                             |> SeqTest.assert description expectation
                             |> SeqTest.map (\_ -> OnGoingTest context)
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] System")
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] System")
+        --             description
         }
 
 
@@ -698,17 +703,17 @@ loadApp (Session session) description o =
                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                             \_ -> Expect.fail err
 
-                    Ok initSessionContext ->
+                    Ok sessionContext ->
                         Dict.insert session.uniqueName
-                            initSessionContext
+                            sessionContext
                             context
                             |> OnGoingTest
                             |> SeqTest.pass
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] System")
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] System")
+        --             description
         }
 
 
@@ -763,7 +768,7 @@ layerEvent (Session session) description o =
 
                             layer1s ->
                                 let
-                                    resSessionContext =
+                                    res =
                                         List.map
                                             (\(Core.Layer lid _) ->
                                                 Core.LayerMsg
@@ -777,7 +782,7 @@ layerEvent (Session session) description o =
                                                 }
                                                 sessionContext
                                 in
-                                case resSessionContext of
+                                case res of
                                     Err err ->
                                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
@@ -788,11 +793,11 @@ layerEvent (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] " ++ user.name)
+        --             description
         }
 
 
@@ -840,7 +845,7 @@ userOperation (Session session) description o =
 
                             Ok msg ->
                                 let
-                                    resSessionContext =
+                                    res =
                                         [ msg
                                         ]
                                             |> applyMsgsTo
@@ -848,7 +853,7 @@ userOperation (Session session) description o =
                                                 }
                                                 sessionContext
                                 in
-                                case resSessionContext of
+                                case res of
                                     Err err ->
                                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
@@ -859,11 +864,11 @@ userOperation (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] " ++ user.name)
+        --             description
         }
 
 
@@ -911,22 +916,20 @@ listenerEvent (Session session) description o =
                                     "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case sessionContext.model of
-                            OnGoing onGoing ->
                                 case Core.runQuery o.target sessionContext.model of
                                     [] ->
-                                        Core.OnGoingTest context
+                                        OnGoingTest context
                                             |> SeqTest.pass
 
                                     layer1s ->
                                         let
-                                            resSessionContext =
+                                            res =
                                                 List.concatMap
                                                     (\(Core.Layer thisLid _) ->
-                                                        onGoing.listeners
+                                                        sessionContext.listeners
                                                             |> List.filterMap
                                                                 (\listener ->
-                                                                    if listener.layerId == thisLid && listener.uniqueName == Just o.listenerName then
+                                                                    if listener.layerId == thisLid && listener.uniqueName == o.listenerName then
                                                                         Just <|
                                                                             Core.ListenerMsg
                                                                                 { requestId = listener.requestId
@@ -943,7 +946,7 @@ listenerEvent (Session session) description o =
                                                         }
                                                         sessionContext
                                         in
-                                        case resSessionContext of
+                                        case res of
                                             Err err ->
                                                 SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                                     \_ -> Expect.fail err
@@ -952,88 +955,94 @@ listenerEvent (Session session) description o =
                                                 Dict.insert session.uniqueName
                                                     nextSessionContext
                                                     context
-                                                    |> Core.OnGoingTest
+                                                    |> OnGoingTest
                                                     |> SeqTest.pass
 
-                            EndOfProcess _ ->
-                                SeqTest.pass (Core.OnGoingTest context)
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "] " ++ o.listenerName)
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "] " ++ o.listenerName)
+        --             description
         }
 
 
 
--- sleep :
---     Session
---     -> String
---     -> Float
---     -> Scenario flags c m e
--- sleep (Session session) description msec =
---     Core.Scenario
---         { test =
---             \config context ->
---                 case Dict.get session.uniqueName context of
---                     Nothing ->
---                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
---                             \_ ->
---                                 Expect.fail
---                                     "sleep: The application is not active on the session. Use `loadApp` beforehand."
--- 
---                     Just sessionContext ->
---                         case sessionContext.model of
---                             Core.OnGoing onGoing ->
---                                 onGoing.listeners
---                                     |> List.filterMap
---                                         (\listener ->
---                                             if listener.
--- 
---                         let
---                             resSessionContext =
---                                 List.map
---                                     (
---                                     )
---                                     sessionContext.
---                                 List.concatMap
---                                     (\(Core.Layer thisLid _) ->
---                                         List.filterMap
---                                             (\( lid, c ) ->
---                                                 if lid == thisLid then
---                                                     o.response c
--- 
---                                                 else
---                                                     Nothing
---                                             )
---                                             sessionContext.cmds
---                                     )
---                                     layer1s
---                                     |> applyMsgsTo
---                                         { onUrlChange = config.onUrlChange
---                                         }
---                                         sessionContext
---                         in
---                         case resSessionContext of
---                             Err err ->
---                                 SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
---                                     \_ -> Expect.fail err
--- 
---                             Ok nextSessionContext ->
---                                 Dict.insert session.uniqueName
---                                     nextSessionContext
---                                     context
---                                     |> Core.OnGoingTest
---                                     |> SeqTest.pass
---         , markup =
---             Core.putListItemMarkup <|
---                 listItemParagraph
---                     ("[" ++ session.uniqueName ++ "]")
---                     description
---         }
+{-| Wait for given micro seconds.
+-}
+sleep :
+    Session
+    -> String
+    -> Float
+    -> Scenario flags c m e
+sleep (Session session) description msec =
+    Scenario
+        { test =
+            \config context ->
+                case Dict.get session.uniqueName context of
+                    Nothing ->
+                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                            \_ ->
+                                Expect.fail
+                                    "sleep: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        let
+                            res = advanceClock { onUrlChange = config.onUrlChange } msec sessionContext
+                        in
+                        case res of
+                            Err err ->
+                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                    \_ -> Expect.fail err
+
+                            Ok nextSessionContext ->
+                                Dict.insert session.uniqueName
+                                    nextSessionContext
+                                    context
+                                    |> OnGoingTest
+                                    |> SeqTest.pass
+        -- , markup =
+        --     Core.putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "]")
+        --             description
+        }
 
 
--- -- Response Simulators
+advanceClock :
+    { onUrlChange : AbsolutePath -> Msg e }
+    -> Float
+    -> SessionContext c m e
+    -> Result String (SessionContext c m e)
+advanceClock config msec context =
+    case context.timers of
+        [] -> Ok context
+        (timer :: timers) ->
+            if timer.runAfter <= msec then
+                let
+                    newTimers =
+                        case timer.every of
+                            Nothing -> timers
+                            Just interval ->
+                                putTimer { timer | runAfter = timer.runAfter + interval } timers
+                in
+                update config
+                    (Core.WakeUpMsg { requestId = timer.requestId })
+                    { context | timers = newTimers }
+                    |> Result.andThen
+                        (advanceClock config msec)
+            else
+                Ok
+                    { context
+                        | timers =
+                            List.map
+                                (\t ->
+                                    { t | runAfter = t.runAfter - msec }
+                                )
+                                context.timers
+                    }
+
+
+-- Response Simulators
 
 
 {-| Simulate response to the `Tepa.portRequest`.
@@ -1083,32 +1092,27 @@ portResponse (Session session) description o =
 
                             layer1s ->
                                 let
-                                    resSessionContext =
+                                    res =
                                         List.concatMap
-                                            (\(Core.Layer thisLid _) ->
+                                            (\(Core.Layer lid_ _) ->
                                                 List.filterMap
-                                                    (\( lid, c ) ->
-                                                        if lid == thisLid then
+                                                    (\(Core.Request rid lid c) ->
+                                                        if lid == lid_ then
                                                             o.response c
                                                                 |> Maybe.map
-                                                                    (\v ->
-                                                                        Core.PortResponseMsg
-                                                                            { response = v
-                                                                            }
+                                                                    (\v -> Core.PortResponseMsg { response = v }
                                                                     )
-
                                                         else
                                                             Nothing
                                                     )
-                                                    sessionContext.cmds
+                                                    sessionContext.requests
                                             )
                                             layer1s
                                             |> applyMsgsTo
-                                                { onUrlChange = config.onUrlChange
-                                                }
+                                                { onUrlChange = config.onUrlChange }
                                                 sessionContext
                                 in
-                                case resSessionContext of
+                                case res of
                                     Err err ->
                                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
@@ -1119,12 +1123,13 @@ portResponse (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "]")
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "]")
+        --             description
         }
+
 
 
 {-| Simulate response to the `Tepa.customRequest`.
@@ -1178,18 +1183,18 @@ customResponse (Session session) description o =
 
                             layer1s ->
                                 let
-                                    resSessionContext =
+                                    res =
                                         List.concatMap
-                                            (\(Core.Layer thisLid _) ->
+                                            (\(Core.Layer lid_ _) ->
                                                 List.filterMap
-                                                    (\( lid, c ) ->
-                                                        if lid == thisLid then
+                                                    (\(Core.Request rid lid c) ->
+                                                        if lid == lid_ then
                                                             o.response c
 
                                                         else
                                                             Nothing
                                                     )
-                                                    sessionContext.cmds
+                                                    sessionContext.requests
                                             )
                                             layer1s
                                             |> applyMsgsTo
@@ -1197,7 +1202,7 @@ customResponse (Session session) description o =
                                                 }
                                                 sessionContext
                                 in
-                                case resSessionContext of
+                                case res of
                                     Err err ->
                                         SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
                                             \_ -> Expect.fail err
@@ -1208,11 +1213,11 @@ customResponse (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
-        , markup =
-            putListItemMarkup <|
-                listItemParagraph
-                    ("[" ++ session.uniqueName ++ "]")
-                    description
+        -- , markup =
+        --     putListItemMarkup <|
+        --         listItemParagraph
+        --             ("[" ++ session.uniqueName ++ "]")
+        --             description
         }
 
 
@@ -1249,11 +1254,11 @@ fromJust description ma f =
                             \_ ->
                                 ma
                                     |> Expect.notEqual Nothing
-                , markup =
-                    invalidMarkup <|
-                        OtherInvalidMarkup <|
-                            "Error: fromJust\n"
-                                ++ description
+                -- , markup =
+                --     invalidMarkup <|
+                --         OtherInvalidMarkup <|
+                --             "Error: fromJust\n"
+                --                 ++ description
                 }
 
         Just a ->
@@ -1274,11 +1279,11 @@ fromOk description res f =
                             \_ ->
                                 res
                                     |> Expect.ok
-                , markup =
-                    invalidMarkup <|
-                        OtherInvalidMarkup <|
-                            "Error: fromResult\n"
-                                ++ description
+                -- , markup =
+                --     invalidMarkup <|
+                --         OtherInvalidMarkup <|
+                --             "Error: fromResult\n"
+                --                 ++ description
                 }
 
         Ok a ->
@@ -1328,25 +1333,18 @@ toTest o =
                             newState =
                                 Core.init o.props.init (o.props.procedure flags url Core.SimKey)
                         in
-                        { model = newState.nextModel
-                        , cmds = newState.cmds
-                        , requests = newState.requests
-                        , timers = []
-                        , history =
-                            History.init <| AbsolutePath.fromUrl url
-                        }
-
-
-TODO
-
-                                applyLogs
-
-
-
-                            |> applyAppCmds
-                                { onUrlChange = onUrlChange
-                                }
-                                realCmds
+                        applyLogs
+                            { onUrlChange = onUrlChange
+                            }
+                            newState.logs
+                            { model = newState.nextModel
+                            , cmds = newState.cmds
+                            , requests = newState.requests
+                            , timers = []
+                            , listeners = []
+                            , history =
+                                History.init <| AbsolutePath.fromUrl url
+                            }
                 , onUrlChange = onUrlChange
                 }
                 Dict.empty
@@ -1361,15 +1359,14 @@ applyMsgsTo :
     -> SessionContext c m e
     -> List (Msg e)
     -> Result String (SessionContext c m e)
-applyMsgsTo config context msgs =
+applyMsgsTo config context =
     List.foldl
-        (\msg res ->
+        (\msg acc ->
             Result.andThen
-                (\accContext -> update config msg accContext)
-                res
+                (update config msg)
+                acc
         )
         (Ok context)
-        msgs
 
 
 update :
@@ -1378,77 +1375,170 @@ update :
     -> SessionContext c m e
     -> Result String (SessionContext c m e)
 update config msg context =
-    let
-        newState = Core.update msg context.model
+        let
+            newState = Core.update msg context.model
 
-        expiredLayers : List LayerId
-        expiredLayers =
-            List.filterMap identity
-                (\log ->
-                    case log of
-                        Core.LayerExpired lid -> Just lid
-                        _ -> Nothing
-                )
-                newState.logs
-    in
-    List.foldl (updateHistory config)
-        ( Ok
-            { model = newState.nextModel
-            , cmds = newState.cmds
-            , requests = newState.requests ++ context.requests -- reversed
-                |> List.filter
-                    (\(Core.Request _ lid _) -> not <| List.member lid expiredLayers)
-            , timers = List.foldl updateTimer context.timers newState.logs
-                |> List.filter
-                    (\timer -> not <| List.member timer.layerId expiredLayers)
-            , listeners = listenerLogs newState.logs ++ context.listeners -- reversed
-                |> List.filter
-                    (\listener -> not <| List.member listener.layerId expiredLayers)
-            , history = context.history
-            }
+        in
+        { model = newState.nextModel
+        , cmds = newState.cmds
+        , requests = newState.requests ++ context.requests -- reversed
+        , timers = context.timers
+        , listeners = context.listeners
+        , history = context.history
+        }
+        |> applyLogs config newState.logs
+
+
+applyLogs :
+    { onUrlChange : AbsolutePath -> Msg e }
+    -> List Core.Log
+    -> SessionContext c m e
+    -> Result String (SessionContext c m e)
+applyLogs config logs context =
+    List.foldl
+        (\log acc ->
+            Result.andThen
+                (applyLog config log)
+                acc
         )
-        newState.logs
-
-
-listenerLogs : List Core.Log -> List Listener
-listenerLogs logs =
-    List.filterMap identity
-        (\log ->
-            case log of
-                Core.AddListener rid lid name ->
-                  Just
-                    { uniqueName = name
-                    , requestId = rid
-                    , layerId = lid
-                    }
-                _ ->
-                    Nothing
-        )
+        (Ok context)
         logs
 
-updateTimer : Core.Log -> List Timer -> List Timer
-updateTimer log timers =
-    case log of
-        Core.SetTimer rid lid msec ->
-            putTimer
-                { runAfter = msec
-                , every = Nothing
-                , requestId = rid
-                , layerId = lid
-                }
-                timers
 
-        Core.StartTimeEvery rid lid msec ->
-            putTimer
-                { runAfter = msec
-                , every = Just msec
-                , requestId = rid
-                , layerId = lid
-                }
-                timers
-        _ ->
-            timers
+applyLog :
+    { onUrlChange : AbsolutePath -> Msg e }
+    -> Core.Log
+    -> SessionContext c m e
+    -> Result String (SessionContext c m e)
+applyLog config log context =
+            case log of
+                Core.SetTimer rid lid msec ->
+                    Ok
+                        { context
+                            | timers =
+                                putTimer
+                                    { runAfter = msec
+                                    , every = Nothing
+                                    , requestId = rid
+                                    , layerId = lid
+                                    }
+                                    context.timers
+                        }
 
+                Core.StartTimeEvery rid lid msec ->
+                    Ok
+                        { context
+                            | timers =
+                                putTimer
+                                    { runAfter = msec
+                                    , every = Just msec
+                                    , requestId = rid
+                                    , layerId = lid
+                                    }
+                                    context.timers
+                        }
+
+                Core.AddListener rid lid name ->
+                    Ok
+                        { context
+                            | listeners =
+                                { uniqueName = name
+                                , requestId = rid
+                                , layerId = lid
+                                }
+                                :: context.listeners -- reversed
+                        }
+
+                Core.ResolvePortRequest rid ->
+                    Ok
+                        { context
+                            | requests =
+                                List.filter
+                                    (\(Core.Request rid_ _ _) ->
+                                        rid_ /= rid
+                                    )
+                                    context.requests
+                            , listeners =
+                                List.filter
+                                    ( \listener ->
+                                        listener.requestId /= rid
+                                    )
+                                    context.listeners
+                        }
+
+                Core.ResolveRequest rid ->
+                    Ok
+                        { context
+                            | requests =
+                                List.filter
+                                    (\(Core.Request rid_ _ _) ->
+                                        rid_ /= rid
+                                    )
+                                    context.requests
+                        }
+
+                Core.LayerExpired lid ->
+                    Ok
+                        { context
+                            | requests =
+                                List.filter
+                                    (\(Core.Request _ lid_ _) ->
+                                        lid_ /= lid
+                                    )
+                                    context.requests
+                            , timers =
+                                List.filter
+                                    (\timer ->
+                                        timer.layerId /= lid
+                                    )
+                                    context.timers
+                            , listeners =
+                                List.filter
+                                    ( \listener ->
+                                        listener.layerId /= lid
+                                    )
+                                    context.listeners
+                            }
+
+                Core.PushPath path ->
+                    update config
+                        (config.onUrlChange path)
+                        { context
+                            | history = History.pushPath path context.history
+                        }
+
+                Core.ReplacePath path ->
+                    update config
+                        (config.onUrlChange path)
+                            { context
+                                | history = History.replacePath path context.history
+                            }
+
+                Core.Back steps ->
+                    case History.back steps context.history of
+                        Nothing ->
+                            Err
+                                "back: Scenario test does not support navigation to pages outside of the application."
+
+                        Just newHistory ->
+                            update config
+                                (config.onUrlChange <| History.current newHistory)
+                                    { context
+                                        | history = newHistory
+                                    }
+
+                Core.Forward steps ->
+                    case History.forward steps context.history of
+                        Nothing ->
+                            Err
+                                "forward: Scenario test does not support navigation to pages outside of the application."
+
+                        Just newHistory ->
+                            update config
+                                (config.onUrlChange <| History.current newHistory)
+                                    { context
+                                        | history = newHistory
+                                    }
 
 
 putTimer : Timer -> List Timer -> List Timer
@@ -1463,157 +1553,101 @@ putTimer new timers =
 
 
 
-updateHistory :
-    { onUrlChange : AbsolutePath -> Msg e }
-    -> Core.Logs
-    -> Result String (SessionContext c m e)
-    -> Result String (SessionContext c m e)
-updateHistory config log res =
-    case res of
-        Err err ->
-            Err err
-
-        Ok context ->
-            case log of
-                Core.PushPath path ->
-                    update config
-                        (config.onUrlChange path)
-                        { context
-                            | history = History.pushPath path history
-                        }
-
-                ReplacePath path ->
-                    update config
-                        (config.onUrlChange path)
-                        { context
-                            | history = History.replacePath path history
-                        }
-
-                Back steps ->
-                    case History.back steps history of
-                        Nothing ->
-                            Err "back: Scenario test does not support navigation to pages outside of the application."
-
-                        Just newHistory ->
-                            update config
-                                (config.onUrlChange <| History.current newHistory)
-                                { context
-                                    | history = newHistory
-                                }
-
-                Forward steps ->
-                    case History.forward steps history of
-                        Nothing ->
-                            Err "forward: Scenario test does not support navigation to pages outside of the application."
-
-                        Just newHistory ->
-                            update config
-                                (config.onUrlChange <| History.current newHistory)
-                                { context
-                                    | history = newHistory
-                                }
-
-                _ ->
-                    res
-
-
-
-
 -- Document generation
 
 
-{-| -}
-toMarkup :
-    { title : String
-    , sections : List (Section flags c m e)
-    }
-    -> Result InvalidMarkupReason Markup.Section
-toMarkup o =
-    List.foldl
-        (\a acc ->
-            Result.map2 (++) acc a
-        )
-        (Ok [])
-        (List.map toMarkupSection o.sections)
-        |> Result.map
-            (\children ->
-                Markup.Section
-                    { title = o.title
-                    , titleMixin = Mixin.none
-                    , body = []
-                    , bodyMixin = Mixin.none
-                    , children = children
-                    }
-            )
-
-
-toMarkupSection : Section flags c m e -> Result InvalidMarkupReason (List Markup.Section)
-toMarkupSection (Section sec) =
-    let
-        (Scenario scenario) =
-            sec.content
-
-        initMarkupContext : MarkupContext
-        initMarkupContext items =
-            Markup.Section
-                { title = sec.title
-                , titleMixin = Mixin.none
-                , body =
-                    [ ( Mixin.none, Markup.ListItems Mixin.none items )
-                    ]
-                , bodyMixin = Mixin.none
-                , children = []
-                }
-    in
-    case scenario.markup initMarkupContext of
-        OnGoingMarkup context ->
-            Ok [ context [] ]
-
-        MarkupAfterCases secs ->
-            Ok secs
-
-        InvalidMarkup reason ->
-            Err reason
-
-
 -- {-| -}
--- toMarkdown =
---     Debug.todo ""
---
-
-
-{-| Generate scenario document server.
--}
-toHtml :
-    { title : String
-    , sections : List (Section flags c m e)
-    }
-    -> Html ()
-toHtml o =
-    case toMarkup o of
-        Err err ->
-            unexpectedReasonHtml err
-
-        Ok sec ->
-            Html.div
-                [ Mixin.style "margin" "2em"
-                ]
-                [ Markup.toHtml sec
-                ]
-
-
-unexpectedReasonHtml : Core.InvalidMarkupReason -> Html ()
-unexpectedReasonHtml reason =
-    Html.div []
-        [ Html.text <|
-            case reason of
-                Core.SiblingScenarioAfterCases ->
-                    "ERROR: `cases`\nNo sibling scenarios can be after `cases`."
-
-                Core.OtherInvalidMarkup str ->
-                    str
-        ]
-
+-- toMarkup :
+--     { title : String
+--     , sections : List (Section flags c m e)
+--     }
+--     -> Result InvalidMarkupReason Markup.Section
+-- toMarkup o =
+--     List.foldl
+--         (\a acc ->
+--             Result.map2 (++) acc a
+--         )
+--         (Ok [])
+--         (List.map toMarkupSection o.sections)
+--         |> Result.map
+--             (\children ->
+--                 Markup.Section
+--                     { title = o.title
+--                     , titleMixin = Mixin.none
+--                     , body = []
+--                     , bodyMixin = Mixin.none
+--                     , children = children
+--                     }
+--             )
+-- 
+-- 
+-- toMarkupSection : Section flags c m e -> Result InvalidMarkupReason (List Markup.Section)
+-- toMarkupSection (Section sec) =
+--     let
+--         (Scenario scenario) =
+--             sec.content
+-- 
+--         initMarkupBuilderContext : MarkupBuilderContext
+--         initMarkupBuilderContext items =
+--             Markup.Section
+--                 { title = sec.title
+--                 , titleMixin = Mixin.none
+--                 , body =
+--                     [ ( Mixin.none, Markup.ListItems Mixin.none items )
+--                     ]
+--                 , bodyMixin = Mixin.none
+--                 , children = []
+--                 }
+--     in
+--     case scenario.markup initMarkupBuilderContext of
+--         OnGoingMarkup context ->
+--             Ok [ context [] ]
+-- 
+--         MarkupAfterCases secs ->
+--             Ok secs
+-- 
+--         InvalidMarkup reason ->
+--             Err reason
+-- 
+-- 
+-- -- {-| -}
+-- -- toMarkdown =
+-- --     Debug.todo ""
+-- --
+-- 
+-- 
+-- {-| Generate scenario document server.
+-- -}
+-- toHtml :
+--     { title : String
+--     , sections : List (Section flags c m e)
+--     }
+--     -> Html ()
+-- toHtml o =
+--     case toMarkup o of
+--         Err err ->
+--             unexpectedReasonHtml err
+-- 
+--         Ok sec ->
+--             Html.div
+--                 [ Mixin.style "margin" "2em"
+--                 ]
+--                 [ Markup.toHtml sec
+--                 ]
+-- 
+-- 
+-- unexpectedReasonHtml : InvalidMarkupReason -> Html ()
+-- unexpectedReasonHtml reason =
+--     Html.div []
+--         [ Html.text <|
+--             case reason of
+--                 SiblingScenarioAfterCases ->
+--                     "ERROR: `cases`\nNo sibling scenarios can be after `cases`."
+-- 
+--                 OtherInvalidMarkup str ->
+--                     str
+--         ]
+-- 
 
 
 -- type alias MarkupContext =
