@@ -3,7 +3,7 @@ module Tepa.Scenario exposing
     , none
     , concat
     , toTest
-    -- , toHtml
+    , toHtml
     , Section
     , section
     , cases
@@ -101,11 +101,10 @@ import Expect exposing (Expectation)
 import Expect.Builder as ExpBuilder
 import Internal.AbsolutePath as AbsolutePath
 import Internal.Core as Core exposing (Model(..))
-import Internal.LayerId as LayerId
-import Internal.RequestId exposing (RequestId)
-import Internal.LayerId exposing (LayerId)
-import Internal.Markup as Markup
 import Internal.History as History exposing (History)
+import Internal.LayerId as LayerId exposing (LayerId)
+import Internal.Markup as Markup
+import Internal.RequestId exposing (RequestId)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
@@ -135,6 +134,7 @@ The Scenario you built can be converted to tests with `toTest`, and to documents
 type Scenario flags cmd memory event
     = Scenario
         { test : TestConfig flags cmd memory event -> TestContext cmd memory event -> SeqTest.Sequence (TestModel cmd memory event)
+
         -- , markup : MarkupBuilderContext -> MarkupBuilder
         }
 
@@ -170,8 +170,10 @@ type alias SessionContext c m e =
     }
 
 
-{- Manage sleep operations.
--}
+
+{- Manage sleep operations. -}
+
+
 type alias Timer =
     { runAfter : Float
     , every : Maybe Float
@@ -180,8 +182,10 @@ type alias Timer =
     }
 
 
-{- Manage listen operations.
--}
+
+{- Manage listen operations. -}
+
+
 type alias Listener =
     { uniqueName : String
     , requestId : RequestId
@@ -189,27 +193,25 @@ type alias Listener =
     }
 
 
+
 -- type alias MarkupBuilderContext =
 --     List ( Mixin (), Markup.BlockElement ) -> Markup.Section
--- 
--- 
+--
+--
 -- type MarkupBuilder
 --     = OnGoingMarkup MarkupBuilderContext
 --     | MarkupAfterCases (List Markup.Section)
 --     | InvalidMarkup InvalidMarkupReason
-
-
 -- {-| -}
 -- invalidMarkup : InvalidMarkupReason -> MarkupBuilderContext -> MarkupBuilder
 -- invalidMarkup reason _ =
 --     InvalidMarkup reason
--- 
--- 
+--
+--
 -- {-| -}
 -- type InvalidMarkupReason
 --     = SiblingScenarioAfterCases
 --     | OtherInvalidMarkup String
-
 
 
 {-| A Scenario that does nothing.
@@ -218,6 +220,7 @@ none : Scenario flags c m e
 none =
     Scenario
         { test = noneTest
+
         -- , markup = noneMarkup
         }
 
@@ -228,11 +231,10 @@ noneTest _ =
     SeqTest.pass >> SeqTest.map OnGoingTest
 
 
+
 -- noneMarkup : MarkupBuilderContext -> MarkupBuilder
 -- noneMarkup =
 --     OnGoingMarkup
-
-
 -- putListItemMarkup : Markup.BlockElement -> MarkupBuilderContext -> MarkupBuilder
 -- putListItemMarkup item context =
 --     OnGoingMarkup <|
@@ -264,21 +266,22 @@ mappend (Scenario s1) (Scenario s2) =
                                     s2.test config nextContext
 
                                 InvalidTest ->
-                                    SeqTest.pass InvalidTest -- just ignore.
+                                    SeqTest.pass InvalidTest
+
+                                -- just ignore.
                                 TestAfterCases ->
                                     SeqTest.fail "Scenario structure" <|
                                         \_ ->
                                             Expect.fail "should not have sibling scenarios after `cases`."
                         )
+
         -- , markup =
         --     \context ->
         --         case s1.markup context of
         --             MarkupAfterCases _ ->
         --                 InvalidMarkup SiblingScenarioAfterCases
-
         --             InvalidMarkup reason ->
         --                 InvalidMarkup reason
-
         --             OnGoingMarkup nextContext ->
         --                 s2.markup nextContext
         }
@@ -293,6 +296,7 @@ testUrl (AbsolutePath.AbsolutePath path) =
     , query = path.query
     , fragment = path.fragment
     }
+
 
 
 -- Section
@@ -369,6 +373,7 @@ cases sections =
                                 sections
                         )
                     |> SeqTest.map (\_ -> TestAfterCases)
+
         -- , markup =
         --     \context ->
         --         let
@@ -383,7 +388,6 @@ cases sections =
         --         case sectionMarkups of
         --             Err err ->
         --                 InvalidMarkup err
-
         --             Ok markups ->
         --                 MarkupAfterCases <|
         --                     context []
@@ -476,10 +480,12 @@ userComment : User -> String -> Scenario flags c m e
 userComment (User user) comment =
     Scenario
         { test = noneTest
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph user.name comment
         }
+
 
 
 -- -- listItemParagraph : String -> String -> Markup.BlockElement
@@ -505,6 +511,7 @@ systemComment : Session -> String -> Scenario flags c m e
 systemComment (Session session) comment =
     Scenario
         { test = noneTest
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -571,6 +578,7 @@ expectMemory (Session session) description o =
                                     |> SeqTest.assert description
                                         (ExpBuilder.applyTo o.expectation)
                                     |> SeqTest.map (\_ -> OnGoingTest context)
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -644,6 +652,7 @@ expectAppView (Session session) description { expectation } =
                             )
                             |> SeqTest.assert description expectation
                             |> SeqTest.map (\_ -> OnGoingTest context)
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -709,6 +718,7 @@ loadApp (Session session) description o =
                             context
                             |> OnGoingTest
                             |> SeqTest.pass
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -793,6 +803,7 @@ layerEvent (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -864,6 +875,7 @@ userOperation (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -916,47 +928,47 @@ listenerEvent (Session session) description o =
                                     "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                                case Core.runQuery o.target sessionContext.model of
-                                    [] ->
-                                        OnGoingTest context
+                        case Core.runQuery o.target sessionContext.model of
+                            [] ->
+                                OnGoingTest context
+                                    |> SeqTest.pass
+
+                            layer1s ->
+                                let
+                                    res =
+                                        List.concatMap
+                                            (\(Core.Layer thisLid _) ->
+                                                sessionContext.listeners
+                                                    |> List.filterMap
+                                                        (\listener ->
+                                                            if listener.layerId == thisLid && listener.uniqueName == o.listenerName then
+                                                                Just <|
+                                                                    Core.ListenerMsg
+                                                                        { requestId = listener.requestId
+                                                                        , event = o.event
+                                                                        }
+
+                                                            else
+                                                                Nothing
+                                                        )
+                                            )
+                                            layer1s
+                                            |> applyMsgsTo
+                                                { onUrlChange = config.onUrlChange
+                                                }
+                                                sessionContext
+                                in
+                                case res of
+                                    Err err ->
+                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                            \_ -> Expect.fail err
+
+                                    Ok nextSessionContext ->
+                                        Dict.insert session.uniqueName
+                                            nextSessionContext
+                                            context
+                                            |> OnGoingTest
                                             |> SeqTest.pass
-
-                                    layer1s ->
-                                        let
-                                            res =
-                                                List.concatMap
-                                                    (\(Core.Layer thisLid _) ->
-                                                        sessionContext.listeners
-                                                            |> List.filterMap
-                                                                (\listener ->
-                                                                    if listener.layerId == thisLid && listener.uniqueName == o.listenerName then
-                                                                        Just <|
-                                                                            Core.ListenerMsg
-                                                                                { requestId = listener.requestId
-                                                                                , event = o.event
-                                                                                }
-
-                                                                    else
-                                                                        Nothing
-                                                                )
-                                                    )
-                                                    layer1s
-                                                    |> applyMsgsTo
-                                                        { onUrlChange = config.onUrlChange
-                                                        }
-                                                        sessionContext
-                                        in
-                                        case res of
-                                            Err err ->
-                                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
-                                                    \_ -> Expect.fail err
-
-                                            Ok nextSessionContext ->
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context
-                                                    |> OnGoingTest
-                                                    |> SeqTest.pass
 
         -- , markup =
         --     putListItemMarkup <|
@@ -964,7 +976,6 @@ listenerEvent (Session session) description o =
         --             ("[" ++ session.uniqueName ++ "] " ++ o.listenerName)
         --             description
         }
-
 
 
 {-| Wait for given micro seconds.
@@ -987,7 +998,19 @@ sleep (Session session) description msec =
 
                     Just sessionContext ->
                         let
-                            res = advanceClock { onUrlChange = config.onUrlChange } msec sessionContext
+                            res =
+                                advanceClock { onUrlChange = config.onUrlChange } msec sessionContext
+                            _ = Debug.log "advance"
+                                ( description
+                                , sessionContext.model
+                                    |> \(Model newModel) -> newModel.context.state
+                                , res
+                                    |> Result.map
+                                        (\newSessionContext ->
+                                            newSessionContext.model
+                                                |> \(Model newModel) -> newModel.context.state
+                                        )
+                                )
                         in
                         case res of
                             Err err ->
@@ -1000,6 +1023,7 @@ sleep (Session session) description msec =
                                     context
                                     |> OnGoingTest
                                     |> SeqTest.pass
+
         -- , markup =
         --     Core.putListItemMarkup <|
         --         listItemParagraph
@@ -1015,21 +1039,33 @@ advanceClock :
     -> Result String (SessionContext c m e)
 advanceClock config msec context =
     case context.timers of
-        [] -> Ok context
-        (timer :: timers) ->
+        [] ->
+            Ok context
+
+        timer :: timers ->
             if timer.runAfter <= msec then
                 let
                     newTimers =
                         case timer.every of
-                            Nothing -> timers
+                            Nothing ->
+                                timers
+
                             Just interval ->
                                 putTimer { timer | runAfter = timer.runAfter + interval } timers
                 in
                 update config
                     (Core.WakeUpMsg { requestId = timer.requestId })
+                    -- TODO
+                    -- TODO
+                    -- TODO
+                    -- TODO
+                    ここでtimerの残り時間が減らされる前に新しいTimerが追加されてしまっている。
+                    その結果、あとで残り時間を減らす前に、本来はイベントが終わってから始まるタイマーが勝手に解決されてしまう
+
                     { context | timers = newTimers }
                     |> Result.andThen
                         (advanceClock config msec)
+
             else
                 Ok
                     { context
@@ -1040,6 +1076,7 @@ advanceClock config msec context =
                                 )
                                 context.timers
                     }
+
 
 
 -- Response Simulators
@@ -1100,8 +1137,8 @@ portResponse (Session session) description o =
                                                         if lid == lid_ then
                                                             o.response c
                                                                 |> Maybe.map
-                                                                    (\v -> Core.PortResponseMsg { response = v }
-                                                                    )
+                                                                    (\v -> Core.PortResponseMsg { response = v })
+
                                                         else
                                                             Nothing
                                                     )
@@ -1123,13 +1160,13 @@ portResponse (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
         --             ("[" ++ session.uniqueName ++ "]")
         --             description
         }
-
 
 
 {-| Simulate response to the `Tepa.customRequest`.
@@ -1213,6 +1250,7 @@ customResponse (Session session) description o =
                                             context
                                             |> OnGoingTest
                                             |> SeqTest.pass
+
         -- , markup =
         --     putListItemMarkup <|
         --         listItemParagraph
@@ -1254,6 +1292,7 @@ fromJust description ma f =
                             \_ ->
                                 ma
                                     |> Expect.notEqual Nothing
+
                 -- , markup =
                 --     invalidMarkup <|
                 --         OtherInvalidMarkup <|
@@ -1279,6 +1318,7 @@ fromOk description res f =
                             \_ ->
                                 res
                                     |> Expect.ok
+
                 -- , markup =
                 --     invalidMarkup <|
                 --         OtherInvalidMarkup <|
@@ -1375,18 +1415,18 @@ update :
     -> SessionContext c m e
     -> Result String (SessionContext c m e)
 update config msg context =
-        let
-            newState = Core.update msg context.model
-
-        in
-        { model = newState.nextModel
-        , cmds = newState.cmds
-        , requests = newState.requests ++ context.requests -- reversed
-        , timers = context.timers
-        , listeners = context.listeners
-        , history = context.history
-        }
-        |> applyLogs config newState.logs
+    let
+        newState =
+            Core.update msg context.model
+    in
+    { model = newState.nextModel
+    , cmds = newState.cmds
+    , requests = newState.requests ++ context.requests -- reversed
+    , timers = context.timers
+    , listeners = context.listeners
+    , history = context.history
+    }
+        |> applyLogs config (Debug.log "LOGS" newState.logs)
 
 
 applyLogs :
@@ -1411,11 +1451,11 @@ applyLog :
     -> SessionContext c m e
     -> Result String (SessionContext c m e)
 applyLog config log context =
-            case log of
-                Core.SetTimer rid lid msec ->
-                    Ok
-                        { context
-                            | timers =
+    case Debug.log "log" log of
+        Core.SetTimer rid lid msec ->
+            Ok
+                { context
+                    | timers =
                                 putTimer
                                     { runAfter = msec
                                     , every = Nothing
@@ -1423,139 +1463,142 @@ applyLog config log context =
                                     , layerId = lid
                                     }
                                     context.timers
-                        }
+                }
 
-                Core.StartTimeEvery rid lid msec ->
-                    Ok
-                        { context
-                            | timers =
-                                putTimer
-                                    { runAfter = msec
-                                    , every = Just msec
-                                    , requestId = rid
-                                    , layerId = lid
-                                    }
-                                    context.timers
-                        }
-
-                Core.AddListener rid lid name ->
-                    Ok
-                        { context
-                            | listeners =
-                                { uniqueName = name
-                                , requestId = rid
-                                , layerId = lid
-                                }
-                                :: context.listeners -- reversed
-                        }
-
-                Core.ResolvePortRequest rid ->
-                    Ok
-                        { context
-                            | requests =
-                                List.filter
-                                    (\(Core.Request rid_ _ _) ->
-                                        rid_ /= rid
-                                    )
-                                    context.requests
-                            , listeners =
-                                List.filter
-                                    ( \listener ->
-                                        listener.requestId /= rid
-                                    )
-                                    context.listeners
-                        }
-
-                Core.ResolveRequest rid ->
-                    Ok
-                        { context
-                            | requests =
-                                List.filter
-                                    (\(Core.Request rid_ _ _) ->
-                                        rid_ /= rid
-                                    )
-                                    context.requests
-                        }
-
-                Core.LayerExpired lid ->
-                    Ok
-                        { context
-                            | requests =
-                                List.filter
-                                    (\(Core.Request _ lid_ _) ->
-                                        lid_ /= lid
-                                    )
-                                    context.requests
-                            , timers =
-                                List.filter
-                                    (\timer ->
-                                        timer.layerId /= lid
-                                    )
-                                    context.timers
-                            , listeners =
-                                List.filter
-                                    ( \listener ->
-                                        listener.layerId /= lid
-                                    )
-                                    context.listeners
+        Core.StartTimeEvery rid lid msec ->
+            Ok
+                { context
+                    | timers =
+                        putTimer
+                            { runAfter = msec
+                            , every = Just msec
+                            , requestId = rid
+                            , layerId = lid
                             }
+                            context.timers
+                }
 
-                Core.PushPath path ->
+        Core.AddListener rid lid name ->
+            Ok
+                { context
+                    | listeners =
+                        { uniqueName = name
+                        , requestId = rid
+                        , layerId = lid
+                        }
+                            :: context.listeners
+
+                    -- reversed
+                }
+
+        Core.ResolvePortRequest rid ->
+            Ok
+                { context
+                    | requests =
+                        List.filter
+                            (\(Core.Request rid_ _ _) ->
+                                rid_ /= rid
+                            )
+                            context.requests
+                    , listeners =
+                        List.filter
+                            (\listener ->
+                                listener.requestId /= rid
+                            )
+                            context.listeners
+                }
+
+        Core.ResolveRequest rid ->
+            Ok
+                { context
+                    | requests =
+                        List.filter
+                            (\(Core.Request rid_ _ _) ->
+                                rid_ /= rid
+                            )
+                            context.requests
+                }
+
+        Core.LayerExpired lid ->
+            Ok
+                { context
+                    | requests =
+                        List.filter
+                            (\(Core.Request _ lid_ _) ->
+                                lid_ /= lid
+                            )
+                            context.requests
+                    , timers =
+                        List.filter
+                            (\timer ->
+                                timer.layerId /= lid
+                            )
+                            context.timers
+                    , listeners =
+                        List.filter
+                            (\listener ->
+                                listener.layerId /= lid
+                            )
+                            context.listeners
+                }
+
+        Core.PushPath path ->
+            update config
+                (config.onUrlChange path)
+                { context
+                    | history = History.pushPath path context.history
+                }
+
+        Core.ReplacePath path ->
+            update config
+                (config.onUrlChange path)
+                { context
+                    | history = History.replacePath path context.history
+                }
+
+        Core.Back steps ->
+            case History.back steps context.history of
+                Nothing ->
+                    Err
+                        "back: Scenario test does not support navigation to pages outside of the application."
+
+                Just newHistory ->
                     update config
-                        (config.onUrlChange path)
+                        (config.onUrlChange <| History.current newHistory)
                         { context
-                            | history = History.pushPath path context.history
+                            | history = newHistory
                         }
 
-                Core.ReplacePath path ->
+        Core.Forward steps ->
+            case History.forward steps context.history of
+                Nothing ->
+                    Err
+                        "forward: Scenario test does not support navigation to pages outside of the application."
+
+                Just newHistory ->
                     update config
-                        (config.onUrlChange path)
-                            { context
-                                | history = History.replacePath path context.history
-                            }
-
-                Core.Back steps ->
-                    case History.back steps context.history of
-                        Nothing ->
-                            Err
-                                "back: Scenario test does not support navigation to pages outside of the application."
-
-                        Just newHistory ->
-                            update config
-                                (config.onUrlChange <| History.current newHistory)
-                                    { context
-                                        | history = newHistory
-                                    }
-
-                Core.Forward steps ->
-                    case History.forward steps context.history of
-                        Nothing ->
-                            Err
-                                "forward: Scenario test does not support navigation to pages outside of the application."
-
-                        Just newHistory ->
-                            update config
-                                (config.onUrlChange <| History.current newHistory)
-                                    { context
-                                        | history = newHistory
-                                    }
+                        (config.onUrlChange <| History.current newHistory)
+                        { context
+                            | history = newHistory
+                        }
 
 
 putTimer : Timer -> List Timer -> List Timer
 putTimer new timers =
     case timers of
-        [] -> [ new ]
-        (t :: ts) ->
+        [] ->
+            [ new ]
+
+        t :: ts ->
             if new.runAfter <= t.runAfter then
                 new :: t :: ts
+
             else
                 t :: putTimer new ts
 
 
 
 -- Document generation
-
-
 -- {-| -}
 -- toMarkup :
 --     { title : String
@@ -1579,14 +1622,14 @@ putTimer new timers =
 --                     , children = children
 --                     }
 --             )
--- 
--- 
+--
+--
 -- toMarkupSection : Section flags c m e -> Result InvalidMarkupReason (List Markup.Section)
 -- toMarkupSection (Section sec) =
 --     let
 --         (Scenario scenario) =
 --             sec.content
--- 
+--
 --         initMarkupBuilderContext : MarkupBuilderContext
 --         initMarkupBuilderContext items =
 --             Markup.Section
@@ -1602,40 +1645,47 @@ putTimer new timers =
 --     case scenario.markup initMarkupBuilderContext of
 --         OnGoingMarkup context ->
 --             Ok [ context [] ]
--- 
+--
 --         MarkupAfterCases secs ->
 --             Ok secs
--- 
+--
 --         InvalidMarkup reason ->
 --             Err reason
--- 
--- 
+--
+--
 -- -- {-| -}
 -- -- toMarkdown =
 -- --     Debug.todo ""
 -- --
--- 
--- 
--- {-| Generate scenario document server.
--- -}
--- toHtml :
---     { title : String
---     , sections : List (Section flags c m e)
---     }
---     -> Html ()
+--
+--
+
+
+{-| Generate scenario document server.
+-}
+toHtml :
+    { title : String
+    , sections : List (Section flags c m e)
+    }
+    -> Html ()
+toHtml =
+    Debug.todo ""
+
+
+
 -- toHtml o =
 --     case toMarkup o of
 --         Err err ->
 --             unexpectedReasonHtml err
--- 
+--
 --         Ok sec ->
 --             Html.div
 --                 [ Mixin.style "margin" "2em"
 --                 ]
 --                 [ Markup.toHtml sec
 --                 ]
--- 
--- 
+--
+--
 -- unexpectedReasonHtml : InvalidMarkupReason -> Html ()
 -- unexpectedReasonHtml reason =
 --     Html.div []
@@ -1643,13 +1693,11 @@ putTimer new timers =
 --             case reason of
 --                 SiblingScenarioAfterCases ->
 --                     "ERROR: `cases`\nNo sibling scenarios can be after `cases`."
--- 
+--
 --                 OtherInvalidMarkup str ->
 --                     str
 --         ]
--- 
-
-
+--
 -- type alias MarkupContext =
 --     { appendSections : List ( Mixin (), Markup.BlockElement ) -> List ( Mixin (), String, Markup.Section )
 --     , listItems : List ( Mixin (), Markup.BlockElement )
@@ -1861,7 +1909,3 @@ putTimer new timers =
 --     -> String
 -- toMarkdown _ =
 --     "todo"
-
-
-
-

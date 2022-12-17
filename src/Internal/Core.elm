@@ -17,31 +17,31 @@ module Internal.Core exposing
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
-    , onGoingProcedure
     , modify, push, currentState, return, lazy, listen
     , sleep
+    , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
     , elementView, documentView, subscriptions
-    {-
-    , Scenario(..), TestModel(..)
-    , noneScenario, noneTest
-    , concatScenario
-    , putListItemMarkup
-    , toTest, testUrl
-    , SessionContext
-    , toMarkup
-    , InvalidMarkupReason(..)
-    , invalidMarkup
-    , Section
-    , section
-    , cases
-    -}
     , Operation
     , runOperation
     , customOperation
     , LayerQuery(..)
     , runQuery
+    {-
+       , Scenario(..), TestModel(..)
+       , noneScenario, noneTest
+       , concatScenario
+       , putListItemMarkup
+       , toTest, testUrl
+       , SessionContext
+       , toMarkup
+       , InvalidMarkupReason(..)
+       , invalidMarkup
+       , Section
+       , section
+       , cases
+    -}
     )
 
 {-|
@@ -82,6 +82,7 @@ module Internal.Core exposing
 @docs modify, push, currentState, return, lazy, listen
 @docs sleep
 
+
 # Helper Procedures
 
 @docs onGoingProcedure
@@ -98,8 +99,8 @@ module Internal.Core exposing
 @docs elementView, documentView, subscriptions
 
 
--- # Scenario
--- 
+## -- # Scenario
+
 -- @docs Scenario, TestModel
 -- @docs noneScenario, noneTest
 -- @docs concatScenario
@@ -111,9 +112,13 @@ module Internal.Core exposing
 -- @docs invalidMarkup
 -- @docs Section
 -- @docs section
--- @docs cases
--- 
--- 
+
+
+## -- @docs cases
+
+--
+
+
 # User Operation
 
 @docs Operation
@@ -185,7 +190,7 @@ type alias Context m e =
     , thisLayerId : ThisLayerId m
     , nextRequestId : RequestId
     , nextLayerId : LayerId
-    , subs : List (m -> Maybe (RequestId, Sub (Msg e)))
+    , subs : List (m -> Maybe ( RequestId, Sub (Msg e) ))
     }
 
 
@@ -201,8 +206,8 @@ type alias NewState c m e =
 
 
 {-| -}
-type Request c =
-    Request RequestId LayerId c
+type Request c
+    = Request RequestId LayerId c
 
 
 endOfNewState : Context m e -> NewState c m e
@@ -219,8 +224,6 @@ endOfNewState context =
     }
 
 
-
-
 {-| Current memory state.
 -}
 memoryState : Model cmd memory event -> memory
@@ -232,11 +235,11 @@ memoryState (Model model) =
 -}
 layerState : Model cmd memory event -> Layer memory
 layerState (Model model) =
-            let
-                (ThisLayerId lid) =
-                    model.context.thisLayerId
-            in
-            Layer lid model.context.state
+    let
+        (ThisLayerId lid) =
+            model.context.thisLayerId
+    in
+    Layer lid model.context.state
 
 
 {-| Application operation logs.
@@ -499,7 +502,8 @@ setLogs logs (Promise f) =
     Promise <|
         \context ->
             let
-                eff = f context
+                eff =
+                    f context
             in
             { eff | logs = logs }
 
@@ -702,13 +706,14 @@ liftPromiseMemory o (Promise prom1) =
                         , thisLayerId = context.thisLayerId
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
-                        , subs = context.subs ++
-                            List.map
-                                (\f m ->
-                                    o.get m
-                                        |> Maybe.andThen f
-                                )
-                                eff1.newContext.subs
+                        , subs =
+                            context.subs
+                                ++ List.map
+                                    (\f m ->
+                                        o.get m
+                                            |> Maybe.andThen f
+                                    )
+                                    eff1.newContext.subs
                         }
                     , cmds = eff1.cmds
                     , requests = eff1.requests
@@ -786,21 +791,23 @@ liftPromiseEvent o (Promise prom1) =
                 eff1 =
                     prom1 context1
 
-                newContext1 = eff1.newContext
+                newContext1 =
+                    eff1.newContext
             in
             { newContext =
                 { state = newContext1.state
                 , thisLayerId = newContext1.thisLayerId
                 , nextRequestId = newContext1.nextRequestId
                 , nextLayerId = newContext1.nextLayerId
-                , subs = context0.subs ++
-                    List.map
-                        (\f m ->
-                            f m
-                                |> Maybe.map
-                                    (\(rid, sub1) -> (rid, Sub.map (mapMsg o.wrap) sub1))
-                        )
-                        newContext1.subs
+                , subs =
+                    context0.subs
+                        ++ List.map
+                            (\f m ->
+                                f m
+                                    |> Maybe.map
+                                        (\( rid, sub1 ) -> ( rid, Sub.map (mapMsg o.wrap) sub1 ))
+                            )
+                            newContext1.subs
                 }
             , cmds = eff1.cmds
             , requests = eff1.requests
@@ -931,31 +938,34 @@ onGoingProcedure f =
 {-| -}
 modify : (m -> m) -> Promise c m e Void
 modify f =
-    onGoingProcedure <| \eff ->
-        { eff
-            | newContext =
-                let
-                    context = eff.newContext
-                in
-                { context
-                    | state = f context.state
-                }
-        }
+    onGoingProcedure <|
+        \eff ->
+            { eff
+                | newContext =
+                    let
+                        context =
+                            eff.newContext
+                    in
+                    { context
+                        | state = f context.state
+                    }
+            }
 
 
 {-| -}
 push : (m -> List c) -> Promise c m e Void
 push f =
-    onGoingProcedure <| \eff ->
-        let
-            (ThisLayerId thisLayerId) =
-                eff.newContext.thisLayerId
-        in
-        { eff
-            | cmds =
-                f eff.newContext.state
-                    |> List.map (\c -> ( thisLayerId, c ))
-        }
+    onGoingProcedure <|
+        \eff ->
+            let
+                (ThisLayerId thisLayerId) =
+                    eff.newContext.thisLayerId
+            in
+            { eff
+                | cmds =
+                    f eff.newContext.state
+                        |> List.map (\c -> ( thisLayerId, c ))
+            }
 
 
 {-| Must be harmfull and confusing.
@@ -1156,13 +1166,14 @@ listen { name, subscription, handler } =
                     { context
                         | nextRequestId = RequestId.inc context.nextRequestId
                         , subs =
-                            (\m -> Just
-                                ( myRequestId
-                                , subscription m
-                                    |> Sub.map toListenerMsg
-                                )
+                            (\m ->
+                                Just
+                                    ( myRequestId
+                                    , subscription m
+                                        |> Sub.map toListenerMsg
+                                    )
                             )
-                            :: context.subs
+                                :: context.subs
                     }
 
                 toListenerMsg e =
@@ -1199,7 +1210,6 @@ listen { name, subscription, handler } =
             }
 
 
-
 {-| -}
 sleep : Float -> Promise c m e Void
 sleep msec =
@@ -1209,7 +1219,8 @@ sleep msec =
                 myRequestId =
                     context.nextRequestId
 
-                (ThisLayerId thisLayerId) = context.thisLayerId
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
 
                 nextPromise : Msg e -> m -> Promise c m e Void
                 nextPromise msg _ =
@@ -1233,8 +1244,7 @@ sleep msec =
             , realCmds =
                 [ Process.sleep msec
                     |> Task.perform
-                        (\() -> WakeUpMsg { requestId = myRequestId }
-                        )
+                        (\() -> WakeUpMsg { requestId = myRequestId })
                 ]
             , logs =
                 [ SetTimer myRequestId thisLayerId msec
@@ -1290,23 +1300,23 @@ portRequest o =
                             Just
                                 ( myRequestId
                                 , o.receiver
-                                      (\respValue ->
-                                          case JD.decodeValue (o.response RequestId.decoder) respValue of
-                                              Err _ ->
-                                                  NoOp
+                                    (\respValue ->
+                                        case JD.decodeValue (o.response RequestId.decoder) respValue of
+                                            Err _ ->
+                                                NoOp
 
-                                              Ok ( requestId, _ ) ->
-                                                  if requestId == myRequestId then
-                                                      PortResponseMsg
-                                                          { response = respValue
-                                                          }
+                                            Ok ( requestId, _ ) ->
+                                                if requestId == myRequestId then
+                                                    PortResponseMsg
+                                                        { response = respValue
+                                                        }
 
-                                                  else
-                                                      NoOp
-                                      )
+                                                else
+                                                    NoOp
+                                    )
                                 )
-                        ) :: context.subs
-
+                        )
+                            :: context.subs
                 }
             , cmds = []
             , requests =
@@ -1371,7 +1381,7 @@ customRequest o =
                 [ Request
                     myRequestId
                     thisLayerId
-                    ( o.request
+                    (o.request
                         (\a ->
                             CustomResponseMsg
                                 { requestId = myRequestId
@@ -1434,13 +1444,13 @@ anyRequest o =
                 [ Request
                     myRequestId
                     thisLayerId
-                    ( o.request
-                          (\a ->
-                              AnyResponseMsg
-                                  { requestId = myRequestId
-                                  , event = o.wrap a
-                                  }
-                          )
+                    (o.request
+                        (\a ->
+                            AnyResponseMsg
+                                { requestId = myRequestId
+                                , event = o.wrap a
+                                }
+                        )
                     )
                 ]
             , realCmds = []
@@ -1571,6 +1581,7 @@ subscriptions (Model model) =
         model.context.subs
         |> List.map Tuple.second
         |> Sub.batch
+
 
 
 -- User Operation

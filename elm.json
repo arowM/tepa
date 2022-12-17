@@ -12,7 +12,8 @@
         "Tepa.ResponseType",
         "Tepa.Scenario",
         "Tepa.Scenario.LayerQuery",
-        "Tepa.Scenario.Operation"
+        "Tepa.Scenario.Operation",
+        "Tepa.Time"
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {

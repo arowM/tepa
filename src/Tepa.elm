@@ -955,7 +955,8 @@ type alias Document a =
 update : Msg event -> Model (Cmd (Msg event)) memory event -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
 update msg model =
     let
-        newState = Core.update msg model
+        newState =
+            Core.update msg model
     in
     ( newState.nextModel
     , [ List.map Tuple.second newState.cmds
@@ -995,7 +996,8 @@ init :
     -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
 init memory procs =
     let
-        newState = Core.init memory procs
+        newState =
+            Core.init memory procs
     in
     ( newState.nextModel
     , [ List.map Tuple.second newState.cmds

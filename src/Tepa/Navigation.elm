@@ -63,10 +63,11 @@ pushPath navKey path =
                         Core.RealKey key ->
                             [ Nav.pushUrl key <| AbsolutePath.toString path
                             ]
+                , logs =
+                    [ Core.PushPath path
+                    ]
             }
         )
-
-
 
 
 {-| Alternative to [replaceUrl](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#replaceUrl).
@@ -89,6 +90,9 @@ replacePath navKey path =
                         Core.RealKey key ->
                             [ Nav.replaceUrl key <| AbsolutePath.toString path
                             ]
+                , logs =
+                    [ Core.ReplacePath path
+                    ]
             }
         )
 
@@ -111,6 +115,9 @@ back navKey steps =
                         Core.RealKey key ->
                             [ Nav.back key steps
                             ]
+                , logs =
+                    [ Core.Back steps
+                    ]
             }
         )
 
@@ -133,5 +140,8 @@ forward navKey steps =
                         Core.RealKey key ->
                             [ Nav.forward key steps
                             ]
+                , logs =
+                    [ Core.Forward steps
+                    ]
             }
         )
