@@ -1000,17 +1000,6 @@ sleep (Session session) description msec =
                         let
                             res =
                                 advanceClock { onUrlChange = config.onUrlChange } msec sessionContext
-                            _ = Debug.log "advance"
-                                ( description
-                                , sessionContext.model
-                                    |> \(Model newModel) -> newModel.context.state
-                                , res
-                                    |> Result.map
-                                        (\newSessionContext ->
-                                            newSessionContext.model
-                                                |> \(Model newModel) -> newModel.context.state
-                                        )
-                                )
                         in
                         case res of
                             Err err ->
@@ -1041,39 +1030,34 @@ advanceClock config msec context =
     case context.timers of
         [] ->
             Ok context
-
         timer :: timers ->
             if timer.runAfter <= msec then
                 let
                     newTimers =
                         case timer.every of
                             Nothing ->
-                                timers
-
+                                List.map
+                                    (\t -> { t | runAfter = t.runAfter - timer.runAfter })
+                                    timers
                             Just interval ->
-                                putTimer { timer | runAfter = timer.runAfter + interval } timers
+                                List.map
+                                    (\t -> { t | runAfter = t.runAfter - timer.runAfter })
+                                    timers
+                                    |> putTimer
+                                        { timer | runAfter = interval }
                 in
                 update config
                     (Core.WakeUpMsg { requestId = timer.requestId })
-                    -- TODO
-                    -- TODO
-                    -- TODO
-                    -- TODO
-                    ここでtimerの残り時間が減らされる前に新しいTimerが追加されてしまっている。
-                    その結果、あとで残り時間を減らす前に、本来はイベントが終わってから始まるタイマーが勝手に解決されてしまう
-
                     { context | timers = newTimers }
                     |> Result.andThen
-                        (advanceClock config msec)
+                        (advanceClock config (msec - timer.runAfter))
 
             else
                 Ok
                     { context
                         | timers =
                             List.map
-                                (\t ->
-                                    { t | runAfter = t.runAfter - msec }
-                                )
+                                (\t -> { t | runAfter = t.runAfter - msec })
                                 context.timers
                     }
 
@@ -1133,7 +1117,7 @@ portResponse (Session session) description o =
                                         List.concatMap
                                             (\(Core.Layer lid_ _) ->
                                                 List.filterMap
-                                                    (\(Core.Request rid lid c) ->
+                                                    (\(Core.Request _ lid c) ->
                                                         if lid == lid_ then
                                                             o.response c
                                                                 |> Maybe.map
@@ -1224,7 +1208,7 @@ customResponse (Session session) description o =
                                         List.concatMap
                                             (\(Core.Layer lid_ _) ->
                                                 List.filterMap
-                                                    (\(Core.Request rid lid c) ->
+                                                    (\(Core.Request _ lid c) ->
                                                         if lid == lid_ then
                                                             o.response c
 
@@ -1426,7 +1410,7 @@ update config msg context =
     , listeners = context.listeners
     , history = context.history
     }
-        |> applyLogs config (Debug.log "LOGS" newState.logs)
+        |> applyLogs config newState.logs
 
 
 applyLogs :
@@ -1451,7 +1435,7 @@ applyLog :
     -> SessionContext c m e
     -> Result String (SessionContext c m e)
 applyLog config log context =
-    case Debug.log "log" log of
+    case log of
         Core.SetTimer rid lid msec ->
             Ok
                 { context

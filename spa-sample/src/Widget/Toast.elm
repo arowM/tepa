@@ -57,6 +57,7 @@ module Widget.Toast exposing
 
 import App.ZIndex as ZIndex
 import Expect
+import Html.Attributes as Attributes
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
@@ -309,6 +310,8 @@ toastItemView memory =
 type alias ScenarioSet flags c m e =
     { expectWarningMessage : { message : String } -> String -> Scenario flags c m e
     , expectErrorMessage : { message : String } -> String -> Scenario flags c m e
+    , expectDisappearingWarningMessage : { message : String } -> String -> Scenario flags c m e
+    , expectDisappearingErrorMessage : { message : String } -> String -> Scenario flags c m e
     , expectNoWarningMessages : String -> Scenario flags c m e
     , expectNoErrorMessages : String -> Scenario flags c m e
     , expectNoMessages : String -> Scenario flags c m e
@@ -331,6 +334,8 @@ scenario : ScenarioProps c m e -> ScenarioSet flags c m e
 scenario props =
     { expectWarningMessage = expectMessage props WarningMessage
     , expectErrorMessage = expectMessage props ErrorMessage
+    , expectDisappearingWarningMessage = expectDisappearingMessage props WarningMessage
+    , expectDisappearingErrorMessage = expectDisappearingMessage props ErrorMessage
     , expectNoWarningMessages =
         expectNoMessages props
             ("toast_item-" ++ messageTypeCode WarningMessage)
@@ -360,6 +365,28 @@ expectMessage props messageType { message } description =
                 HtmlQuery.fromHtml (Html.div [] body)
                     |> HtmlQuery.findAll
                         [ localClassSelector <| "toast_item-" ++ messageTypeCode messageType
+                        ]
+                    |> HtmlQuery.keep
+                        (Selector.all
+                            [ localClassSelector "toast_item_body"
+                            , Selector.text message
+                            ]
+                        )
+                    |> HtmlQuery.count (Expect.greaterThan 0)
+        }
+
+
+expectDisappearingMessage : ScenarioProps c m e -> MessageType -> { message : String } -> String -> Scenario flags c m e
+expectDisappearingMessage props messageType { message } description =
+    Scenario.expectAppView props.session
+        description
+        { expectation =
+            \{ body } ->
+                HtmlQuery.fromHtml (Html.div [] body)
+                    |> HtmlQuery.findAll
+                        [ localClassSelector <| "toast_item-" ++ messageTypeCode messageType
+                        , Selector.attribute
+                            (Attributes.attribute "aria-hidden" "true")
                         ]
                     |> HtmlQuery.keep
                         (Selector.all
