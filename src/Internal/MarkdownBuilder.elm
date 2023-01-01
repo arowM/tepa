@@ -2,14 +2,30 @@ module Internal.MarkdownBuilder exposing
     ( Builder
     , run, root, break
     , Section
-    , setTitle
-    , appendChild
-    , appendParagraphBody
-    , appendOrderedListBody
-    , appendUnorderedListBody
+    , setSectionTitle
+    , appendSectionChild
+    , AppendMode
+    , endAppendMode
+    , appendParagraph
+    , appendOrderedList
+    , appendUnorderedList
     , appendCodeBlock
     , BlockElement
-    , Paragraph, OrderedList, UnorderedList, CodeBlock
+    , Paragraph
+    , Inline
+    , pushText
+    , pushLink
+    , pushCode
+    , pushEmphasis
+    , pushStrongEmphasis
+    , pushStrikeThrough
+    , OrderedList, OrderedListItem
+    , appendOrderedListItem
+    , appendParagraphToOrderedListItem
+    -- , appendOrderedListToOrderedListItem
+    -- , appendUnorderedListToOrderedListItem
+    -- , appendCodeBlockToOrderedListItem
+    , UnorderedList, CodeBlock
     , InlineElement(..)
     )
 
@@ -26,12 +42,20 @@ type Section =
         , children : List Section -- reversed
         }
 
-initSection : Section
-initSection =
-    Section
-        { title = ""
-        , body = []
-        , children = []
+initAppendModeSection : AppendMode Section
+initAppendModeSection =
+    AppendMode
+        { appendBlock = \elem (Section sec) ->
+            Section
+                { sec
+                    | body = elem :: sec.body
+                }
+        , value =
+            Section
+                { title = ""
+                , body = []
+                , children = []
+                }
         }
 
 
@@ -44,12 +68,28 @@ type BlockElement
 
 
 {-| -}
-type Paragraph = Paragraph (List InlineElement)
+type Paragraph = Paragraph (List InlineElement) -- reversed
+
+initInlineParagraph : Inline Paragraph
+initInlineParagraph =
+    Inline
+        { push = \elem (Paragraph elems) ->
+            Paragraph (elem :: elems)
+        , value = Paragraph []
+        }
+
 
 
 {-| -}
-type OrderedList = OrderedList (List BlockElement)
+type OrderedList = OrderedList (List OrderedListItem) -- reversed
 
+
+{-| -}
+type OrderedListItem =
+    OrderedListItem
+        { content : List InlineElement -- reversed
+        , children : List BlockElement -- reversed
+        }
 
 {-| -}
 type UnorderedList = UnorderedList (List BlockElement)
@@ -66,7 +106,7 @@ type InlineElement
         { href : String
         , text : String
         }
-    | Code String
+    | InlineCode String
     | Emphasis String
     | StrongEmphasis String
     | Strikethrough String
@@ -87,7 +127,7 @@ current : Builder parent a -> a
 current (Builder builder) = builder.current
 
 {-| -}
-type Root = Root Section
+type Root = Root (AppendMode Section)
 
 
 {-| -}
@@ -96,12 +136,14 @@ run (Builder builder) =
     builder.current
         |> builder.parent
         |> builder.root
-        |> \(Root sec) -> sec
+        |> (\(Root appendable) -> appendable)
+        |> (\(AppendMode appendable) -> appendable.value)
+
 
 {-| -}
-root : Builder Root Section
+root : Builder Root (AppendMode Section)
 root = Builder
-    { current = initSection
+    { current = initAppendModeSection
     , parent = Root
     , root = identity
     }
@@ -118,57 +160,99 @@ break (Builder builder) =
 -- -- Section
 
 {-| -}
-setTitle : String -> Builder parent Section -> Builder parent Section
-setTitle title (Builder builder) =
+setSectionTitle : String -> Builder parent (AppendMode Section) -> Builder parent (AppendMode Section)
+setSectionTitle title (Builder builder) =
     Builder
         { builder
             | current =
                 builder.current
-                    |> \(Section sec) ->
-                        Section
-                            { sec | title = title }
+                    |> modifyAppendMode
+                        (\(Section sec) ->
+                                    Section
+                                        { sec | title = title }
+                        )
         }
 
 
+-- Append Mode
+
 {-| -}
-appendParagraphBody : Builder parent Section -> Builder (Builder parent Section) Paragraph
-appendParagraphBody builder =
+type AppendMode a = AppendMode
+    { appendBlock : BlockElement -> a -> a
+    , value : a
+    }
+
+
+modifyAppendMode : (a -> a) -> AppendMode a -> AppendMode a
+modifyAppendMode f (AppendMode appendable) =
+    AppendMode
+        { appendable | value = f appendable.value }
+
+
+append : BlockElement -> AppendMode a -> AppendMode a
+append block (AppendMode appendable) =
+    AppendMode
+        { appendable
+            | value =
+                appendable.appendBlock block appendable.value
+        }
+
+{-| -}
+appendParagraph :
+   Builder parent (AppendMode a)
+   -> Builder (Builder parent (AppendMode a)) Paragraph
+appendParagraph builder =
     Builder
         { current = Paragraph []
         , parent = \para ->
-            appendBodyBlock (ParagraphBlock para) builder
+            modify
+                (append (ParagraphBlock para))
+                builder
         , root = childRoot builder
         }
 
+
 {-| -}
-appendOrderedListBody : Builder parent Section -> Builder (Builder parent Section) OrderedList
-appendOrderedListBody builder =
+appendOrderedList :
+   Builder parent (AppendMode a)
+   -> Builder (Builder parent (AppendMode a)) OrderedList
+appendOrderedList builder =
     Builder
         { current = OrderedList []
         , parent = \list ->
-            appendBodyBlock (OrderedListBlock list) builder
+            modify
+                (append (OrderedListBlock list))
+                builder
         , root = childRoot builder
         }
 
 
 {-| -}
-appendUnorderedListBody : Builder parent Section -> Builder (Builder parent Section) UnorderedList
-appendUnorderedListBody builder =
+appendUnorderedList :
+   Builder parent (AppendMode a)
+   -> Builder (Builder parent (AppendMode a)) UnorderedList
+appendUnorderedList builder =
     Builder
         { current = UnorderedList []
         , parent = \list ->
-            appendBodyBlock (UnorderedListBlock list) builder
+            modify
+                (append (UnorderedListBlock list))
+                builder
         , root = childRoot builder
         }
 
 
 {-| -}
-appendCodeBlock : Builder parent Section -> Builder (Builder parent Section) CodeBlock
+appendCodeBlock :
+   Builder parent (AppendMode a)
+   -> Builder (Builder parent (AppendMode a)) CodeBlock
 appendCodeBlock builder =
     Builder
         { current = CodeBlock_ []
         , parent = \code ->
-            appendBodyBlock (CodeBlock code) builder
+            modify
+                (append (CodeBlock code))
+                builder
         , root = childRoot builder
         }
 
@@ -178,35 +262,171 @@ childRoot (Builder builder) =
     current >> builder.parent >> builder.root
 
 
-appendBodyBlock : BlockElement -> Builder parent Section -> Builder parent Section
-appendBodyBlock block (Builder builder) =
+modify : (a -> a) -> Builder parent a -> Builder parent a
+modify f (Builder builder) =
     Builder
         { builder
-            | current =
-                builder.current
-                    |> \(Section sec) ->
-                        Section
-                            { sec
-                                | body = block :: sec.body
-                            }
+            | current = f builder.current
         }
 
 {-| -}
-appendChild : Builder parent Section -> Builder (Builder parent Section) Section
-appendChild (Builder builder) =
+appendSectionChild :
+   Builder parent (AppendMode Section)
+   -> Builder (Builder parent (AppendMode Section)) (AppendMode Section)
+appendSectionChild builder =
     Builder
-        { current = initSection
+        { current = initAppendModeSection
         , parent = \child ->
-            Builder
-                { builder
-                    | current =
-                        builder.current
-                            |> \(Section sec) ->
-                                Section { sec | children = child :: sec.children }
-                }
+            modify
+                (modifyAppendMode
+                    (\(Section sec) ->
+                        Section { sec | children = child :: sec.children }
+                    )
+                )
+                builder
         , root = current >> builder.parent >> builder.root
         }
 
 
--- -- Paragraph
+-- Inline
 
+{-| -}
+type Inline a = Inline
+    { push : InlineElement -> a -> a
+    , value : a
+    }
+
+modifyInline : (a -> a) -> Inline a -> Inline a
+modifyInline f (Inline inline) =
+    Inline
+        { inline | value = f inline.value }
+
+push : InlineElement -> Inline a -> Inline a
+push elem (Inline inline) =
+    Inline
+        { inline
+            | value =
+                inline.push elem inline.value
+        }
+
+{-| -}
+pushText : String -> Builder parent (Inline a) -> Builder parent (Inline a)
+pushText str =
+    modify <| push (PlainText str)
+
+
+pushLink :
+    { href : String
+    , text : String
+    }
+    -> Builder parent (Inline a) -> Builder parent (Inline a)
+pushLink r =
+    modify <| push (Link r)
+
+
+pushCode :
+    String
+    -> Builder parent (Inline a)
+    -> Builder parent (Inline a)
+pushCode str =
+    modify <| push (InlineCode str)
+
+
+pushEmphasis :
+   String
+   -> Builder parent (Inline a)
+   -> Builder parent (Inline a)
+pushEmphasis str =
+    modify <| push (Emphasis str)
+
+pushStrongEmphasis :
+    String
+    -> Builder parent (Inline a)
+    -> Builder parent (Inline a)
+pushStrongEmphasis str =
+    modify <| push (StrongEmphasis str)
+
+
+pushStrikeThrough :
+   String
+   -> Builder parent (Inline a)
+   -> Builder parent (Inline a)
+pushStrikeThrough str =
+    modify <| push (Strikethrough str)
+
+
+-- -- Ordered list
+
+
+appendOrderedListItem : Builder parent OrderedList -> Builder (Builder parent OrderedList) OrderedListItem
+appendOrderedListItem builder =
+    Builder
+        { current = OrderedListItem
+            { content = []
+            , children = []
+            }
+        , parent = \item ->
+            modify
+                ( \(OrderedList items) -> OrderedList (item :: items)
+                )
+                builder
+        , root = childRoot builder
+        }
+
+
+
+{-| -}
+appendParagraphToOrderedListItem : Builder parent OrderedListItem -> Builder (Builder parent OrderedListItem) Paragraph
+appendParagraphToOrderedListItem builder =
+    Builder
+        { current = Paragraph []
+        , parent = \para ->
+            modify
+                (\(OrderedListItem item) ->
+                    OrderedListItem
+                        { item
+                            | children = ParagraphBlock para :: item.children
+                        }
+                )
+                builder
+        , root = childRoot builder
+        }
+
+{-| -}
+appendOrderedListToOrderdListItem : Builder parent OrderedListItem -> Builder (Builder parent OrderedListItem) OrderedList
+appendOrderedListToOrderdListItem builder =
+    Builder
+        { current = OrderedList []
+        , parent = \list ->
+            modify
+                (\(OrderedListItem item) ->
+                    OrderedListItem
+                        { item
+                            | children = OrderedListBlock list :: item.children
+                        }
+                )
+                builder
+        , root = childRoot builder
+        }
+-- 
+-- 
+-- {-| -}
+-- appendUnorderedListBody : Builder parent Section -> Builder (Builder parent Section) UnorderedList
+-- appendUnorderedListBody builder =
+--     Builder
+--         { current = UnorderedList []
+--         , parent = \list ->
+--             appendBodyBlock (UnorderedListBlock list) builder
+--         , root = childRoot builder
+--         }
+-- 
+-- 
+-- {-| -}
+-- appendCodeBlockBody : Builder parent Section -> Builder (Builder parent Section) CodeBlock
+-- appendCodeBlockBody builder =
+--     Builder
+--         { current = CodeBlock_ []
+--         , paent = \code ->
+--             appendBodyBlock (CodeBlock code) builder
+--         , root = childRoot builder
+--         }
