@@ -10,9 +10,11 @@ import App exposing (Command, Event, Memory)
 import Dict
 import Html exposing (Html)
 import Json.Encode as JE exposing (Value)
+import Tepa
 import Tepa.AbsolutePath exposing (absolutePath)
 import Tepa.Scenario as Scenario exposing (Scenario, userComment)
 import Test exposing (Test)
+import Widget.Toast as Toast
 
 
 
@@ -178,19 +180,46 @@ introduction1 =
     , onSakuraChanMainSession.login.changeLoginPass "guestPass"
     , onSakuraChanMainSession.login.clickSubmitLogin
     , onSakuraChanMainSession.login.receiveLoginResp <|
+        Err Tepa.NetworkError
+    , onSakuraChanMainSession.login.toast.expectErrorMessage
+        { message = "Network error, please try again."
+        }
+        "A toast pops up: \"Network error, please try again.\""
+    , userComment sakuraChan "Oops!"
+    , Scenario.sleep sakuraChanMainSession
+        ("Wait for " ++ String.fromFloat Toast.toastTimeout ++ " milliseconds."
+        )
+        Toast.toastTimeout
+    , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
+        { message = "Network error, please try again."
+        }
+        "The popup begin to disappear."
+    , Scenario.sleep sakuraChanMainSession
+        ("Wait for " ++ String.fromFloat Toast.toastFadeOutDuration ++ " milliseconds."
+        )
+        Toast.toastFadeOutDuration
+    , onSakuraChanMainSession.login.toast.expectNoMessages
+        "No toast popups now."
+    , userComment sakuraChan "Try again."
+    , onSakuraChanMainSession.login.clickSubmitLogin
+    , onSakuraChanMainSession.login.receiveLoginResp <|
         Ok
             ( { url = "https://example.com/api/login"
               , statusCode = 200
               , statusText = "OK"
-              , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+              , headers = Dict.fromList
+                [ ( "Set-Cookie"
+                  , "auth_token=foobar; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                  )
+                ]
               }
             , """
-          {
-            "profile": {
-              "id": "Sakura-chan-ID"
+            {
+              "profile": {
+                "id": "Sakura-chan-ID"
+              }
             }
-          }
-          """
+            """
             )
     , onSakuraChanMainSession.home.expectAvailable
         "Redirect to home page."

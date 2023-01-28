@@ -10,6 +10,7 @@
     "test": "elm-verify-examples -r --fail-on-warn && elm-test && elm-review && elm-format --validate src && elm make src/App.elm --output=/dev/null"
   },
   "devDependencies": {
+    "@elm-tooling/elm-language-server": "^2.6.0",
     "@parcel/transformer-elm": "^2.8.0",
     "@parcel/transformer-sass": "^2.8.0",
     "elm-doc-preview": "^5.0.3",

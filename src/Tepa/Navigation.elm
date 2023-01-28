@@ -25,8 +25,9 @@ This module helps you manage the browser’s URL yourself.
 
 -}
 
+import Browser.Navigation as Nav
 import Internal.Core as Core exposing (Promise, Void)
-import Tepa.AbsolutePath exposing (AbsolutePath)
+import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
 
 
 {-| Alternative to [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
@@ -50,13 +51,23 @@ This will add a new entry to the browser history.
 
 -}
 pushPath : NavKey -> AbsolutePath -> Promise c m e Void
-pushPath key path =
-    Core.pushAppCmd <|
-        Core.PushPath
-            { key = key
-            , path = path
-            , replace = False
+pushPath navKey path =
+    Core.onGoingProcedure
+        (\eff ->
+            { eff
+                | realCmds =
+                    case navKey of
+                        Core.SimKey ->
+                            []
+
+                        Core.RealKey key ->
+                            [ Nav.pushUrl key <| AbsolutePath.toString path
+                            ]
+                , logs =
+                    [ Core.PushPath path
+                    ]
             }
+        )
 
 
 {-| Alternative to [replaceUrl](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#replaceUrl).
@@ -67,13 +78,23 @@ This _will not_ add a new entry to the browser history.
 
 -}
 replacePath : NavKey -> AbsolutePath -> Promise c m e Void
-replacePath key path =
-    Core.pushAppCmd <|
-        Core.PushPath
-            { key = key
-            , path = path
-            , replace = True
+replacePath navKey path =
+    Core.onGoingProcedure
+        (\eff ->
+            { eff
+                | realCmds =
+                    case navKey of
+                        Core.SimKey ->
+                            []
+
+                        Core.RealKey key ->
+                            [ Nav.replaceUrl key <| AbsolutePath.toString path
+                            ]
+                , logs =
+                    [ Core.ReplacePath path
+                    ]
             }
+        )
 
 
 {-| Alternative to [back](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#back).
@@ -82,12 +103,23 @@ Go back some number of pages. So `back 1` goes back one page, and `back 2` goes 
 
 -}
 back : NavKey -> Int -> Promise c m e Void
-back key steps =
-    Core.pushAppCmd <|
-        Core.Back
-            { key = key
-            , steps = steps
+back navKey steps =
+    Core.onGoingProcedure
+        (\eff ->
+            { eff
+                | realCmds =
+                    case navKey of
+                        Core.SimKey ->
+                            []
+
+                        Core.RealKey key ->
+                            [ Nav.back key steps
+                            ]
+                , logs =
+                    [ Core.Back steps
+                    ]
             }
+        )
 
 
 {-| Alternative to [forward](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#forward).
@@ -96,9 +128,20 @@ Go forward some number of pages. So `forward 1` goes forward one page, and `forw
 
 -}
 forward : NavKey -> Int -> Promise c m e Void
-forward key steps =
-    Core.pushAppCmd <|
-        Core.Back
-            { key = key
-            , steps = negate steps
+forward navKey steps =
+    Core.onGoingProcedure
+        (\eff ->
+            { eff
+                | realCmds =
+                    case navKey of
+                        Core.SimKey ->
+                            []
+
+                        Core.RealKey key ->
+                            [ Nav.forward key steps
+                            ]
+                , logs =
+                    [ Core.Forward steps
+                    ]
             }
+        )

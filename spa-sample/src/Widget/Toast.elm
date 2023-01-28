@@ -12,6 +12,8 @@ module Widget.Toast exposing
     , scenario
     , ScenarioSet
     , ScenarioProps
+    , toastTimeout
+    , toastFadeOutDuration
     )
 
 {-| Widget for toast popup.
@@ -45,19 +47,24 @@ module Widget.Toast exposing
 @docs ScenarioSet
 @docs ScenarioProps
 
+
+# Constants
+
+@docs toastTimeout
+@docs toastFadeOutDuration
+
 -}
 
 import App.ZIndex as ZIndex
 import Expect
+import Html.Attributes as Attributes
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
-import Process
-import Task
 import Tepa exposing (Layer, Msg, Promise, Void)
-import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
+import Tepa.Time
 import Test.Html.Query as HtmlQuery
 import Test.Html.Selector as Selector
 
@@ -66,7 +73,7 @@ import Test.Html.Selector as Selector
 -- Constants
 
 
-{-| How long it takes for the toast pop-up to disappear spontaneously in normal toasts.
+{-| How long it takes for the toast pop-up to start disappearing.
 -}
 toastTimeout : Float
 toastTimeout =
@@ -128,21 +135,15 @@ type Event
 
 {-| -}
 type Command
-    = SetTimeoutOnItem (() -> Msg Event)
-    | FadeOutItem (() -> Msg Event)
+    = Command Never
 
 
 {-| -}
 runCommand : Command -> Cmd (Msg Event)
 runCommand cmd =
     case cmd of
-        SetTimeoutOnItem toMsg ->
-            Process.sleep toastTimeout
-                |> Task.perform toMsg
-
-        FadeOutItem toMsg ->
-            Process.sleep toastFadeOutDuration
-                |> Task.perform toMsg
+        Command _ ->
+            Cmd.none
 
 
 {-| Represents that the popup is closed by user or timeout.
@@ -233,22 +234,10 @@ toastItemProcedure =
                         [ Tepa.none
                         ]
             )
-            |> Tepa.andRace
-                (Tepa.customRequest
-                    { name = "Set time out"
-                    , request = SetTimeoutOnItem
-                    , responseType = ResponseType.unit
-                    }
-                    |> Tepa.void
-                )
+            |> Tepa.andRace (Tepa.Time.sleep toastTimeout)
         , Tepa.modify
             (\m -> { m | isHidden = True })
-        , Tepa.customRequest
-            { name = "fade out item"
-            , request = FadeOutItem
-            , responseType = ResponseType.unit
-            }
-            |> Tepa.void
+        , Tepa.Time.sleep toastFadeOutDuration
         ]
 
 
@@ -321,12 +310,13 @@ toastItemView memory =
 type alias ScenarioSet flags c m e =
     { expectWarningMessage : { message : String } -> String -> Scenario flags c m e
     , expectErrorMessage : { message : String } -> String -> Scenario flags c m e
+    , expectDisappearingWarningMessage : { message : String } -> String -> Scenario flags c m e
+    , expectDisappearingErrorMessage : { message : String } -> String -> Scenario flags c m e
     , expectNoWarningMessages : String -> Scenario flags c m e
     , expectNoErrorMessages : String -> Scenario flags c m e
     , expectNoMessages : String -> Scenario flags c m e
     , closeWarningsByMessage : { message : String } -> Scenario flags c m e
     , closeErrorsByMessage : { message : String } -> Scenario flags c m e
-    , awaitAllToDisappear : Scenario flags c m e
     }
 
 
@@ -344,6 +334,8 @@ scenario : ScenarioProps c m e -> ScenarioSet flags c m e
 scenario props =
     { expectWarningMessage = expectMessage props WarningMessage
     , expectErrorMessage = expectMessage props ErrorMessage
+    , expectDisappearingWarningMessage = expectDisappearingMessage props WarningMessage
+    , expectDisappearingErrorMessage = expectDisappearingMessage props ErrorMessage
     , expectNoWarningMessages =
         expectNoMessages props
             ("toast_item-" ++ messageTypeCode WarningMessage)
@@ -361,7 +353,6 @@ scenario props =
         closeByMessage props
             ErrorMessage
             "Click close button on toast popup with error message: "
-    , awaitAllToDisappear = awaitAllToDisappear props
     }
 
 
@@ -374,6 +365,28 @@ expectMessage props messageType { message } description =
                 HtmlQuery.fromHtml (Html.div [] body)
                     |> HtmlQuery.findAll
                         [ localClassSelector <| "toast_item-" ++ messageTypeCode messageType
+                        ]
+                    |> HtmlQuery.keep
+                        (Selector.all
+                            [ localClassSelector "toast_item_body"
+                            , Selector.text message
+                            ]
+                        )
+                    |> HtmlQuery.count (Expect.greaterThan 0)
+        }
+
+
+expectDisappearingMessage : ScenarioProps c m e -> MessageType -> { message : String } -> String -> Scenario flags c m e
+expectDisappearingMessage props messageType { message } description =
+    Scenario.expectAppView props.session
+        description
+        { expectation =
+            \{ body } ->
+                HtmlQuery.fromHtml (Html.div [] body)
+                    |> HtmlQuery.findAll
+                        [ localClassSelector <| "toast_item-" ++ messageTypeCode messageType
+                        , Selector.attribute
+                            (Attributes.attribute "aria-hidden" "true")
                         ]
                     |> HtmlQuery.keep
                         (Selector.all
@@ -420,60 +433,6 @@ closeByMessage props messageType descPrefix { message } =
             (descPrefix ++ message)
             { target = target
             , event = props.wrapEvent CloseToastItem
-            }
-        , Scenario.customResponse props.session
-            "The popup is gradually fading away."
-            { target = target
-            , response =
-                \cmd ->
-                    case props.unwrapCommand cmd of
-                        Just (FadeOutItem toMsg) ->
-                            toMsg ()
-                                |> Tepa.mapMsg props.wrapEvent
-                                |> Just
-
-                        _ ->
-                            Nothing
-            }
-        ]
-
-
-awaitAllToDisappear : ScenarioProps c m e -> Scenario flags c m e
-awaitAllToDisappear props =
-    let
-        targets =
-            props.querySelf
-                |> LayerQuery.children
-                    (\(Memory m) -> m.items)
-    in
-    Scenario.concat
-        [ Scenario.customResponse props.session
-            "After a period of time, each popup are automatically removed."
-            { target = targets
-            , response =
-                \cmd ->
-                    case props.unwrapCommand cmd of
-                        Just (SetTimeoutOnItem toMsg) ->
-                            toMsg ()
-                                |> Tepa.mapMsg props.wrapEvent
-                                |> Just
-
-                        _ ->
-                            Nothing
-            }
-        , Scenario.customResponse props.session
-            "Popups gradually fade away when removed."
-            { target = targets
-            , response =
-                \cmd ->
-                    case props.unwrapCommand cmd of
-                        Just (FadeOutItem toMsg) ->
-                            toMsg ()
-                                |> Tepa.mapMsg props.wrapEvent
-                                |> Just
-
-                        _ ->
-                            Nothing
             }
         ]
 

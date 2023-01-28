@@ -2,6 +2,7 @@ module Tepa.ResponseType exposing
     ( ResponseType
     , string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
     , httpError, httpMetadata, httpResponse
+    , zone
     , RecordType, record, field, fromRecordType
     )
 
@@ -21,6 +22,7 @@ module Tepa.ResponseType exposing
 # Common Types
 
 @docs httpError, httpMetadata, httpResponse
+@docs zone
 
 
 # Record Type
@@ -33,6 +35,7 @@ import Bytes exposing (Bytes)
 import Http
 import Internal.ResponseType as Internal
 import Json.Encode exposing (Value)
+import Time
 
 
 
@@ -134,6 +137,12 @@ httpMetadata =
 httpResponse : ResponseType body -> ResponseType (Http.Response body)
 httpResponse =
     Internal.httpResponse
+
+
+{-| -}
+zone : ResponseType Time.Zone
+zone =
+    Internal.zone
 
 
 

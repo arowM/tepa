@@ -4,6 +4,7 @@ module Internal.ResponseType exposing
     , encode, decode
     , string, int, float, bool, unit, value, bytes, maybe, result, tuple, list
     , httpError, httpMetadata, httpResponse
+    , zone
     , RecordType, record, field, fromRecordType
     , variant
     )
@@ -23,6 +24,7 @@ module Internal.ResponseType exposing
 # Common Types
 
 @docs httpError, httpMetadata, httpResponse
+@docs zone
 
 
 # Record Type
@@ -39,6 +41,7 @@ module Internal.ResponseType exposing
 import Bytes exposing (Bytes)
 import Http
 import Json.Encode exposing (Value)
+import Time
 
 
 {-| -}
@@ -66,6 +69,7 @@ type ResponseBody
     | HttpError Http.Error
     | HttpMetadata Http.Metadata
     | HttpResponse (Http.Response ResponseBody)
+    | TimeZone Time.Zone
     | VariantResponse ( String, ResponseBody )
 
 
@@ -424,6 +428,24 @@ httpResponse (ResponseType bodyType) =
                                 bodyType.decode b
                                     |> Maybe.map
                                         (Http.GoodStatus_ meta)
+
+                    _ ->
+                        Nothing
+        }
+
+
+{-| -}
+zone : ResponseType Time.Zone
+zone =
+    ResponseType
+        { encode =
+            \a ->
+                TimeZone a
+        , decode =
+            \body ->
+                case body of
+                    TimeZone a ->
+                        Just a
 
                     _ ->
                         Nothing

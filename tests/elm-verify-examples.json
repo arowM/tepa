@@ -3,6 +3,7 @@
   "tests": [
     "Tepa.AbsolutePath",
     "Internal.AbsolutePath",
+    "Internal.MarkdownBuilder",
     "Internal.History"
   ]
 }

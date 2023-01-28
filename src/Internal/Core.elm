@@ -1,10 +1,7 @@
 module Internal.Core exposing
-    ( Model(..), memoryState, layerState
+    ( Model(..), Model_, memoryState, layerState
     , Msg(..), rootLayerMsg
     , mapMsg
-    , AppCmd(..)
-    , runAppCmd
-    , applyAppCmds
     , NavKey(..)
     , Promise
     , succeedPromise
@@ -13,28 +10,20 @@ module Internal.Core exposing
     , andThenPromise
     , syncPromise
     , liftPromiseMemory, liftPromiseEvent, mapPromiseCmd
+    , Request(..)
     , portRequest, customRequest, anyRequest
+    , now
     , layerEvent
     , Layer(..), Pointer(..), isPointedBy
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
-    , modify, push, pushAppCmd, currentState, return, lazy, listen
+    , modify, push, currentState, return, lazy, listen
+    , sleep, listenTimeEvery
+    , onGoingProcedure
     , newLayer, onLayer
-    , init, update
+    , init, update, NewState, Log(..)
     , elementView, documentView, subscriptions
-    , Scenario(..), TestModel(..)
-    , noneScenario, noneTest
-    , concatScenario
-    , putListItemMarkup
-    , toTest, testUrl
-    , SessionContext
-    , toMarkup
-    , InvalidMarkupReason(..)
-    , invalidMarkup
-    , Section
-    , section
-    , cases
     , Operation
     , runOperation
     , customOperation
@@ -47,12 +36,9 @@ module Internal.Core exposing
 
 # Core
 
-@docs Model, memoryState, layerState
+@docs Model, Model_, memoryState, layerState
 @docs Msg, rootLayerMsg
 @docs mapMsg
-@docs AppCmd
-@docs runAppCmd
-@docs applyAppCmds
 
 
 # NavKey
@@ -69,7 +55,9 @@ module Internal.Core exposing
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseMemory, liftPromiseEvent, mapPromiseCmd
+@docs Request
 @docs portRequest, customRequest, anyRequest
+@docs now
 @docs layerEvent
 @docs Layer, Pointer, isPointedBy
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -79,7 +67,13 @@ module Internal.Core exposing
 # Primitive Procedures
 
 @docs Void, void
-@docs modify, push, pushAppCmd, currentState, return, lazy, listen
+@docs modify, push, currentState, return, lazy, listen
+@docs sleep, listenTimeEvery
+
+
+# Helper Procedures
+
+@docs onGoingProcedure
 
 
 # Layer
@@ -89,24 +83,8 @@ module Internal.Core exposing
 
 # TEA
 
-@docs init, update
+@docs init, update, NewState, Log
 @docs elementView, documentView, subscriptions
-
-
-# Scenario
-
-@docs Scenario, TestModel
-@docs noneScenario, noneTest
-@docs concatScenario
-@docs putListItemMarkup
-@docs toTest, testUrl
-@docs SessionContext
-@docs toMarkup
-@docs InvalidMarkupReason
-@docs invalidMarkup
-@docs Section
-@docs section
-@docs cases
 
 
 # User Operation
@@ -125,14 +103,10 @@ module Internal.Core exposing
 
 import Browser exposing (Document)
 import Browser.Navigation as Nav
-import Dict exposing (Dict)
-import Expect
 import Html exposing (Attribute, Html)
 import Html.Attributes as Attributes
-import Internal.AbsolutePath as AbsolutePath exposing (AbsolutePath(..))
-import Internal.History as History exposing (History)
+import Internal.AbsolutePath exposing (AbsolutePath(..))
 import Internal.LayerId as LayerId exposing (LayerId)
-import Internal.Markup as Markup
 import Internal.RequestId as RequestId exposing (RequestId)
 import Internal.ResponseType as ResponseType exposing (ResponseBody, ResponseType)
 import Json.Decode as JD exposing (Decoder)
@@ -140,11 +114,9 @@ import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Process
 import Task
-import Test exposing (Test)
 import Test.Html.Event as TestEvent
 import Test.Html.Query as TestQuery
-import Test.Sequence as SeqTest
-import Url exposing (Url)
+import Time exposing (Posix)
 
 
 
@@ -153,174 +125,100 @@ import Url exposing (Url)
 
 {-| -}
 type Model cmd memory event
-    = OnGoing (OnGoing_ cmd memory event)
-    | EndOfProcess (EndOfProcess_ memory)
+    = Model (Model_ cmd memory event)
 
 
 {-| -}
-memoryState : Model cmd memory event -> memory
-memoryState model =
-    case model of
-        OnGoing { context } ->
-            context.state
-
-        EndOfProcess { lastState } ->
-            lastState
-
-
-{-| -}
-layerState : Model cmd memory event -> Maybe (Layer memory)
-layerState model =
-    case model of
-        OnGoing onGoing ->
-            let
-                (ThisLayerId lid) =
-                    onGoing.context.thisLayerId
-            in
-            Just (Layer lid onGoing.context.state)
-
-        EndOfProcess _ ->
-            Nothing
-
-
-type alias OnGoing_ c m e =
+type alias Model_ c m e =
     -- New context after the evaluation.
-    { context : Context m
-    , listeners : List (Listener e)
+    { context : Context m e
 
     -- New state to evaluate next time.
-    , next : Msg e -> Context m -> List (Listener e) -> ( Model c m e, List ( LayerId, c ), List (AppCmd (Msg e)) )
+    , next : Msg e -> Context m e -> NewState c m e
     }
 
 
-type alias EndOfProcess_ m =
-    { lastState : m
-    }
+endOfModel : Context m e -> Model c m e
+endOfModel context =
+    Model
+        { context = context
+        , next = \_ -> endOfNewState
+        }
 
 
 {-| Execution time context for Procedures
 -}
-type alias Context memory =
-    { state : memory
-    , thisLayerId : ThisLayerId memory
+type alias Context m e =
+    { state : m
+    , thisLayerId : ThisLayerId m
     , nextRequestId : RequestId
     , nextLayerId : LayerId
+    , subs : List (m -> Maybe ( RequestId, Sub (Msg e) ))
     }
 
 
-type alias Listener event =
-    { layerId : LayerId
-    , requestId : RequestId
-    , name : String
-    , uniqueName : Maybe String
-    , sub : Sub (Msg event)
+{-| New application state after some operations.
+-}
+type alias NewState c m e =
+    { nextModel : Model c m e
+    , cmds : List ( LayerId, c )
+    , requests : List (Request c) -- reversed
+    , realCmds : List (Cmd (Msg e))
+    , logs : List Log
     }
-
-
-wrapListener : (e1 -> e0) -> Listener e1 -> Listener e0
-wrapListener wrap listener1 =
-    { layerId = listener1.layerId
-    , requestId = listener1.requestId
-    , name = listener1.name
-    , uniqueName = listener1.uniqueName
-    , sub = Sub.map (mapMsg wrap) listener1.sub
-    }
-
-
-
--- AppCmd
 
 
 {-| -}
-type AppCmd msg
-    = PushPath
-        { key : NavKey
-        , path : AbsolutePath
-        , replace : Bool
-        }
-    | Back
-        { key : NavKey
-        , steps : Int
-        }
-    | Sleep
-        { duration : Float
-        , onWakeUp : msg
-        }
+type Request c
+    = Request RequestId LayerId c
 
 
-mapAppCmd : (msg1 -> msg2) -> AppCmd msg1 -> AppCmd msg2
-mapAppCmd f appCmd =
-    case appCmd of
-        PushPath o -> PushPath o
-        Back o -> Back o
-        Sleep o ->
-            Sleep
-                { duration = o.duration
-                , onWakeUp = f o.onWakeUp
-                }
+endOfNewState : Context m e -> NewState c m e
+endOfNewState context =
+    { nextModel =
+        Model
+            { context = context
+            , next = \_ -> endOfNewState
+            }
+    , cmds = []
+    , requests = []
+    , realCmds = []
+    , logs = []
+    }
 
 
-{-| -}
-runAppCmd : AppCmd msg -> Cmd msg
-runAppCmd appCmd =
-    case appCmd of
-        PushPath o ->
-            let
-                op =
-                    if o.replace then
-                        Nav.replaceUrl
-
-                    else
-                        Nav.pushUrl
-            in
-            case o.key of
-                SimKey ->
-                    Cmd.none
-
-                RealKey key ->
-                    op key <| AbsolutePath.toString o.path
-
-        Back o ->
-            case o.key of
-                SimKey ->
-                    Cmd.none
-
-                RealKey key ->
-                    Nav.back key o.steps
-
-        Sleep o ->
-            Process.sleep o.duration
-                |> Task.perform (\() -> o.onWakeUp)
+{-| Current memory state.
+-}
+memoryState : Model cmd memory event -> memory
+memoryState (Model model) =
+    model.context.state
 
 
-runAppCmdOnTest : AppCmd msg -> History -> Result String ( History, AbsolutePath )
-runAppCmdOnTest appCmd history =
-    case appCmd of
-        PushPath o ->
-            if o.replace then
-                Ok
-                    ( History.replacePath o.path history
-                    , o.path
-                    )
+{-| Current Layer state.
+-}
+layerState : Model cmd memory event -> Layer memory
+layerState (Model model) =
+    let
+        (ThisLayerId lid) =
+            model.context.thisLayerId
+    in
+    Layer lid model.context.state
 
-            else
-                Ok
-                    ( History.pushPath o.path history
-                    , o.path
-                    )
 
-        Back o ->
-            case History.back o.steps history of
-                Nothing ->
-                    Err "Scenario test does not support navigation to pages outside of the application."
-
-                Just newHistory ->
-                    Ok
-                        ( newHistory
-                        , History.current newHistory
-                        )
-        Sleep o ->
-            Ok ( history, History.current history )
+{-| Application operation logs.
+-}
+type Log
+    = SetTimer RequestId LayerId Int
+    | StartTimeEvery RequestId LayerId Int
+    | RequestCurrentTime RequestId
+    | AddListener RequestId LayerId String
+    | ResolvePortRequest RequestId
+    | ResolveRequest RequestId
+    | LayerExpired LayerId
+    | PushPath AbsolutePath
+    | ReplacePath AbsolutePath
+    | Back Int
+    | Forward Int
 
 
 
@@ -344,6 +242,10 @@ type Msg event
     | PortResponseMsg
         { response : Value
         }
+    | CurrentTimeMsg
+        { requestId : RequestId
+        , timestamp : Posix
+        }
     | ListenerMsg
         { requestId : RequestId
         , event : event
@@ -351,10 +253,18 @@ type Msg event
     | ViewStubMsg
         { event : event
         }
+    | WakeUpMsg
+        { requestId : RequestId
+        }
+    | IntervalMsg
+        { requestId : RequestId
+        , timestamp : Posix
+        }
     | NoOp
 
 
-{-| -}
+{-| Issue Event on application root layer.
+-}
 rootLayerMsg : e -> Msg e
 rootLayerMsg e =
     LayerMsg
@@ -396,15 +306,33 @@ mapMsg f msg1 =
                 , event = f r.event
                 }
 
+        CurrentTimeMsg r ->
+            CurrentTimeMsg
+                { requestId = r.requestId
+                , timestamp = r.timestamp
+                }
+
         ViewStubMsg r ->
             ViewStubMsg
                 { event = f r.event
+                }
+
+        WakeUpMsg r ->
+            WakeUpMsg
+                { requestId = r.requestId
+                }
+
+        IntervalMsg r ->
+            IntervalMsg
+                { requestId = r.requestId
+                , timestamp = r.timestamp
                 }
 
         NoOp ->
             NoOp
 
 
+{-| -}
 unwrapMsg : (e0 -> Maybe e1) -> Msg e0 -> Msg e1
 unwrapMsg f msg1 =
     case msg1 of
@@ -452,6 +380,12 @@ unwrapMsg f msg1 =
                         , event = e
                         }
 
+        CurrentTimeMsg r ->
+            CurrentTimeMsg
+                { requestId = r.requestId
+                , timestamp = r.timestamp
+                }
+
         ViewStubMsg r ->
             case f r.event of
                 Nothing ->
@@ -461,6 +395,17 @@ unwrapMsg f msg1 =
                     ViewStubMsg
                         { event = e
                         }
+
+        WakeUpMsg r ->
+            WakeUpMsg
+                { requestId = r.requestId
+                }
+
+        IntervalMsg r ->
+            IntervalMsg
+                { requestId = r.requestId
+                , timestamp = r.timestamp
+                }
 
         NoOp ->
             NoOp
@@ -480,23 +425,27 @@ type NavKey
 -- Promise
 
 
-{-| -}
+{-| The Promise represents the eventual completion of an operation and its resulting value.
+-}
 type Promise c m e a
-    = Promise (Context m -> PromiseEffect c m e a)
+    = Promise (Context m e -> PromiseEffect c m e a)
 
 
+{-| Effects by evaluating a Promise.
+-}
 type alias PromiseEffect c m e a =
-    { newContext : Context m
+    { newContext : Context m e
     , cmds : List ( LayerId, c )
-    , appCmds : List (AppCmd (Msg e))
-    , addListeners : List (Listener e)
-    , closedLayers : List LayerId
-    , closedRequests : List RequestId
-    , handler : PromiseHandler c m e a
+    , requests : List (Request c) -- reversed
+    , realCmds : List (Cmd (Msg e))
+    , logs : List Log
+    , state : PromiseState c m e a
     }
 
 
-type PromiseHandler c m e a
+{-| Represents current Promise state.
+-}
+type PromiseState c m e a
     = Resolved a
     | Rejected
     | AwaitMsg (Msg e -> m -> Promise c m e a)
@@ -513,12 +462,11 @@ mapPromise f (Promise prom) =
             in
             { newContext = effA.newContext
             , cmds = effA.cmds
-            , appCmds = effA.appCmds
-            , addListeners = effA.addListeners
-            , closedLayers = effA.closedLayers
-            , closedRequests = effA.closedRequests
-            , handler =
-                case effA.handler of
+            , requests = effA.requests
+            , realCmds = effA.realCmds
+            , logs = effA.logs
+            , state =
+                case effA.state of
                     Resolved a ->
                         Resolved <| f a
 
@@ -532,63 +480,53 @@ mapPromise f (Promise prom) =
             }
 
 
-{-| -}
-succeedPromise : a -> Promise c m e a
-succeedPromise a =
+primitivePromise : PromiseState c m e a -> Promise c m e a
+primitivePromise state =
     Promise <|
         \context ->
             { newContext = context
             , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved a
+            , requests = []
+            , realCmds = []
+            , logs = []
+            , state = state
             }
 
 
-closeRequest : RequestId -> Promise c m e a -> Promise c m e a
-closeRequest rid (Promise prom) =
+setLogs : List Log -> Promise c m e a -> Promise c m e a
+setLogs logs (Promise f) =
     Promise <|
         \context ->
             let
                 eff =
-                    prom context
+                    f context
             in
-            { eff
-                | closedRequests = rid :: eff.closedRequests
-            }
+            { eff | logs = logs }
 
 
+{-| Promise that just resolves to `a`.
+-}
+succeedPromise : a -> Promise c m e a
+succeedPromise a =
+    primitivePromise <| Resolved a
+
+
+{-| Promise that just rejected.
+-}
 failPromise : Promise c m e a
 failPromise =
-    Promise <|
-        \context ->
-            { newContext = context
-            , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Rejected
-            }
+    primitivePromise Rejected
 
 
+{-| Promise that just await next Msg.
+-}
 justAwaitPromise : (Msg e -> m -> Promise c m e a) -> Promise c m e a
 justAwaitPromise f =
-    Promise <|
-        \context ->
-            { newContext = context
-            , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = AwaitMsg f
-            }
+    primitivePromise <| AwaitMsg f
 
 
-{-| -}
+{-| Await both Promises to be completed.
+-}
 syncPromise : Promise c m e a -> Promise c m e (a -> b) -> Promise c m e b
 syncPromise (Promise promA) (Promise promF) =
     Promise <|
@@ -602,12 +540,11 @@ syncPromise (Promise promA) (Promise promF) =
             in
             { newContext = effA.newContext
             , cmds = effF.cmds ++ effA.cmds
-            , appCmds = effF.appCmds ++ effA.appCmds
-            , addListeners = effF.addListeners ++ effA.addListeners
-            , closedLayers = effF.closedLayers ++ effA.closedLayers
-            , closedRequests = effF.closedRequests ++ effA.closedRequests
-            , handler =
-                case ( effF.handler, effA.handler ) of
+            , requests = effA.requests ++ effF.requests -- reversed
+            , realCmds = effF.realCmds ++ effA.realCmds
+            , logs = effF.logs ++ effA.logs
+            , state =
+                case ( effF.state, effA.state ) of
                     ( Resolved f, Resolved a ) ->
                         Resolved <| f a
 
@@ -634,7 +571,8 @@ syncPromise (Promise promA) (Promise promF) =
             }
 
 
-{-| -}
+{-| Await one of the Promises to be completed.
+-}
 andRacePromise : Promise c m e a -> Promise c m e a -> Promise c m e a
 andRacePromise (Promise prom2) (Promise prom1) =
     Promise <|
@@ -648,12 +586,11 @@ andRacePromise (Promise prom2) (Promise prom1) =
             in
             { newContext = eff2.newContext
             , cmds = eff1.cmds ++ eff2.cmds
-            , appCmds = eff1.appCmds ++ eff2.appCmds
-            , addListeners = eff1.addListeners ++ eff2.addListeners
-            , closedLayers = eff1.closedLayers ++ eff2.closedLayers
-            , closedRequests = eff1.closedRequests ++ eff2.closedRequests
-            , handler =
-                case ( eff1.handler, eff2.handler ) of
+            , requests = eff2.requests ++ eff1.requests -- reversed
+            , realCmds = eff1.realCmds ++ eff2.realCmds
+            , logs = eff1.logs ++ eff2.logs
+            , state =
+                case ( eff1.state, eff2.state ) of
                     ( Resolved a1, _ ) ->
                         Resolved a1
 
@@ -675,7 +612,8 @@ andRacePromise (Promise prom2) (Promise prom1) =
             }
 
 
-{-| -}
+{-| Run Promises sequentially.
+-}
 andThenPromise : (a -> Promise c m e b) -> Promise c m e a -> Promise c m e b
 andThenPromise f (Promise promA) =
     Promise <|
@@ -684,7 +622,7 @@ andThenPromise f (Promise promA) =
                 effA =
                     promA context
             in
-            case effA.handler of
+            case effA.state of
                 Resolved a ->
                     let
                         (Promise promB) =
@@ -695,31 +633,28 @@ andThenPromise f (Promise promA) =
                     in
                     { newContext = effB.newContext
                     , cmds = effA.cmds ++ effB.cmds
-                    , appCmds = effA.appCmds ++ effB.appCmds
-                    , addListeners = effA.addListeners ++ effB.addListeners
-                    , closedLayers = effA.closedLayers ++ effB.closedLayers
-                    , closedRequests = effA.closedRequests ++ effB.closedRequests
-                    , handler = effB.handler
+                    , requests = effB.requests ++ effA.requests -- reversed
+                    , realCmds = effA.realCmds ++ effB.realCmds
+                    , logs = effA.logs ++ effB.logs
+                    , state = effB.state
                     }
 
                 Rejected ->
                     { newContext = effA.newContext
                     , cmds = effA.cmds
-                    , appCmds = effA.appCmds
-                    , addListeners = effA.addListeners
-                    , closedLayers = effA.closedLayers
-                    , closedRequests = effA.closedRequests
-                    , handler = Rejected
+                    , requests = effA.requests
+                    , realCmds = effA.realCmds
+                    , logs = effA.logs
+                    , state = Rejected
                     }
 
                 AwaitMsg promNextA ->
                     { newContext = effA.newContext
                     , cmds = effA.cmds
-                    , appCmds = effA.appCmds
-                    , addListeners = effA.addListeners
-                    , closedLayers = effA.closedLayers
-                    , closedRequests = effA.closedRequests
-                    , handler =
+                    , requests = effA.requests
+                    , realCmds = effA.realCmds
+                    , logs = effA.logs
+                    , state =
                         AwaitMsg <|
                             \msg m ->
                                 promNextA msg m
@@ -738,16 +673,17 @@ liftPromiseMemory o (Promise prom1) =
             case o.get context.state of
                 Nothing ->
                     let
-                        (ThisLayerId closedLayersId) =
+                        (ThisLayerId expiredLayerId) =
                             o.layerId
                     in
                     { newContext = context
-                    , addListeners = []
-                    , closedLayers = [ closedLayersId ]
-                    , closedRequests = []
                     , cmds = []
-                    , appCmds = []
-                    , handler = Rejected
+                    , requests = []
+                    , realCmds = []
+                    , logs =
+                        [ LayerExpired expiredLayerId
+                        ]
+                    , state = Rejected
                     }
 
                 Just state1 ->
@@ -758,6 +694,7 @@ liftPromiseMemory o (Promise prom1) =
                                 , thisLayerId = o.layerId
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
+                                , subs = []
                                 }
                     in
                     { newContext =
@@ -765,14 +702,21 @@ liftPromiseMemory o (Promise prom1) =
                         , thisLayerId = context.thisLayerId
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
+                        , subs =
+                            context.subs
+                                ++ List.map
+                                    (\f m ->
+                                        o.get m
+                                            |> Maybe.andThen f
+                                    )
+                                    eff1.newContext.subs
                         }
                     , cmds = eff1.cmds
-                    , appCmds = eff1.appCmds
-                    , addListeners = eff1.addListeners
-                    , closedLayers = eff1.closedLayers
-                    , closedRequests = eff1.closedRequests
-                    , handler =
-                        case eff1.handler of
+                    , requests = eff1.requests
+                    , realCmds = eff1.realCmds
+                    , logs = eff1.logs
+                    , state =
+                        case eff1.state of
                             Resolved a ->
                                 Resolved a
 
@@ -802,12 +746,11 @@ mapPromiseCmd f (Promise prom) =
             in
             { newContext = eff.newContext
             , cmds = List.map (\( lid, c ) -> ( lid, f c )) eff.cmds
-            , appCmds = eff.appCmds
-            , addListeners = eff.addListeners
-            , closedLayers = eff.closedLayers
-            , closedRequests = eff.closedRequests
-            , handler =
-                case eff.handler of
+            , requests = List.map (\(Request rid lid c) -> Request rid lid (f c)) eff.requests
+            , realCmds = eff.realCmds
+            , logs = eff.logs
+            , state =
+                case eff.state of
                     Resolved a ->
                         Resolved a
 
@@ -830,19 +773,44 @@ liftPromiseEvent :
     -> Promise c m e0 a
 liftPromiseEvent o (Promise prom1) =
     Promise <|
-        \context ->
+        \context0 ->
             let
+                context1 : Context m e1
+                context1 =
+                    { state = context0.state
+                    , thisLayerId = context0.thisLayerId
+                    , nextRequestId = context0.nextRequestId
+                    , nextLayerId = context0.nextLayerId
+                    , subs = []
+                    }
+
                 eff1 =
-                    prom1 context
+                    prom1 context1
+
+                newContext1 =
+                    eff1.newContext
             in
-            { newContext = eff1.newContext
+            { newContext =
+                { state = newContext1.state
+                , thisLayerId = newContext1.thisLayerId
+                , nextRequestId = newContext1.nextRequestId
+                , nextLayerId = newContext1.nextLayerId
+                , subs =
+                    context0.subs
+                        ++ List.map
+                            (\f m ->
+                                f m
+                                    |> Maybe.map
+                                        (\( rid, sub1 ) -> ( rid, Sub.map (mapMsg o.wrap) sub1 ))
+                            )
+                            newContext1.subs
+                }
             , cmds = eff1.cmds
-            , appCmds = List.map (mapAppCmd (mapMsg o.wrap)) eff1.appCmds
-            , addListeners = List.map (wrapListener o.wrap) eff1.addListeners
-            , closedLayers = eff1.closedLayers
-            , closedRequests = eff1.closedRequests
-            , handler =
-                case eff1.handler of
+            , requests = eff1.requests
+            , realCmds = List.map (Cmd.map (mapMsg o.wrap)) eff1.realCmds
+            , logs = eff1.logs
+            , state =
+                case eff1.state of
                     Resolved a ->
                         Resolved a
 
@@ -908,14 +876,14 @@ currentState =
         \context ->
             { newContext = context
             , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved context.state
+            , requests = []
+            , realCmds = []
+            , logs = []
+            , state = Resolved context.state
             }
 
 
+{-| -}
 genNewLayerId : Promise c m e LayerId
 genNewLayerId =
     Promise <|
@@ -929,11 +897,10 @@ genNewLayerId =
             in
             { newContext = newContext
             , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved newLayerId
+            , requests = []
+            , realCmds = []
+            , logs = []
+            , state = Resolved newLayerId
             }
 
 
@@ -950,41 +917,50 @@ void =
 
 
 {-| -}
-modify : (m -> m) -> Promise c m e Void
-modify f =
+onGoingProcedure : (PromiseEffect c m e Void -> PromiseEffect c m e Void) -> Promise c m e Void
+onGoingProcedure f =
     Promise <|
         \context ->
-            { newContext =
-                { context
-                    | state = f context.state
+            f
+                { newContext = context
+                , cmds = []
+                , requests = []
+                , realCmds = []
+                , logs = []
+                , state = Resolved OnGoingProcedure
                 }
-            , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved OnGoingProcedure
+
+
+{-| -}
+modify : (m -> m) -> Promise c m e Void
+modify f =
+    onGoingProcedure <|
+        \eff ->
+            { eff
+                | newContext =
+                    let
+                        context =
+                            eff.newContext
+                    in
+                    { context
+                        | state = f context.state
+                    }
             }
 
 
 {-| -}
 push : (m -> List c) -> Promise c m e Void
 push f =
-    Promise <|
-        \context ->
+    onGoingProcedure <|
+        \eff ->
             let
                 (ThisLayerId thisLayerId) =
-                    context.thisLayerId
+                    eff.newContext.thisLayerId
             in
-            { newContext = context
-            , cmds =
-                f context.state
-                    |> List.map (\c -> ( thisLayerId, c ))
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved OnGoingProcedure
+            { eff
+                | cmds =
+                    f eff.newContext.state
+                        |> List.map (\c -> ( thisLayerId, c ))
             }
 
 
@@ -992,16 +968,7 @@ push f =
 -}
 return : Promise c m e Void
 return =
-    Promise <|
-        \context ->
-            { newContext = context
-            , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved CompletedProcedure
-            }
+    primitivePromise <| Resolved CompletedProcedure
 
 
 {-| -}
@@ -1014,21 +981,6 @@ lazy f =
                     f ()
             in
             prom context
-
-
-{-| -}
-pushAppCmd : AppCmd (Msg e) -> Promise c m e Void
-pushAppCmd appCmd =
-    Promise <|
-        \context ->
-            { newContext = context
-            , cmds = []
-            , appCmds = [ appCmd ]
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = Resolved OnGoingProcedure
-            }
 
 
 {-| -}
@@ -1209,6 +1161,15 @@ listen { name, subscription, handler } =
                 newContext =
                     { context
                         | nextRequestId = RequestId.inc context.nextRequestId
+                        , subs =
+                            (\m ->
+                                Just
+                                    ( myRequestId
+                                    , subscription m
+                                        |> Sub.map toListenerMsg
+                                    )
+                            )
+                                :: context.subs
                     }
 
                 toListenerMsg e =
@@ -1236,18 +1197,118 @@ listen { name, subscription, handler } =
             in
             { newContext = newContext
             , cmds = []
-            , appCmds = []
-            , addListeners =
-                [ { layerId = thisLayerId
-                  , requestId = myRequestId
-                  , name = name
-                  , uniqueName = Just name
-                  , sub = subscription context.state |> Sub.map toListenerMsg
-                  }
+            , requests = []
+            , realCmds = []
+            , logs =
+                [ AddListener myRequestId thisLayerId name
                 ]
-            , closedLayers = []
-            , closedRequests = []
-            , handler = AwaitMsg awaitForever
+            , state = AwaitMsg awaitForever
+            }
+
+
+{-| -}
+sleep : Int -> Promise c m e Void
+sleep msec =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                nextPromise : Msg e -> m -> Promise c m e Void
+                nextPromise msg _ =
+                    case msg of
+                        WakeUpMsg wakeUpMsg ->
+                            if wakeUpMsg.requestId == myRequestId then
+                                succeedPromise OnGoingProcedure
+
+                            else
+                                justAwaitPromise nextPromise
+
+                        _ ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , cmds = []
+            , requests = []
+            , realCmds =
+                [ Process.sleep (toFloat msec)
+                    |> Task.perform
+                        (\() -> WakeUpMsg { requestId = myRequestId })
+                ]
+            , logs =
+                [ SetTimer myRequestId thisLayerId msec
+                ]
+            , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+listenTimeEvery :
+    Int
+    -> (Posix -> List (Promise c m e Void))
+    -> Promise c m e Void
+listenTimeEvery interval handler =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                newContext =
+                    { context
+                        | nextRequestId = RequestId.inc context.nextRequestId
+                        , subs =
+                            (\_ ->
+                                Just
+                                    ( myRequestId
+                                    , Time.every (toFloat interval) toIntervalMsg
+                                    )
+                            )
+                                :: context.subs
+                    }
+
+                toIntervalMsg timestamp =
+                    IntervalMsg
+                        { requestId = myRequestId
+                        , timestamp = timestamp
+                        }
+
+                awaitForever : Msg e -> m -> Promise c m e Void
+                awaitForever msg _ =
+                    case msg of
+                        IntervalMsg param ->
+                            if param.requestId == myRequestId then
+                                concurrent
+                                    [ justAwaitPromise awaitForever
+                                    , handler param.timestamp
+                                        |> sequence
+                                    ]
+
+                            else
+                                justAwaitPromise awaitForever
+
+                        _ ->
+                            justAwaitPromise awaitForever
+            in
+            { newContext =
+                newContext
+            , cmds = []
+            , requests = []
+            , realCmds = []
+            , logs =
+                [ StartTimeEvery myRequestId thisLayerId interval
+                ]
+            , state = AwaitMsg awaitForever
             }
 
 
@@ -1277,7 +1338,9 @@ portRequest o =
                                 Ok ( requestId, resp ) ->
                                     if requestId == myRequestId then
                                         succeedPromise resp
-                                            |> closeRequest myRequestId
+                                            |> setLogs
+                                                [ ResolvePortRequest myRequestId
+                                                ]
 
                                     else
                                         justAwaitPromise nextPromise
@@ -1291,41 +1354,42 @@ portRequest o =
             { newContext =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
+                    , subs =
+                        (\_ ->
+                            Just
+                                ( myRequestId
+                                , o.receiver
+                                    (\respValue ->
+                                        case JD.decodeValue (o.response RequestId.decoder) respValue of
+                                            Err _ ->
+                                                NoOp
+
+                                            Ok ( requestId, _ ) ->
+                                                if requestId == myRequestId then
+                                                    PortResponseMsg
+                                                        { response = respValue
+                                                        }
+
+                                                else
+                                                    NoOp
+                                    )
+                                )
+                        )
+                            :: context.subs
                 }
-            , addListeners =
-                [ { layerId = thisLayerId
-                  , requestId = myRequestId
-                  , name = o.name
-                  , uniqueName = Nothing
-                  , sub =
-                        o.receiver
-                            (\respValue ->
-                                case JD.decodeValue (o.response RequestId.decoder) respValue of
-                                    Err _ ->
-                                        NoOp
-
-                                    Ok ( requestId, _ ) ->
-                                        if requestId == myRequestId then
-                                            PortResponseMsg
-                                                { response = respValue
-                                                }
-
-                                        else
-                                            NoOp
-                            )
-                  }
-                ]
-            , closedLayers = []
-            , closedRequests = []
-            , cmds =
-                [ ( thisLayerId
-                  , o.request
+            , cmds = []
+            , requests =
+                [ Request
+                    myRequestId
+                    thisLayerId
+                    (o.request
                         context.state
                         { requestId = RequestId.toValue myRequestId }
-                  )
+                    )
                 ]
-            , appCmds = []
-            , handler = AwaitMsg nextPromise
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg nextPromise
             }
 
 
@@ -1357,7 +1421,9 @@ customRequest o =
 
                                     Just a ->
                                         succeedPromise a
-                                            |> closeRequest myRequestId
+                                            |> setLogs
+                                                [ ResolveRequest myRequestId
+                                                ]
 
                             else
                                 justAwaitPromise nextPromise
@@ -1369,29 +1435,23 @@ customRequest o =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , addListeners =
-                [ { layerId = thisLayerId
-                  , requestId = myRequestId
-                  , name = o.name
-                  , uniqueName = Nothing
-                  , sub = Sub.none
-                  }
-                ]
-            , closedLayers = []
-            , closedRequests = []
-            , cmds =
-                [ ( thisLayerId
-                  , o.request
+            , cmds = []
+            , requests =
+                [ Request
+                    myRequestId
+                    thisLayerId
+                    (o.request
                         (\a ->
                             CustomResponseMsg
                                 { requestId = myRequestId
                                 , response = ResponseType.encode o.responseType a
                                 }
                         )
-                  )
+                    )
                 ]
-            , appCmds = []
-            , handler = AwaitMsg nextPromise
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg nextPromise
             }
 
 
@@ -1424,7 +1484,9 @@ anyRequest o =
 
                                     Just a ->
                                         succeedPromise a
-                                            |> closeRequest myRequestId
+                                            |> setLogs
+                                                [ ResolveRequest myRequestId
+                                                ]
 
                             else
                                 justAwaitPromise nextPromise
@@ -1436,29 +1498,68 @@ anyRequest o =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , addListeners =
-                [ { layerId = thisLayerId
-                  , requestId = myRequestId
-                  , name = o.name
-                  , uniqueName = Nothing
-                  , sub = Sub.none
-                  }
-                ]
-            , closedLayers = []
-            , closedRequests = []
-            , cmds =
-                [ ( thisLayerId
-                  , o.request
+            , cmds = []
+            , requests =
+                [ Request
+                    myRequestId
+                    thisLayerId
+                    (o.request
                         (\a ->
                             AnyResponseMsg
                                 { requestId = myRequestId
                                 , event = o.wrap a
                                 }
                         )
-                  )
+                    )
                 ]
-            , appCmds = []
-            , handler = AwaitMsg nextPromise
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+now : Promise c m e Posix
+now =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                nextPromise : Msg e -> m -> Promise c m e Posix
+                nextPromise msg _ =
+                    case msg of
+                        CurrentTimeMsg param ->
+                            if param.requestId == myRequestId then
+                                succeedPromise param.timestamp
+
+                            else
+                                justAwaitPromise nextPromise
+
+                        _ ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , cmds = []
+            , requests = []
+            , realCmds =
+                [ Time.now
+                    |> Task.perform
+                        (\timestamp ->
+                            CurrentTimeMsg
+                                { requestId = myRequestId
+                                , timestamp = timestamp
+                                }
+                        )
+                ]
+            , logs =
+                [ RequestCurrentTime myRequestId
+                ]
+            , state = AwaitMsg nextPromise
             }
 
 
@@ -1471,26 +1572,25 @@ layerEvent =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                handler : Msg e -> m -> Promise c m e e
-                handler msg _ =
+                state : Msg e -> m -> Promise c m e e
+                state msg _ =
                     case msg of
                         LayerMsg r ->
                             if r.layerId /= thisLayerId then
-                                justAwaitPromise handler
+                                justAwaitPromise state
 
                             else
                                 succeedPromise r.event
 
                         _ ->
-                            justAwaitPromise handler
+                            justAwaitPromise state
             in
             { newContext = context
             , cmds = []
-            , appCmds = []
-            , addListeners = []
-            , closedLayers = []
-            , closedRequests = []
-            , handler = AwaitMsg handler
+            , requests = []
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg state
             }
 
 
@@ -1500,86 +1600,67 @@ layerEvent =
 
 {-| -}
 init :
-    memory
-    -> Promise cmd memory event Void
-    -> ( Model cmd memory event, List ( LayerId, cmd ), List (AppCmd (Msg event)) )
+    m
+    -> Promise c m e Void
+    -> NewState c m e
 init m prom =
-    toModel (initContext m) [] prom
+    toModel (initContext m) prom
 
 
-initContext : m -> Context m
+initContext : m -> Context m e
 initContext memory =
     { state = memory
     , thisLayerId = ThisLayerId LayerId.init
     , nextRequestId = RequestId.init
     , nextLayerId = LayerId.inc LayerId.init
+    , subs = []
     }
 
 
-toModel : Context m -> List (Listener e) -> Promise c m e Void -> ( Model c m e, List ( LayerId, c ), List (AppCmd (Msg e)) )
-toModel context listeners (Promise prom) =
+toModel : Context m e -> Promise c m e Void -> NewState c m e
+toModel context (Promise prom) =
     let
         eff =
             prom context
-
-        newListeners =
-            eff.addListeners
-                ++ listeners
-                |> List.filter
-                    (\listener ->
-                        not (List.member listener.layerId eff.closedLayers)
-                            && not (List.member listener.requestId eff.closedRequests)
-                    )
     in
-    case eff.handler of
+    case eff.state of
         Resolved _ ->
-            ( EndOfProcess
-                { lastState = eff.newContext.state
-                }
-            , eff.cmds
-            , eff.appCmds
-            )
+            { nextModel = endOfModel eff.newContext
+            , cmds = eff.cmds
+            , requests = eff.requests
+            , realCmds = eff.realCmds
+            , logs = eff.logs
+            }
 
         Rejected ->
-            ( EndOfProcess
-                { lastState = eff.newContext.state
-                }
-            , eff.cmds
-            , eff.appCmds
-            )
+            { nextModel = endOfModel eff.newContext
+            , cmds = eff.cmds
+            , requests = eff.requests
+            , realCmds = eff.realCmds
+            , logs = eff.logs
+            }
 
         AwaitMsg nextProm ->
-            ( OnGoing
-                { context = eff.newContext
-                , listeners = newListeners
-                , next =
-                    \msg nextContext nextListeners ->
-                        toModel
-                            nextContext
-                            nextListeners
-                            (nextProm msg nextContext.state)
-                }
-            , eff.cmds
-            , eff.appCmds
-            )
+            { nextModel =
+                Model
+                    { context = eff.newContext
+                    , next =
+                        \msg nextContext ->
+                            toModel
+                                nextContext
+                                (nextProm msg nextContext.state)
+                    }
+            , cmds = eff.cmds
+            , requests = eff.requests
+            , realCmds = eff.realCmds
+            , logs = eff.logs
+            }
 
 
 {-| -}
-update : Msg event -> Model cmd memory event -> ( Model cmd memory event, List ( LayerId, cmd ), List (AppCmd (Msg event)) )
-update msg model =
-    case model of
-        EndOfProcess r ->
-            ( EndOfProcess r
-            , []
-            , []
-            )
-
-        OnGoing onGoing ->
-            let
-                { context, listeners } =
-                    onGoing
-            in
-            onGoing.next msg context listeners
+update : Msg e -> Model c m e -> NewState c m e
+update msg (Model model) =
+    model.next msg model.context
 
 
 {-| -}
@@ -1596,397 +1677,14 @@ documentView f model =
 
 {-| -}
 subscriptions : Model cmd memory event -> Sub (Msg event)
-subscriptions model =
-    case model of
-        EndOfProcess _ ->
-            Sub.none
-
-        OnGoing { listeners } ->
-            listeners
-                |> List.map .sub
-                |> Sub.batch
-
-
-
--- Scenario
-
-
-{-| -}
-type Scenario flags c m e
-    = Scenario
-        { test : TestConfig flags c m e -> TestContext c m e -> SeqTest.Sequence (TestModel c m e)
-        , markup : MarkupContext -> MarkupBuilder
-        }
-
-
-{-| -}
-type TestModel c m e
-    = OnGoingTest (TestContext c m e)
-    | TestAfterCases
-
-
-type alias TestConfig flags c m e =
-    { view : m -> Document (Msg e)
-    , init : flags -> Url -> Result String (SessionContext c m e)
-    , onUrlChange : AbsolutePath -> Msg e
-    }
-
-
-type alias TestContext c m e =
-    Dict SessionId (SessionContext c m e)
-
-
-{-| -}
-type alias SessionContext c m e =
-    { model : Model c m e
-    , cmds : List ( LayerId, c )
-    , history : History
-    }
-
-
-type alias SessionId =
-    String
-
-
-type alias MarkupContext =
-    List ( Mixin (), Markup.BlockElement ) -> Markup.Section
-
-
-type MarkupBuilder
-    = OnGoingMarkup MarkupContext
-    | MarkupAfterCases (List Markup.Section)
-    | InvalidMarkup InvalidMarkupReason
-
-
-{-| -}
-invalidMarkup : InvalidMarkupReason -> MarkupContext -> MarkupBuilder
-invalidMarkup reason _ =
-    InvalidMarkup reason
-
-
-{-| -}
-type InvalidMarkupReason
-    = SiblingScenarioAfterCases
-    | OtherInvalidMarkup String
-
-
-{-| -}
-noneScenario : Scenario flags c m e
-noneScenario =
-    Scenario
-        { test = noneTest
-        , markup = noneMarkup
-        }
-
-
-{-| -}
-noneTest : TestConfig flags c m e -> TestContext c m e -> SeqTest.Sequence (TestModel c m e)
-noneTest _ =
-    SeqTest.pass >> SeqTest.map OnGoingTest
-
-
-noneMarkup : MarkupContext -> MarkupBuilder
-noneMarkup =
-    OnGoingMarkup
-
-
-{-| -}
-putListItemMarkup : Markup.BlockElement -> MarkupContext -> MarkupBuilder
-putListItemMarkup item context =
-    OnGoingMarkup <|
-        \ls ->
-            context (( Mixin.none, item ) :: ls)
-
-
-{-| -}
-concatScenario : List (Scenario flags c m e) -> Scenario flags c m e
-concatScenario =
-    List.foldl
-        (\a acc ->
-            mappendScenario acc a
+subscriptions (Model model) =
+    List.filterMap
+        (\f ->
+            f model.context.state
         )
-        noneScenario
-
-
-mappendScenario : Scenario flags c m e -> Scenario flags c m e -> Scenario flags c m e
-mappendScenario (Scenario s1) (Scenario s2) =
-    Scenario
-        { test =
-            \config context ->
-                s1.test config context
-                    |> SeqTest.andThen
-                        (\m ->
-                            case m of
-                                OnGoingTest nextContext ->
-                                    s2.test config nextContext
-
-                                TestAfterCases ->
-                                    SeqTest.fail "Scenario structure" <|
-                                        \_ ->
-                                            Expect.fail "should not have sibling scenarios after `cases`."
-                        )
-        , markup =
-            \context ->
-                case s1.markup context of
-                    MarkupAfterCases _ ->
-                        InvalidMarkup SiblingScenarioAfterCases
-
-                    InvalidMarkup reason ->
-                        InvalidMarkup reason
-
-                    OnGoingMarkup nextContext ->
-                        s2.markup nextContext
-        }
-
-
-{-| -}
-testUrl : AbsolutePath -> Url
-testUrl (AbsolutePath path) =
-    { protocol = Url.Https
-    , host = "example.com"
-    , port_ = Nothing
-    , path = path.path
-    , query = path.query
-    , fragment = path.fragment
-    }
-
-
-{-| -}
-toTest :
-    { props :
-        { init : memory
-        , procedure : flags -> Url -> NavKey -> Promise cmd memory event Void
-        , view : Layer memory -> Document (Msg event)
-        , onUrlRequest : Browser.UrlRequest -> event
-        , onUrlChange : Url -> event
-        }
-    , sections : List (Section flags cmd memory event)
-    }
-    -> Test
-toTest o =
-    let
-        onUrlChange path =
-            LayerMsg
-                { layerId = LayerId.init
-                , event =
-                    o.props.onUrlChange (testUrl path)
-                }
-    in
-    List.map
-        (\(Section sec) ->
-            let
-                (Scenario { test }) =
-                    sec.content
-            in
-            test
-                { view =
-                    \m ->
-                        let
-                            document =
-                                o.props.view (Layer LayerId.init m)
-                        in
-                        { title = document.title
-                        , body = document.body
-                        }
-                , init =
-                    \flags url ->
-                        let
-                            ( model, cmds, appCmds ) =
-                                init o.props.init (o.props.procedure flags url SimKey)
-                        in
-                        { model = model
-                        , cmds = cmds
-                        , history =
-                            History.init <| AbsolutePath.fromUrl url
-                        }
-                            |> applyAppCmds
-                                { onUrlChange = onUrlChange
-                                }
-                                appCmds
-                , onUrlChange = onUrlChange
-                }
-                Dict.empty
-                |> SeqTest.run sec.title
-        )
-        o.sections
-        |> Test.describe "Scenario tests"
-
-
-{-| -}
-applyAppCmds :
-    { onUrlChange : AbsolutePath -> Msg e
-    }
-    -> List (AppCmd (Msg e))
-    -> SessionContext c m e
-    -> Result String (SessionContext c m e)
-applyAppCmds config appCmds sessionContext =
-    let
-        result =
-            List.foldl
-                (\appCmd acc ->
-                    Result.andThen
-                        (\( accSessionContext, accAppCmds ) ->
-                            applyAppCmd config appCmd accSessionContext
-                                |> Result.map
-                                    (\( newSessionContext, newAppCmds ) ->
-                                        ( newSessionContext, accAppCmds ++ newAppCmds )
-                                    )
-                        )
-                        acc
-                )
-                (Ok ( sessionContext, [] ))
-                appCmds
-    in
-    Result.andThen
-        (\( nextSessionContext, nextAppCmds ) ->
-            case nextAppCmds of
-                [] ->
-                    Ok nextSessionContext
-
-                _ ->
-                    applyAppCmds config nextAppCmds nextSessionContext
-        )
-        result
-
-
-applyAppCmd :
-    { onUrlChange : AbsolutePath -> Msg e
-    }
-    -> AppCmd (Msg e)
-    -> SessionContext c m e
-    -> Result String ( SessionContext c m e, List (AppCmd (Msg e)))
-applyAppCmd config appCmd sessionContext =
-    runAppCmdOnTest appCmd sessionContext.history
-        |> Result.map
-            (\( newHistory, path ) ->
-                let
-                    ( newModel, newCmds, newAppCmds ) =
-                        update (config.onUrlChange path)
-                            sessionContext.model
-                in
-                ( { model = newModel
-                  , cmds = sessionContext.cmds ++ newCmds
-                  , history = newHistory
-                  }
-                , newAppCmds
-                )
-            )
-
-
-{-| -}
-toMarkup :
-    { title : String
-    , sections : List (Section flags c m e)
-    }
-    -> Result InvalidMarkupReason Markup.Section
-toMarkup o =
-    List.foldl
-        (\a acc ->
-            Result.map2 (++) acc a
-        )
-        (Ok [])
-        (List.map toMarkupSection o.sections)
-        |> Result.map
-            (\children ->
-                Markup.Section
-                    { title = o.title
-                    , titleMixin = Mixin.none
-                    , body = []
-                    , bodyMixin = Mixin.none
-                    , children = children
-                    }
-            )
-
-
-toMarkupSection : Section flags c m e -> Result InvalidMarkupReason (List Markup.Section)
-toMarkupSection (Section sec) =
-    let
-        (Scenario scenario) =
-            sec.content
-
-        initMarkupContext : MarkupContext
-        initMarkupContext items =
-            Markup.Section
-                { title = sec.title
-                , titleMixin = Mixin.none
-                , body =
-                    [ ( Mixin.none, Markup.ListItems Mixin.none items )
-                    ]
-                , bodyMixin = Mixin.none
-                , children = []
-                }
-    in
-    case scenario.markup initMarkupContext of
-        OnGoingMarkup context ->
-            Ok [ context [] ]
-
-        MarkupAfterCases secs ->
-            Ok secs
-
-        InvalidMarkup reason ->
-            Err reason
-
-
-{-| -}
-type Section flags command memory event
-    = Section
-        { title : String
-        , content : Scenario flags command memory event
-        }
-
-
-{-| -}
-section : String -> List (Scenario flags c m e) -> Section flags c m e
-section title scenarios =
-    Section
-        { title = title
-        , content = concatScenario scenarios
-        }
-
-
-{-| -}
-cases : List (Section flags c m e) -> Scenario flags c m e
-cases sections =
-    Scenario
-        { test =
-            \config context ->
-                SeqTest.pass ()
-                    |> SeqTest.namedCases
-                        (\() ->
-                            List.map
-                                (\(Section sec) ->
-                                    let
-                                        (Scenario { test }) =
-                                            sec.content
-                                    in
-                                    ( sec.title
-                                    , test config context
-                                        |> SeqTest.map (\_ -> ())
-                                    )
-                                )
-                                sections
-                        )
-                    |> SeqTest.map (\_ -> TestAfterCases)
-        , markup =
-            \context ->
-                let
-                    sectionMarkups =
-                        List.foldl
-                            (\a acc ->
-                                Result.map2 (++) acc a
-                            )
-                            (Ok [])
-                            (List.map toMarkupSection sections)
-                in
-                case sectionMarkups of
-                    Err err ->
-                        InvalidMarkup err
-
-                    Ok markups ->
-                        MarkupAfterCases <|
-                            context []
-                                :: markups
-        }
+        model.context.subs
+        |> List.map Tuple.second
+        |> Sub.batch
 
 
 
@@ -2030,6 +1728,4 @@ type alias LayerQuery_ m m1 =
 runQuery : LayerQuery m m1 -> Model c m e -> List (Layer m1)
 runQuery (LayerQuery query) model =
     layerState model
-        |> Maybe.map List.singleton
-        |> Maybe.withDefault []
-        |> List.concatMap query.get
+        |> query.get
