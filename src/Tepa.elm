@@ -7,7 +7,7 @@ module Tepa exposing
     , andThen
     , sync
     , Void, void
-    , sequence, andThenSequence, none, return
+    , sequence, andThenSequence, none, cancel
     , syncAll
     , modify, push, listen, lazy
     , when
@@ -70,7 +70,7 @@ module Tepa exposing
 Promises that returns `Void` are called as a _Procedure_.
 
 @docs Void, void
-@docs sequence, andThenSequence, none, return
+@docs sequence, andThenSequence, none, cancel
 @docs syncAll
 @docs modify, push, listen, lazy
 
@@ -325,10 +325,11 @@ none =
     Core.none
 
 
-{-| -}
-return : Promise c m e Void
-return =
-    Core.return
+{-| Cancel all the subsequent Procedures.
+-}
+cancel : Promise c m e Void
+cancel =
+    Core.cancel
 
 
 {-| Run Procedures concurrently, and await all to be completed.

@@ -18,7 +18,7 @@ module Internal.Core exposing
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
-    , modify, push, currentState, return, lazy, listen
+    , modify, push, currentState, return, cancel, lazy, listen
     , sleep, listenTimeEvery
     , onGoingProcedure
     , newLayer, onLayer
@@ -67,7 +67,7 @@ module Internal.Core exposing
 # Primitive Procedures
 
 @docs Void, void
-@docs modify, push, currentState, return, lazy, listen
+@docs modify, push, currentState, return, cancel, lazy, listen
 @docs sleep, listenTimeEvery
 
 
@@ -969,6 +969,13 @@ push f =
 return : Promise c m e Void
 return =
     primitivePromise <| Resolved CompletedProcedure
+
+
+{-| Cancel all the subsequent Procedures.
+-}
+cancel : Promise c m e Void
+cancel =
+    primitivePromise Rejected
 
 
 {-| -}
