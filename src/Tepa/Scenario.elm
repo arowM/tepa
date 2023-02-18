@@ -98,9 +98,9 @@ import Internal.AbsolutePath as AbsolutePath
 import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
 import Internal.LayerId as LayerId exposing (LayerId)
-import Internal.MarkdownBuilder as MdBuilder
 import Internal.RequestId exposing (RequestId)
 import Json.Encode exposing (Value)
+import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Msg)
