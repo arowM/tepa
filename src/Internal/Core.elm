@@ -29,6 +29,7 @@ module Internal.Core exposing
     , customOperation
     , LayerQuery(..)
     , runQuery
+    , listenLayerEvent
     )
 
 {-|
@@ -1209,6 +1210,43 @@ listen { name, subscription, handler } =
             , logs =
                 [ AddListener myRequestId thisLayerId name
                 ]
+            , state = AwaitMsg awaitForever
+            }
+
+
+{-| -}
+listenLayerEvent :
+    (e -> List (Promise c m e Void))
+    -> Promise c m e Void
+listenLayerEvent handler =
+    Promise <|
+        \context ->
+            let
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                awaitForever : Msg e -> m -> Promise c m e Void
+                awaitForever msg _ =
+                    case msg of
+                        LayerMsg layerMsg ->
+                            if layerMsg.layerId == thisLayerId then
+                                concurrent
+                                    [ justAwaitPromise awaitForever
+                                    , handler layerMsg.event
+                                        |> sequence
+                                    ]
+
+                            else
+                                justAwaitPromise awaitForever
+
+                        _ ->
+                            justAwaitPromise awaitForever
+            in
+            { newContext = context
+            , cmds = []
+            , requests = []
+            , realCmds = []
+            , logs = []
             , state = AwaitMsg awaitForever
             }
 

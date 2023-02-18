@@ -21,7 +21,7 @@ module Tepa exposing
     , expectStringResponse, expectBytesResponse
     , customRequest
     , anyRequest
-    , withLayerEvent
+    , withLayerEvent, listenLayerEvent
     , Layer, isPointedBy
     , putMaybeLayer, putVariantLayer, newListItemLayer, newLayer
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -96,7 +96,7 @@ Promises that returns `Void` are called as a _Procedure_.
 
 # Helper Promises
 
-@docs withLayerEvent
+@docs withLayerEvent, listenLayerEvent
 
 
 # Layer
@@ -461,6 +461,35 @@ withLayerEvent f =
             )
 
 
+{-| Construct a Promise that listen to Events on a layer till the Layer expires.
+
+Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
+
+    myProcedures : List (Promise Command Memory Event Void)
+    myProcedures =
+        [ newLayer myLayerPosition initValue
+            |> andThen
+                (\(myLayer, myPointer) ->
+                    syncAll
+                        [ listenLayerEvent onEveryClickAddButton
+                        , Debug.todo "Main Promise"
+                        ]
+                )
+
+    onEveryClickAddButton : Event -> List (Promise c m e Void)
+    onEveryClickAddButton event =
+        case event of
+            ClickAddButton ->
+                Debug.todo "Sequence of Promises"
+            _ ->
+                []
+
+-}
+listenLayerEvent : (e -> List (Promise c m e Void)) -> Promise c m e Void
+listenLayerEvent =
+    Core.listenLayerEvent
+
+
 
 -- Primitive Promises
 
@@ -494,7 +523,7 @@ currentState =
 
 {-| Lower level Promise that awaits Layer events.
 
-This resolves with any Event the Layer receives; for specific Layer Events, you cane use `withLayerEvent` helper function.
+This resolves with every Event the Layer receives; for specific Layer Events, you can use `withLayerEvent` and `listenLayerEvent` helper functions.
 
 -}
 layerEvent : Promise c m e e
@@ -961,6 +990,7 @@ update msg model =
     in
     ( newState.nextModel
     , [ List.map Tuple.second newState.cmds
+      , List.map (\(Core.Request _ _ c) -> c) newState.requests
       , newState.realCmds
       ]
         |> List.concat
@@ -1002,6 +1032,7 @@ init memory procs =
     in
     ( newState.nextModel
     , [ List.map Tuple.second newState.cmds
+      , List.map (\(Core.Request _ _ c) -> c) newState.requests
       , newState.realCmds
       ]
         |> List.concat
