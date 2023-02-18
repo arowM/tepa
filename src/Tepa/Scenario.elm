@@ -1,7 +1,7 @@
 module Tepa.Scenario exposing
     ( Scenario
     , none
-    , concat
+    , sequence
     , toTest
     , toHtml
     , toMarkdown
@@ -33,7 +33,7 @@ module Tepa.Scenario exposing
 
 @docs Scenario
 @docs none
-@docs concat
+@docs sequence
 @docs toTest
 @docs toHtml
 @docs toMarkdown
@@ -219,8 +219,8 @@ noneTest _ =
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
 -}
-concat : List (Scenario flags c m e) -> Scenario flags c m e
-concat =
+sequence : List (Scenario flags c m e) -> Scenario flags c m e
+sequence =
     List.foldl
         (\a acc ->
             mappend acc a
@@ -416,6 +416,7 @@ userComment (User user) comment =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis user.name
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText comment
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -436,9 +437,8 @@ systemComment (Session session) comment =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    "System"
+                    ("[" ++ session.uniqueName ++ "] System")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText comment
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -508,9 +508,8 @@ expectMemory (Session session) description o =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    "System"
+                    ("[" ++ session.uniqueName ++ "] System")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -587,9 +586,8 @@ expectAppView (Session session) description { expectation } =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    "System"
+                    ("[" ++ session.uniqueName ++ "] System")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -660,9 +658,8 @@ loadApp (Session session) description o =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    "System"
+                    ("[" ++ session.uniqueName ++ "] System")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -753,9 +750,8 @@ layerEvent (Session session) description o =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    user.name
+                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -833,9 +829,8 @@ userOperation (Session session) description o =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    user.name
+                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -934,9 +929,8 @@ listenerEvent (Session session) description o =
             MdBuilder.appendListItem
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushStrongEmphasis
-                    o.listenerName
+                    ("[" ++ session.uniqueName ++ "] " ++ o.listenerName)
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -991,6 +985,7 @@ sleep (Session session) description msec =
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
                     ("[" ++ session.uniqueName ++ "]")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -1139,6 +1134,7 @@ portResponse (Session session) description o =
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
                     ("[" ++ session.uniqueName ++ "]")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -1235,6 +1231,7 @@ customResponse (Session session) description o =
                 >> MdBuilder.editListItemContent
                 >> MdBuilder.pushStrongEmphasis
                     ("[" ++ session.uniqueName ++ "]")
+                >> MdBuilder.pushText ": "
                 >> MdBuilder.pushText description
                 >> MdBuilder.endPushMode
                 >> MdBuilder.break
@@ -1282,7 +1279,7 @@ fromJust description ma f =
 
         Just a ->
             f a
-                |> concat
+                |> sequence
 
 
 {-| Similar to `fromJust`, but extract `Ok` valur from `Result`.
@@ -1305,7 +1302,7 @@ fromOk description res f =
 
         Ok a ->
             f a
-                |> concat
+                |> sequence
 
 
 
@@ -1332,7 +1329,7 @@ toTest o =
         (\sec acc ->
             let
                 (Scenario { test }) =
-                    concat sec.content
+                    sequence sec.content
             in
             SeqTest.andThen
                 (\cache ->
@@ -1718,7 +1715,7 @@ buildMarkdown o =
         (\sec acc ->
             let
                 (Scenario scenario) =
-                    concat sec.content
+                    sequence sec.content
             in
             acc
                 |> Result.andThen
@@ -1747,7 +1744,7 @@ buildMarkdown o =
                                                 MdBuilder.appendListItem
                                                     >> MdBuilder.editListItemContent
                                                     >> MdBuilder.pushText
-                                                        "After"
+                                                        "After "
                                                     >> MdBuilder.pushLink
                                                         { href = "#" ++ Url.percentEncode dep
                                                         , text = dep
