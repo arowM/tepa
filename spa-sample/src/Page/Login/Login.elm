@@ -41,7 +41,7 @@ If you are not familiar with the concept of _form decoding_, see [blog post](htt
 
 -}
 
-import App.Session exposing (Session)
+import App.Session exposing (Profile)
 import Form.Decoder as FD
 import Http
 import Json.Decode as JD
@@ -95,7 +95,7 @@ request (Login login) toMsg =
 {-| Successful response body.
 -}
 type alias GoodResponseBody =
-    { session : Session
+    { profile : Profile
     }
 
 
@@ -116,18 +116,20 @@ type Response
         { url = "https://example.com/api/login"
         , statusCode = 200
         , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
         }
         """
         {
           "profile": {
-            "id": "Sakura-chan-ID"
+            "id": "Sakura-chan-ID",
+            "name": "Sakura-chan"
           }
         }
         """
     --> GoodResponse
-    -->     { session =
+    -->     { profile =
     -->         { id = "Sakura-chan-ID"
+    -->         , name = Just "Sakura-chan"
     -->         }
     -->     }
 
@@ -135,12 +137,13 @@ type Response
         { url = "https://example.com/api/login"
         , statusCode = 200
         , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
         }
         """
         {
           "profile": {
-            "ID": "Sakura-chan-ID"
+            "ID": "Sakura-chan-ID",
+            ,name": "Sakura-chan"
           }
         }
         """
@@ -150,12 +153,13 @@ type Response
         { url = "https://example.com/api/login"
         , statusCode = 200
         , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
+        , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
         }
         """
         {
           "profile": {
-            "id": "Sakura-chan-ID"
+            "id": "Sakura-chan-ID",
+            "name": "Sakura-chan"
           }
         """
     --> OtherError
@@ -238,13 +242,14 @@ badStatusDecoder =
 goodStatusDecoder : JD.Decoder GoodResponseBody
 goodStatusDecoder =
     JD.succeed GoodResponseBody
-        |> JDP.required "profile" sessionDecoder
+        |> JDP.required "profile" profileDecoder
 
 
-sessionDecoder : JD.Decoder Session
-sessionDecoder =
-    JD.succeed Session
+profileDecoder : JD.Decoder Profile
+profileDecoder =
+    JD.succeed Profile
         |> JDP.required "id" JD.string
+        |> JDP.required "name" (JD.maybe JD.string)
 
 
 

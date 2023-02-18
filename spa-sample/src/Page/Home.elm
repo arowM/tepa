@@ -106,7 +106,9 @@ type alias EditAccountFormMemory =
 
 initEditAccountForm : Session -> EditAccountFormMemory
 initEditAccountForm session =
-    { form = EditAccount.initForm session.id
+    { form =
+        { name = Maybe.withDefault "" session.profile.name
+        }
     , isBusy = False
 
     -- Do not show errors initially to avoid bothering
@@ -130,11 +132,11 @@ editAccountFormView memory =
         [ Html.node "label"
             [ localClass "editAccountForm_label-id"
             ]
-            [ Html.text "New Account ID:"
+            [ Html.text "New name:"
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
-                , Mixin.attribute "value" memory.form.id
-                , Mixin.boolAttribute "disabled" memory.isBusy
+                , Mixin.attribute "value" memory.form.name
+                , Mixin.disabled memory.isBusy
                 , Events.onChange ChangeEditAccountFormAccountId
                     |> Tepa.eventMixin
                 ]
@@ -145,7 +147,7 @@ editAccountFormView memory =
             ]
             [ Html.node "button"
                 [ localClass "editAccountForm_buttonGroup_button-submit"
-                , Mixin.boolAttribute "disabled" memory.isBusy
+                , Mixin.disabled memory.isBusy
                 , Events.onClick ClickSubmitEditAccount
                     |> Tepa.eventMixin
                 ]
@@ -268,7 +270,7 @@ editAccountFormProcedure bucket =
             case e of
                 ChangeEditAccountFormAccountId str ->
                     [ modifyForm <|
-                        \m -> { m | id = str }
+                        \m -> { m | name = str }
                     , Tepa.lazy <|
                         \_ -> editAccountFormProcedure bucket
                     ]
@@ -353,7 +355,12 @@ submitAccountProcedure bucket =
                                                     [ Tepa.modify <|
                                                         \m ->
                                                             { m
-                                                                | session = resp.session
+                                                                | session =
+                                                                    let
+                                                                        session =
+                                                                            m.session
+                                                                    in
+                                                                    { session | profile = resp.profile }
                                                                 , editAccountForm =
                                                                     let
                                                                         editAccountForm =

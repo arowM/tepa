@@ -5,7 +5,6 @@ module Page.Home.EditAccount exposing
     , GoodResponseBody
     , response
     , Form
-    , initForm
     , FormError(..)
     , displayFormError
     , fromForm
@@ -33,7 +32,6 @@ module Page.Home.EditAccount exposing
 If you are not familiar with the concept of _form decoding_, see [blog post](https://arow.info/posts/2019/form-decoding/).
 
 @docs Form
-@docs initForm
 @docs FormError
 @docs displayFormError
 @docs fromForm
@@ -41,7 +39,7 @@ If you are not familiar with the concept of _form decoding_, see [blog post](htt
 
 -}
 
-import App.Session exposing (Session)
+import App.Session exposing (Profile)
 import Form.Decoder as FD
 import Http
 import Json.Decode as JD
@@ -62,7 +60,7 @@ type EditAccount
 
 
 type alias EditAccount_ =
-    { id : String
+    { name : String
     }
 
 
@@ -74,13 +72,13 @@ request (EditAccount editAccount) toMsg =
         { url =
             Url.absolute
                 [ "api"
-                , "account"
+                , "edit-profile-name"
                 ]
                 []
         , body =
             Http.jsonBody <|
                 JE.object
-                    [ ( "id", JE.string editAccount.id )
+                    [ ( "name", JE.string editAccount.name )
                     ]
         , expect = Tepa.expectStringResponse toMsg
         }
@@ -93,7 +91,7 @@ request (EditAccount editAccount) toMsg =
 {-| Successful response body.
 -}
 type alias GoodResponseBody =
-    { session : Session
+    { profile : Profile
     }
 
 
@@ -111,7 +109,7 @@ type Response
     import Http
 
     response
-        { url = "https://example.com/api/edit-account"
+        { url = "https://example.com/api/edit-profile-name"
         , statusCode = 200
         , statusText = "OK"
         , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
@@ -119,18 +117,20 @@ type Response
         """
         {
           "profile": {
-            "id": "Sakura-chan-ID"
+            "id": "Sakura-chan-ID",
+            "name": "Sakura-chan"
           }
         }
         """
     --> GoodResponse
-    -->     { session =
+    -->     { profile =
     -->         { id = "Sakura-chan-ID"
+    -->         , name = Just "Sakura-chan"
     -->         }
     -->     }
 
     response
-        { url = "https://example.com/api/edit-account"
+        { url = "https://example.com/api/edit-profile-name"
         , statusCode = 401
         , statusText = "Unauthorized"
         , headers = Dict.empty
@@ -143,7 +143,7 @@ type Response
     --> LoginRequired
 
     response
-        { url = "https://example.com/api/edit-account"
+        { url = "https://example.com/api/edit-profile-name"
         , statusCode = 404
         , statusText = "Not Found"
         , headers = Dict.empty
@@ -178,13 +178,14 @@ response meta str =
 goodStatusDecoder : JD.Decoder GoodResponseBody
 goodStatusDecoder =
     JD.succeed GoodResponseBody
-        |> JDP.required "profile" sessionDecoder
+        |> JDP.required "profile" profileDecoder
 
 
-sessionDecoder : JD.Decoder Session
-sessionDecoder =
-    JD.succeed Session
+profileDecoder : JD.Decoder Profile
+profileDecoder =
+    JD.succeed Profile
         |> JDP.required "id" JD.string
+        |> JDP.required "name" (JD.maybe JD.string)
 
 
 
@@ -194,15 +195,7 @@ sessionDecoder =
 {-| Represents current form status, which can be invalid.
 -}
 type alias Form =
-    { id : String
-    }
-
-
-{-| Initial value.
--}
-initForm : String -> Form
-initForm text =
-    { id = text
+    { name : String
     }
 
 
@@ -232,7 +225,7 @@ fromForm form =
 
     sample1 : Form
     sample1 =
-        { id = ""
+        { name = ""
         }
 
     toFormErrors sample1
@@ -240,7 +233,7 @@ fromForm form =
 
     sample2 : Form
     sample2 =
-        { id = "a"
+        { name = "a"
         }
 
     toFormErrors sample2
@@ -260,7 +253,7 @@ toFormErrors form =
 formDecoder : FD.Decoder Form FormError EditAccount
 formDecoder =
     FD.top EditAccount_
-        |> FD.field (FD.lift .id formIdDecoder)
+        |> FD.field (FD.lift .name formIdDecoder)
         |> FD.map EditAccount
 
 

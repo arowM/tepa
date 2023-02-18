@@ -174,7 +174,7 @@ loginFormView memory =
             , Html.div
                 [ localClass "loginForm_notes_text"
                 ]
-                [ Html.text "Password: guest"
+                [ Html.text "Password: guestPass"
                 ]
             ]
         , if memory.showError && List.length errors > 0 then
@@ -403,7 +403,10 @@ submitLoginProcedure bucket =
                                                     [ Tepa.modify <|
                                                         \m ->
                                                             { m
-                                                                | msession = Just resp.session
+                                                                | msession =
+                                                                    Just
+                                                                        { profile = resp.profile
+                                                                        }
                                                                 , loginForm =
                                                                     let
                                                                         loginForm =

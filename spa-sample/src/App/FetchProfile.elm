@@ -21,10 +21,10 @@ module App.FetchProfile exposing
 
 -}
 
+import App.Session exposing (Profile)
 import Http
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
-import Json.Encode as JE
 import Tepa
 import Url.Builder as Url
 
@@ -37,14 +37,13 @@ import Url.Builder as Url
 -}
 request : (Tepa.HttpResult String -> msg) -> Cmd msg
 request toMsg =
-    Http.post
+    Http.get
         { url =
             Url.absolute
                 [ "api"
                 , "profile"
                 ]
                 []
-        , body = Http.jsonBody <| JE.object []
         , expect = Tepa.expectStringResponse toMsg
         }
 
@@ -56,7 +55,7 @@ request toMsg =
 {-| Successful response body.
 -}
 type alias GoodResponseBody =
-    { id : String
+    { profile : Profile
     }
 
 
@@ -82,12 +81,16 @@ type Response
         """
         {
           "profile": {
-            "id": "Sakura-chan-ID"
+            "id": "Sakura-chan-ID",
+            "name": "Sakura-chan"
           }
         }
         """
     --> GoodResponse
-    -->     { id = "Sakura-chan-ID"
+    -->     { profile =
+    -->         { id = "Sakura-chan-ID"
+    -->         , name = Just "Sakura-chan"
+    -->         }
     -->     }
 
     response
@@ -153,5 +156,11 @@ response meta str =
 goodStatusDecoder : JD.Decoder GoodResponseBody
 goodStatusDecoder =
     JD.succeed GoodResponseBody
-        |> JDP.required "profile"
-            (JD.field "id" JD.string)
+        |> JDP.required "profile" profileDecoder
+
+
+profileDecoder : JD.Decoder Profile
+profileDecoder =
+    JD.succeed Profile
+        |> JDP.required "id" JD.string
+        |> JDP.required "name" (JD.maybe JD.string)

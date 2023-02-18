@@ -353,7 +353,12 @@ pageControllProcedure url key msession =
                             Ok (FetchProfile.GoodResponse resp) ->
                                 Tepa.lazy <|
                                     \_ ->
-                                        pageControllProcedure url key (Just { id = resp.id })
+                                        pageControllProcedure url
+                                            key
+                                            (Just
+                                                { profile = resp.profile
+                                                }
+                                            )
                     )
 
         ( Route.Home, Just session ) ->

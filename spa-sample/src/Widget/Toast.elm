@@ -75,14 +75,14 @@ import Test.Html.Selector as Selector
 
 {-| How long it takes for the toast pop-up to start disappearing.
 -}
-toastTimeout : Float
+toastTimeout : Int
 toastTimeout =
     10000
 
 
 {-| The duration of the effect for disappearing a toast item.
 -}
-toastFadeOutDuration : Float
+toastFadeOutDuration : Int
 toastFadeOutDuration =
     250
 
@@ -285,7 +285,7 @@ toastItemView memory =
         , localClass <| "toast_item-" ++ messageTypeCode memory.messageType
         , Mixin.attribute "role" "dialog"
         , Mixin.boolAttribute "aria-hidden" memory.isHidden
-        , Mixin.style "--disappearing-duration" (String.fromFloat toastFadeOutDuration ++ "ms")
+        , Mixin.style "--disappearing-duration" (String.fromInt toastFadeOutDuration ++ "ms")
         ]
         [ Html.div
             [ localClass "toast_item_body"
@@ -428,7 +428,7 @@ closeByMessage props messageType descPrefix { message } =
                     )
                 |> LayerQuery.index 0
     in
-    Scenario.concat
+    Scenario.sequence
         [ Scenario.layerEvent props.session
             (descPrefix ++ message)
             { target = target
