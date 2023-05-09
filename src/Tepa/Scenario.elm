@@ -5,14 +5,18 @@ module Tepa.Scenario exposing
     , toTest
     , toHtml
     , toMarkdown
+    , InvalidMarkup(..)
     , Section
     , Dependency(..)
     , User
     , defineUser
     , Session
     , defineSession
+    , Markup
+    , textContent
     , userComment
     , systemComment
+    , comment
     , expectMemory
     , expectAppView
     , loadApp
@@ -24,6 +28,9 @@ module Tepa.Scenario exposing
     , customResponse
     , fromJust
     , fromOk
+    , RenderConfig
+    , en_US
+    , ja_JP
     )
 
 {-| Module for Scenario-Driven Development.
@@ -37,6 +44,7 @@ module Tepa.Scenario exposing
 @docs toTest
 @docs toHtml
 @docs toMarkdown
+@docs InvalidMarkup
 @docs Section
 @docs Dependency
 
@@ -53,6 +61,12 @@ module Tepa.Scenario exposing
 @docs defineSession
 
 
+# Markup
+
+@docs Markup
+@docs textContent
+
+
 # Primitives
 
 
@@ -60,6 +74,7 @@ module Tepa.Scenario exposing
 
 @docs userComment
 @docs systemComment
+@docs comment
 
 
 ## Expectations
@@ -88,34 +103,38 @@ module Tepa.Scenario exposing
 @docs fromJust
 @docs fromOk
 
+
+# RenderConfig
+
+@docs RenderConfig
+@docs en_US
+@docs ja_JP
+
 -}
 
 import Browser exposing (Document)
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
-import Expect.Builder as ExpBuilder
 import Internal.AbsolutePath as AbsolutePath
 import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
 import Internal.LayerId as LayerId exposing (LayerId)
 import Internal.RequestId exposing (RequestId)
 import Json.Encode exposing (Value)
+import MarkdownAst as MdAst
 import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Msg)
 import Tepa.AbsolutePath exposing (AbsolutePath)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
-import Tepa.Scenario.Operation exposing (Operation)
 import Test exposing (Test)
+import Test.Html.Event as TestEvent
 import Test.Html.Query exposing (Single)
 import Test.Sequence as SeqTest
 import Time exposing (Posix)
+import TimeZone
 import Url exposing (Url)
-
-
-type alias ExpBuilder a =
-    ExpBuilder.Builder a
 
 
 
@@ -131,7 +150,7 @@ type Scenario flags cmd memory event
     = Scenario
         { test : TestConfig flags cmd memory event -> TestContext cmd memory event -> SeqTest.Sequence (TestContext cmd memory event)
         , markup :
-            ListBlock -> Result InvalidMarkup ListBlock
+            RenderConfig -> ListBlock -> Result InvalidMarkup ListBlock
         }
 
 
@@ -207,7 +226,7 @@ none : Scenario flags c m e
 none =
     Scenario
         { test = noneTest
-        , markup = Ok
+        , markup = \_ -> Ok
         }
 
 
@@ -237,7 +256,8 @@ mappend (Scenario s1) (Scenario s2) =
                     |> SeqTest.andThen
                         (s2.test config)
         , markup =
-            s1.markup >> Result.andThen s2.markup
+            \config ->
+                s1.markup config >> Result.andThen (s2.markup config)
         }
 
 
@@ -256,9 +276,9 @@ testUrl (AbsolutePath.AbsolutePath path) =
 -- Section
 
 
-{-| Titled Sequence of Scenarios.
+{-| Titled sequence of Scenarios.
 
-  - title: Title for the Section
+  - title: Title for the Section, which must be unique string
   - content: Sequence of Scenarios for the Section
   - dependency: Dependency of the Section
 
@@ -409,18 +429,14 @@ You can start with `userComment` and `systemComment` to build the skeleton of yo
 
 -}
 userComment : User -> String -> Scenario flags c m e
-userComment (User user) comment =
-    Scenario
-        { test = noneTest
-        , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis user.name
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText comment
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+userComment (User user) commentText =
+    comment
+        { content =
+            [ MdAst.StrongEmphasis user.name
+            , MdAst.PlainText <| ": " ++ commentText
+            ]
+        , detail = []
+        , appear = True
         }
 
 
@@ -430,20 +446,136 @@ This Scenario only affects document generation, and is ignored for scenario test
 
 -}
 systemComment : Session -> String -> Scenario flags c m e
-systemComment (Session session) comment =
+systemComment (Session session) commentText =
+    comment
+        { content =
+            [ MdAst.StrongEmphasis <|
+                "["
+                    ++ session.uniqueName
+                    ++ "]"
+            , MdAst.PlainText " "
+            , MdAst.StrongEmphasis "System"
+            , MdAst.PlainText <| ": " ++ commentText
+            ]
+        , detail = []
+        , appear = True
+        }
+
+
+{-| Lower level function to add detailed comments.
+-}
+comment : Markup -> Scenario flags c m e
+comment markup =
     Scenario
         { test = noneTest
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] System")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText comment
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \_ ->
+                MdBuilder.appendListItem markup.content
+                    >> MdBuilder.appendBlocks markup.detail
+                    >> MdBuilder.break
+                    >> Ok
         }
+
+
+{-| Represents markup for a scenario.
+
+Suppose you have the following `Markup`, which uses [arowM/elm-markdown-ast](https://package.elm-lang.org/packages/arowM/elm-markdown-ast/latest/):
+
+    import MarkdownAst as Markdown
+
+    sample : Markup
+    sample =
+        { content =
+            [ Markdown.InlineCode "content"
+            , Markdown.PlainText " for the list item"
+            ]
+        , detail =
+            [ Markdown.ParagraphBlock
+                [ Markdown.InlineCode "detail"
+                , Markdown.PlainText " for the list item"
+                ]
+            , Markdown.CodeBlock
+                """json
+                {
+                  "code": "Next `detail` for the list item"
+                }
+                """
+            ]
+        , appear = True
+        }
+
+The `sample` represents the bellow markdown list item:
+
+    - `content` for the list item
+
+        `detail` for the list item
+
+        ```json
+        {
+          "code": "Next `detail` for the list item"
+        }
+        ```
+
+You can set the `appear` field `False` to skip the item from appearing up in the document, which allows you to generate documents for various targets:
+
+    import MarkdownAst as Markdown
+
+    type DocTarget
+        = Developer
+        | Manager
+        | Customer
+
+    docLevelDev : DocTarget -> Bool
+    docLevelDev target =
+        case target of
+            Developer ->
+                True
+
+            Manager ->
+                False
+
+            Customer ->
+                False
+
+    myScenario : DocTarget -> Scenario Flags Command Memory Event
+    myScenario target =
+        [ Debug.todo "After some operations..."
+        , expectEvents sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "Requests user profile to the server."
+                ]
+            , detail = []
+            , appear = docLevelDev target
+            }
+            (Debug.todo "Expectation Here")
+        , Debug.todo "..."
+        ]
+
+-}
+type alias Markup =
+    { content : List MdAst.InlineElement
+    , detail : List MdAst.BlockElement
+    , appear : Bool
+    }
+
+
+{-| Helper function to construct text only markup.
+
+    import MarkdownAst as Markdown
+
+    textContent "Only text here."
+    --> { content = [ Markdown.PlainText "Only text here." ]
+    --> , detail = []
+    --> , appear = True
+    --> }
+
+-}
+textContent : String -> Markup
+textContent str =
+    { content = [ MdAst.PlainText str ]
+    , detail = []
+    , appear = True
+    }
 
 
 
@@ -454,37 +586,59 @@ systemComment (Session session) comment =
 
 Suppose your application has a counter:
 
-    import Expect.Builder as ExpBuilder
+    import Expect
+    import MarkdownAst as Markdown
+    import Tepa.Scenario.LayerQuery as LayerQuery
 
     myScenario =
         [ Debug.todo "After some operations..."
         , expectMemory sakuraChanMainSession
-            "Requests user information to the server."
-            { expectation =
-                ExpBuilder.partial .counter <|
-                    ExpBuilder.lessThan 4
+            { content =
+                [ Markdown.PlainText "The counter must be less than four."
+                ]
+            , detail = []
+            , appear = True
+            }
+            { target =
+                pageHomeLayer
+            , expectation =
+                \pageHome ->
+                    case pageHome of
+                        [] ->
+                            Expect.fail "Current page is not Home."
+
+                        [ pageHomeMemory ] ->
+                            pageHomeMemory.counter
+                                |> Expect.lessThan 4
+
+                        _ ->
+                            Expect.fail "Invalid LayerQuery"
             }
         , Debug.todo "..."
         ]
 
-You use [elm-expectation-builder]() to describe your expectation flexibly.
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
 -}
 expectMemory :
     Session
-    -> String
+    -> Markup
     ->
         { target : LayerQuery m m1
-        , expectation : ExpBuilder (List m1)
+        , expectation : List m1 -> Expectation
         }
     -> Scenario flags c m e
-expectMemory (Session session) description o =
+expectMemory (Session session) markup o =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "expectMemory: The application is not active on the session. Use `loadApp` beforehand."
@@ -492,7 +646,7 @@ expectMemory (Session session) description o =
                     Just sessionContext ->
                         case Core.runQuery o.target sessionContext.model of
                             [] ->
-                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                SeqTest.fail description <|
                                     \_ ->
                                         Err (Core.memoryState sessionContext.model)
                                             |> Expect.equal
@@ -502,19 +656,57 @@ expectMemory (Session session) description o =
                                 List.map (\(Core.Layer _ m1) -> m1) layer1s
                                     |> SeqTest.pass
                                     |> SeqTest.assert description
-                                        (ExpBuilder.applyTo o.expectation)
+                                        o.expectation
                                     |> SeqTest.map (\_ -> context)
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] System")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processExpectMemoryMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
+
+
+stringifyInlineItems : List MdAst.InlineElement -> String
+stringifyInlineItems =
+    List.map
+        (\item ->
+            case item of
+                MdAst.PlainText str ->
+                    str
+
+                MdAst.Link o ->
+                    o.text
+
+                MdAst.Image o ->
+                    o.alt
+
+                MdAst.InlineCode str ->
+                    str
+
+                MdAst.Emphasis str ->
+                    str
+
+                MdAst.StrongEmphasis str ->
+                    str
+
+                MdAst.Strikethrough str ->
+                    str
+
+                MdAst.LineBreak ->
+                    " "
+        )
+        >> String.concat
 
 
 {-| Describe your expectations for the application's view at the point.
@@ -528,7 +720,7 @@ Suppose your application has a popup:
     myScenario =
         [ Debug.todo "After some operations..."
         , expectAppView sakuraChanMainSession
-            "Show popup message."
+            (textContent "Show popup message.")
             { expectation =
                 \{ body } ->
                     Query.fromHtml (Html.div [] body)
@@ -541,13 +733,16 @@ Suppose your application has a popup:
         , Debug.todo "..."
         ]
 
-You use [elm-expectation-builder]() to describe your expectation flexibly.
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
 Note that the `expectation` field takes page whole view even if you use it in `onLayer` function.
 
+    import MarkdownAst as Markdown
+
     onLayer popup
         [ expectAppView sakuraChanMainSession
-            "expectation about the whole application view"
+            (textContent "expectation about the whole application view"
+            )
             { expectation =
                 \html ->
                     Debug.todo
@@ -559,18 +754,22 @@ Note that the `expectation` field takes page whole view even if you use it in `o
 -}
 expectAppView :
     Session
-    -> String
+    -> Markup
     ->
         { expectation : Document (Msg event) -> Expectation
         }
     -> Scenario flags c m event
-expectAppView (Session session) description { expectation } =
+expectAppView (Session session) markup { expectation } =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "expectAppView: The application is not active on the session. Use `loadApp` beforehand."
@@ -583,15 +782,21 @@ expectAppView (Session session) description { expectation } =
                             |> SeqTest.assert description expectation
                             |> SeqTest.map (\_ -> context)
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] System")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processExpectAppViewMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -599,9 +804,10 @@ expectAppView (Session session) description { expectation } =
 -- -- Event Simulators
 
 
-{-| Load the app. You can also use `loadApp` to reload the app.
+{-| Load the app. You can also reload the app by calling `loadApp`.
 
     import Json.Encode as JE
+    import MarkdownAst as Markdown
     import Tepa.AbsolutePath exposing (absolutePath)
 
     myScenario =
@@ -610,7 +816,7 @@ expectAppView (Session session) description { expectation } =
         , userComment sakuraChan
             "I'll open the home page..."
         , loadApp sakuraChanMainSession
-            "Load the home page."
+            (textContent "Load the home page.")
             { path = absolutePath [] [] Nothing
             , flags =
                 JE.object []
@@ -620,7 +826,7 @@ expectAppView (Session session) description { expectation } =
         , userComment sakuraChan
             "Oops, I accidentally hit the F5 button..."
         , loadApp sakuraChanMainSession
-            "Reload the page."
+            (textContent "Reload the page.")
             { path = absolutePath [] [] Nothing
             , flags =
                 JE.object []
@@ -631,19 +837,23 @@ expectAppView (Session session) description { expectation } =
 -}
 loadApp :
     Session
-    -> String
+    -> Markup
     ->
         { path : AbsolutePath
         , flags : flags
         }
     -> Scenario flags c m e
-loadApp (Session session) description o =
+loadApp (Session session) markup o =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case config.init o.flags (testUrl o.path) of
                     Err err ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ -> Expect.fail err
 
                     Ok sessionContext ->
@@ -655,15 +865,21 @@ loadApp (Session session) description o =
                         }
                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] System")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processLoadAppMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -671,11 +887,13 @@ loadApp (Session session) description o =
 
 Suppose your application has a popup:
 
+    import MarkdownAst as Markdown
+
     myScenario =
         [ Debug.todo "After some operations..."
         , onLayer popup
             [ layerEvent sakuraChanMainSession
-                "Click cancel button."
+                (textContent "Click cancel button.")
                 { event = ClickPopupCancelButton
                 }
             ]
@@ -687,23 +905,23 @@ The example above publishes `ClickPopupCancelButton` event to the LayerId for th
 -}
 layerEvent :
     Session
-    -> String
+    -> Markup
     ->
         { target : LayerQuery m m1
         , event : event
         }
     -> Scenario flags c m event
-layerEvent (Session session) description o =
+layerEvent (Session session) markup o =
     let
-        (User user) =
-            session.user
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
     in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "layerEvent: The application is not active on the session. Use `loadApp` beforehand."
@@ -711,7 +929,7 @@ layerEvent (Session session) description o =
                     Just sessionContext ->
                         case Core.runQuery o.target sessionContext.model of
                             [] ->
-                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                SeqTest.fail description <|
                                     \_ ->
                                         Expect.fail
                                             "layerEvent: No Layers for the query."
@@ -735,7 +953,7 @@ layerEvent (Session session) description o =
                                 in
                                 case res of
                                     Err err ->
-                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                        SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -747,38 +965,59 @@ layerEvent (Session session) description o =
                                         }
                                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processLayerEventMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
-{-| -}
+{-| About options:
+
+  - target: Query to specify the event target element from your current page HTML.
+
+    Use querying functions that [Test.Html.Query](https://package.elm-lang.org/packages/elm-explorations/test/latest/Test-Html-Query) module exports.
+
+  - operation: Simulated event caused by user operation.
+
+    Use event builders that [Test.Html.Event](https://package.elm-lang.org/packages/elm-explorations/test/latest/Test-Html-Event) module exports.
+
+Simulate a custom event. The String is the event name, and the Value is the event object the browser would send to the event listener callback.
+
+-}
 userOperation :
     Session
-    -> String
+    -> Markup
     ->
         { target : Single (Msg e) -> Single (Msg e)
-        , operation : Operation e
+        , operation : ( String, Value )
         }
     -> Scenario flags c m e
-userOperation (Session session) description o =
+userOperation (Session session) markup o =
     let
         (User user) =
             session.user
+
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ stringifyInlineItems markup.content
     in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "userOperation: The application is not active on the session. Use `loadApp` beforehand."
@@ -792,11 +1031,12 @@ userOperation (Session session) description o =
                                     |> Html.div []
                                     |> Test.Html.Query.fromHtml
                                     |> o.target
-                                    |> Core.runOperation o.operation
+                                    |> TestEvent.simulate o.operation
+                                    |> TestEvent.toResult
                         in
                         case rmsg of
                             Err str ->
-                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                SeqTest.fail description <|
                                     \_ ->
                                         Expect.fail
                                             ("userOperation: " ++ str)
@@ -814,7 +1054,7 @@ userOperation (Session session) description o =
                                 in
                                 case res of
                                     Err err ->
-                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                        SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -826,15 +1066,23 @@ userOperation (Session session) description o =
                                         }
                                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] " ++ user.name)
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processUserOperationMarkup
+                            { uniqueSessionName = session.uniqueName
+                            , userName = user.name
+                            }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -847,7 +1095,7 @@ Suppose your application has a WebSocket message Listener named "WebSocket messa
     myScenario =
         [ Debug.todo "After some operations..."
         , listenerEvent sakuraChanMainSession
-            "Receive WebSocket message"
+            (textContent "Receive WebSocket message")
             { target = "WebSocket message Listener"
             , event =
                 WebSocketMessage <|
@@ -863,20 +1111,24 @@ If no Layers found for the query, it does nothing and just passes the test.
 -}
 listenerEvent :
     Session
-    -> String
+    -> Markup
     ->
         { target : LayerQuery m m1
         , listenerName : String
         , event : event
         }
     -> Scenario flags c m event
-listenerEvent (Session session) description o =
+listenerEvent (Session session) markup o =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
@@ -914,7 +1166,7 @@ listenerEvent (Session session) description o =
                                 in
                                 case res of
                                     Err err ->
-                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                        SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -926,32 +1178,43 @@ listenerEvent (Session session) description o =
                                         }
                                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "] " ++ o.listenerName)
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processLayerEventMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
 {-| Wait for given micro seconds.
+It only affects Promises defined in `Tepa.Time`.
 -}
 sleep :
     Session
-    -> String
+    -> Markup
     -> Int
     -> Scenario flags c m e
-sleep (Session session) description msec =
+sleep (Session session) markup msec =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "sleep: The application is not active on the session. Use `loadApp` beforehand."
@@ -968,7 +1231,7 @@ sleep (Session session) description msec =
                         in
                         case res of
                             Err err ->
-                                SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                SeqTest.fail description <|
                                     \_ -> Expect.fail err
 
                             Ok nextSessionContext ->
@@ -981,15 +1244,21 @@ sleep (Session session) description msec =
                                 }
                                     |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processSleepMarkdown
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -1056,7 +1325,7 @@ Suppose your application requests to access localStorage via port request named 
     myScenario =
         [ Debug.todo "After request to the port..."
         , portResponse sakuraChanMainSession
-            "Received response."
+            (textContent "Received response.")
             { target = "Port to get page.account.bio"
             , response =
                 JE.string "I'm Sakura-chan."
@@ -1069,19 +1338,23 @@ If no Layers found for the query, it does nothing and just passes the test.
 -}
 portResponse :
     Session
-    -> String
+    -> Markup
     ->
         { target : LayerQuery m m1
         , response : command -> Maybe Value
         }
     -> Scenario flags command m e
-portResponse (Session session) description o =
+portResponse (Session session) markup o =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "portResponse: The application is not active on the session. Use `loadApp` beforehand."
@@ -1118,7 +1391,7 @@ portResponse (Session session) description o =
                                 in
                                 case res of
                                     Err err ->
-                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                        SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -1130,15 +1403,21 @@ portResponse (Session session) description o =
                                         }
                                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processPortResponseMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -1151,7 +1430,7 @@ Suppose your application requests user infomation to the backend server via cust
     myScenario =
         [ Debug.todo "After request to the backend..."
         , portResponse sakuraChanMainSession
-            "Received response."
+            (textContent "Received response.")
             { target = "Request for user info"
             , response =
                 UserInfoResponse <|
@@ -1168,19 +1447,23 @@ If no Layers found for the query, it does nothing and just passes the test.
 -}
 customResponse :
     Session
-    -> String
+    -> Markup
     ->
         { target : LayerQuery m m1
         , response : command -> Maybe (Msg event)
         }
     -> Scenario flags command m event
-customResponse (Session session) description o =
+customResponse (Session session) markup o =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
     Scenario
         { test =
             \config context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
-                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                        SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
                                     "customResponse: The application is not active on the session. Use `loadApp` beforehand."
@@ -1215,7 +1498,7 @@ customResponse (Session session) description o =
                                 in
                                 case res of
                                     Err err ->
-                                        SeqTest.fail ("[" ++ session.uniqueName ++ "] " ++ description) <|
+                                        SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
                                     Ok nextSessionContext ->
@@ -1227,15 +1510,21 @@ customResponse (Session session) description o =
                                         }
                                             |> SeqTest.pass
         , markup =
-            MdBuilder.appendListItem
-                >> MdBuilder.editListItemContent
-                >> MdBuilder.pushStrongEmphasis
-                    ("[" ++ session.uniqueName ++ "]")
-                >> MdBuilder.pushText ": "
-                >> MdBuilder.pushText description
-                >> MdBuilder.endPushMode
-                >> MdBuilder.break
-                >> Ok
+            \config ->
+                let
+                    markup_ =
+                        config.processCustomResponseMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
         }
 
 
@@ -1273,7 +1562,7 @@ fromJust description ma f =
                                 ma
                                     |> Expect.notEqual Nothing
                 , markup =
-                    \_ ->
+                    \_ _ ->
                         Err (InvalidFromJust description)
                 }
 
@@ -1296,7 +1585,7 @@ fromOk description res f =
                                 res
                                     |> Expect.ok
                 , markup =
-                    \_ ->
+                    \_ _ ->
                         Err (InvalidFromOk description)
                 }
 
@@ -1622,6 +1911,7 @@ putTimer new timers =
 toHtml :
     { title : String
     , sections : List (Section flags c m e)
+    , config : RenderConfig
     }
     -> Html msg
 toHtml o =
@@ -1630,7 +1920,7 @@ toHtml o =
             renderInvalidMarkdown err
 
         Ok root ->
-            MdBuilder.preview root
+            MdAst.preview root
 
 
 renderInvalidMarkdown : InvalidMarkup -> Html msg
@@ -1698,18 +1988,20 @@ renderInvalidMarkdown reason =
 toMarkdown :
     { title : String
     , sections : List (Section flags c m e)
+    , config : RenderConfig
     }
     -> Result InvalidMarkup String
 toMarkdown o =
     buildMarkdown o
-        |> Result.map MdBuilder.toString
+        |> Result.map MdAst.render
 
 
 buildMarkdown :
     { title : String
     , sections : List (Section flags c m e)
+    , config : RenderConfig
     }
-    -> Result InvalidMarkup MdBuilder.Root
+    -> Result InvalidMarkup MdAst.Section
 buildMarkdown o =
     List.foldl
         (\sec acc ->
@@ -1732,25 +2024,36 @@ buildMarkdown o =
                                 |> MdBuilder.appendUnorderedList
                                 |> (case sec.dependency of
                                         EntryPoint initialTime ->
-                                            MdBuilder.appendListItem
-                                                >> MdBuilder.editListItemContent
-                                                >> MdBuilder.pushText
-                                                    ("At " ++ String.fromInt (Time.posixToMillis initialTime) ++ " in POSIX time.")
+                                            let
+                                                item =
+                                                    o.config.entryPointFirstListItem initialTime
+                                            in
+                                            MdBuilder.appendListItem item.content
+                                                >> MdBuilder.appendBlocks item.detail
                                                 >> MdBuilder.break
-                                                >> scenario.markup
+                                                >> scenario.markup o.config
 
                                         RunAfter dep ->
                                             if Set.member dep titles then
-                                                MdBuilder.appendListItem
-                                                    >> MdBuilder.editListItemContent
-                                                    >> MdBuilder.pushText
-                                                        "After "
-                                                    >> MdBuilder.pushLink
-                                                        { href = "#" ++ Url.percentEncode dep
-                                                        , text = dep
-                                                        }
+                                                let
+                                                    item =
+                                                        o.config.dependentScenarioFirstListItem
+                                                            { href =
+                                                                "#"
+                                                                    ++ (String.words dep
+                                                                            |> List.map
+                                                                                (String.filter Char.isAlphaNum
+                                                                                    >> String.toLower
+                                                                                )
+                                                                            |> String.join "-"
+                                                                       )
+                                                            , name = dep
+                                                            }
+                                                in
+                                                MdBuilder.appendListItem item.content
+                                                    >> MdBuilder.appendBlocks item.detail
                                                     >> MdBuilder.break
-                                                    >> scenario.markup
+                                                    >> scenario.markup o.config
 
                                             else
                                                 \_ -> Err (NoDependentSection dep)
@@ -1774,3 +2077,320 @@ buildMarkdown o =
         )
         o.sections
         |> Result.map (Tuple.first >> MdBuilder.run)
+
+
+{-| Configuration for rendering scenario.
+
+  - entryPointFirstListItem: First item on the list for an `EntryPoint` scenario.
+      - argument: The time when the scenario starts
+  - dependentScenarioFirstListItem: First item on the list for a `RunAfter` scenario.
+      - argument: `href` and `name` for its dependency.
+  - processExpectMemoryMarkup: Processor for `expectMemory` markup
+  - processExpectAppViewMarkup: Processor for `expectAppView` markup
+  - processSleepMarkdown: Processor for `sleep` markup
+  - processLoadAppMarkup: Processor for `loadApp` markup
+  - processLayerEventMarkup: Processor for `layerEvent` markup
+  - processUserOperationMarkup: Processor for `userOperation` markup
+  - processPortResponseMarkup: Processor for `portResponse` markup
+  - processCustomResponseMarkup: Processor for `customResponse` markup
+
+-}
+type alias RenderConfig =
+    { entryPointFirstListItem :
+        Posix
+        -> Markup
+    , dependentScenarioFirstListItem :
+        { href : String
+        , name : String
+        }
+        -> Markup
+    , processExpectMemoryMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processExpectAppViewMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processSleepMarkdown :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processLoadAppMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processLayerEventMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processUserOperationMarkup :
+        { uniqueSessionName : String
+        , userName : String
+        }
+        -> Markup
+        -> Markup
+    , processPortResponseMarkup :
+        { uniqueSessionName : String
+        }
+        -> Markup
+        -> Markup
+    , processCustomResponseMarkup :
+        { uniqueSessionName : String
+        }
+        -> Markup
+        -> Markup
+    }
+
+
+{-| Standard configuration for ja\_JP.
+-}
+ja_JP : RenderConfig
+ja_JP =
+    { entryPointFirstListItem =
+        \posix ->
+            let
+                zone =
+                    TimeZone.asia__tokyo ()
+
+                year =
+                    Time.toYear zone posix
+
+                month =
+                    Time.toMonth zone posix
+
+                day =
+                    Time.toDay zone posix
+
+                hour =
+                    Time.toHour zone posix
+
+                minute =
+                    Time.toMinute zone posix
+
+                second =
+                    Time.toSecond zone posix
+            in
+            { content =
+                [ MdAst.PlainText <|
+                    String.concat
+                        [ "（"
+                        , String.fromInt year
+                        , "/"
+                        , monthIndex month
+                            |> String.fromInt
+                        , "/"
+                        , String.fromInt day
+                        , " "
+                        , String.fromInt hour
+                        , ":"
+                        , String.fromInt minute
+                            |> String.padLeft 2 '0'
+                        , ":"
+                        , String.fromInt second
+                            |> String.padLeft 2 '0'
+                        , "）"
+                        ]
+                ]
+            , detail =
+                []
+            , appear = True
+            }
+    , dependentScenarioFirstListItem =
+        \o ->
+            { content =
+                [ MdAst.PlainText "（「"
+                , MdAst.Link
+                    { href = o.href
+                    , text = o.name
+                    , title = Nothing
+                    }
+                , MdAst.PlainText "」の直後）"
+                ]
+            , detail =
+                []
+            , appear = True
+            }
+    , processExpectMemoryMarkup = prependSessionSystemName
+    , processExpectAppViewMarkup = prependSessionSystemName
+    , processSleepMarkdown = prependSessionName
+    , processLoadAppMarkup = prependSessionName
+    , processLayerEventMarkup = prependSessionSystemName
+    , processUserOperationMarkup = prependSessionAndUserName
+    , processPortResponseMarkup = prependSessionSystemName
+    , processCustomResponseMarkup = prependSessionSystemName
+    }
+
+
+prependSessionName :
+    { uniqueSessionName : String }
+    -> Markup
+    -> Markup
+prependSessionName { uniqueSessionName } markup =
+    { markup
+        | content =
+            [ MdAst.StrongEmphasis <|
+                "["
+                    ++ uniqueSessionName
+                    ++ "]"
+            , MdAst.PlainText " "
+            ]
+                ++ markup.content
+    }
+
+
+prependSessionSystemName :
+    { uniqueSessionName : String }
+    -> Markup
+    -> Markup
+prependSessionSystemName { uniqueSessionName } markup =
+    { markup
+        | content =
+            [ MdAst.StrongEmphasis <|
+                "["
+                    ++ uniqueSessionName
+                    ++ "]"
+            , MdAst.PlainText " "
+            , MdAst.StrongEmphasis "System"
+            , MdAst.PlainText ": "
+            ]
+                ++ markup.content
+    }
+
+
+prependSessionAndUserName :
+    { uniqueSessionName : String
+    , userName : String
+    }
+    -> Markup
+    -> Markup
+prependSessionAndUserName { uniqueSessionName, userName } markup =
+    { markup
+        | content =
+            [ MdAst.StrongEmphasis <|
+                "["
+                    ++ uniqueSessionName
+                    ++ "] "
+            , MdAst.PlainText " "
+            , MdAst.StrongEmphasis userName
+            , MdAst.PlainText ": "
+            ]
+                ++ markup.content
+    }
+
+
+{-| Standard configuration for en\_US.
+-}
+en_US : RenderConfig
+en_US =
+    { entryPointFirstListItem =
+        \posix ->
+            let
+                zone =
+                    TimeZone.asia__tokyo ()
+
+                year =
+                    Time.toYear zone posix
+
+                month =
+                    Time.toMonth zone posix
+
+                day =
+                    Time.toDay zone posix
+
+                hour =
+                    Time.toHour zone posix
+
+                minute =
+                    Time.toMinute zone posix
+
+                second =
+                    Time.toSecond zone posix
+            in
+            { content =
+                [ MdAst.PlainText <|
+                    String.concat
+                        [ monthIndex month
+                            |> String.fromInt
+                        , "/"
+                        , String.fromInt day
+                        , "/"
+                        , String.fromInt year
+                        , " "
+                        , String.fromInt hour
+                        , ":"
+                        , String.fromInt minute
+                            |> String.padLeft 2 '0'
+                        , ":"
+                        , String.fromInt second
+                            |> String.padLeft 2 '0'
+                        ]
+                ]
+            , detail =
+                []
+            , appear = True
+            }
+    , dependentScenarioFirstListItem =
+        \o ->
+            { content =
+                [ MdAst.PlainText "Just after \""
+                , MdAst.Link
+                    { href = o.href
+                    , text = o.name
+                    , title = Nothing
+                    }
+                , MdAst.PlainText "\""
+                ]
+            , detail =
+                []
+            , appear = True
+            }
+    , processExpectMemoryMarkup = prependSessionSystemName
+    , processExpectAppViewMarkup = prependSessionSystemName
+    , processSleepMarkdown = prependSessionName
+    , processLoadAppMarkup = prependSessionName
+    , processLayerEventMarkup = prependSessionSystemName
+    , processUserOperationMarkup = prependSessionAndUserName
+    , processPortResponseMarkup = prependSessionSystemName
+    , processCustomResponseMarkup = prependSessionSystemName
+    }
+
+
+monthIndex : Time.Month -> Int
+monthIndex month =
+    case month of
+        Time.Jan ->
+            1
+
+        Time.Feb ->
+            2
+
+        Time.Mar ->
+            3
+
+        Time.Apr ->
+            4
+
+        Time.May ->
+            5
+
+        Time.Jun ->
+            6
+
+        Time.Jul ->
+            7
+
+        Time.Aug ->
+            8
+
+        Time.Sep ->
+            9
+
+        Time.Oct ->
+            10
+
+        Time.Nov ->
+            11
+
+        Time.Dec ->
+            12

@@ -2,6 +2,7 @@
   "root": "../src",
   "tests": [
     "Tepa.AbsolutePath",
+    "Tepa.Scenario",
     "Internal.AbsolutePath",
     "Internal.History"
   ]

@@ -29,6 +29,7 @@ module Tepa exposing
     , document
     , application
     , ApplicationProps
+    , NavKey
     , Program
     , Document
     , update
@@ -116,6 +117,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 @docs document
 @docs application
 @docs ApplicationProps
+@docs NavKey
 @docs Program
 @docs Document
 
@@ -149,7 +151,6 @@ import Internal.ResponseType as ResponseType
 import Json.Decode exposing (Decoder)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
-import Tepa.Navigation exposing (NavKey)
 import Tepa.ResponseType exposing (ResponseType)
 import Url exposing (Url)
 
@@ -962,6 +963,15 @@ type alias ApplicationProps flags cmd memory event =
     , onUrlRequest : Browser.UrlRequest -> event
     , onUrlChange : Url -> event
     }
+
+
+{-| Alternative to [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
+
+Navigation keys are required for navigation procedures exposed by the [Tepa.Navigation](./Navigation) module.
+
+-}
+type alias NavKey =
+    Core.NavKey
 
 
 {-| An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).

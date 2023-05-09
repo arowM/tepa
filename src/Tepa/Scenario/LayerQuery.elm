@@ -8,7 +8,7 @@ module Tepa.Scenario.LayerQuery exposing
     , indices
     )
 
-{-| Querying Layer.
+{-| Querying Layer to test.
 
 
 # Core

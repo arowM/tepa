@@ -16,14 +16,13 @@ module Page.Home exposing
 import App.Route as Route
 import App.Session exposing (Session)
 import Expect
-import Expect.Builder
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
-import Tepa exposing (Layer, Msg, Void)
+import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
-import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.Navigation as Nav
 import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
@@ -418,11 +417,21 @@ runToastPromise pointer prom =
 
 {-| -}
 type alias ScenarioSet flags c m e =
-    { changeEditAccountFormAccountId : String -> Scenario flags c m e
-    , clickSubmitEditAccount : Scenario flags c m e
-    , receiveEditAccountResp : Tepa.HttpResult String -> Scenario flags c m e
-    , expectAvailable : String -> Scenario flags c m e
-    , expectEditAccountFormShowNoErrors : Scenario flags c m e
+    { changeEditAccountFormAccountId :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , clickSubmitEditAccount :
+        Scenario.Markup -> Scenario flags c m e
+    , receiveEditAccountResp :
+        Tepa.HttpResult String
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectAvailable :
+        Scenario.Markup -> Scenario flags c m e
+    , expectEditAccountFormShowNoErrors :
+        Scenario.Markup -> Scenario flags c m e
     }
 
 
@@ -445,21 +454,21 @@ scenario props =
     }
 
 
-changeEditAccountFormAccountId : ScenarioProps c m e -> String -> Scenario flags c m e
-changeEditAccountFormAccountId props str =
+changeEditAccountFormAccountId : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeEditAccountFormAccountId props { value } markup =
     Scenario.layerEvent props.session
-        ("Type \"" ++ str ++ "\" for Account ID field")
+        markup
         { target = props.querySelf
         , event =
-            ChangeEditAccountFormAccountId str
+            ChangeEditAccountFormAccountId value
                 |> props.wrapEvent
         }
 
 
-clickSubmitEditAccount : ScenarioProps c m e -> Scenario flags c m e
-clickSubmitEditAccount props =
+clickSubmitEditAccount : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+clickSubmitEditAccount props markup =
     Scenario.layerEvent props.session
-        "Click \"Save\" button for edit account form."
+        markup
         { target = props.querySelf
         , event =
             ClickSubmitEditAccount
@@ -467,10 +476,10 @@ clickSubmitEditAccount props =
         }
 
 
-receiveEditAccountResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario flags c m e
-receiveEditAccountResp props res =
+receiveEditAccountResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags c m e
+receiveEditAccountResp props res markup =
     Scenario.customResponse props.session
-        "Backend responds to the edit account request."
+        markup
         { target = props.querySelf
         , response =
             \cmd ->
@@ -485,19 +494,19 @@ receiveEditAccountResp props res =
         }
 
 
-expectAvailable : ScenarioProps c m e -> String -> Scenario flags c m e
-expectAvailable props str =
+expectAvailable : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectAvailable props markup =
     Scenario.expectMemory props.session
-        str
+        markup
         { target = props.querySelf
-        , expectation = Expect.Builder.pass
+        , expectation = \_ -> Expect.pass
         }
 
 
-expectEditAccountFormShowNoErrors : ScenarioProps c m e -> Scenario flags c m e
-expectEditAccountFormShowNoErrors props =
+expectEditAccountFormShowNoErrors : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectEditAccountFormShowNoErrors props markup =
     Scenario.expectAppView props.session
-        "The edit account form shows no errors at this point."
+        markup
         { expectation =
             \{ body } ->
                 Query.fromHtml (Html.div [] body)

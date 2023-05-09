@@ -18,7 +18,7 @@ import NoDebug.TodoOrToString
 import NoExposingEverything
 import NoImportingEverything
 import NoMissingTypeAnnotation
--- import NoMissingTypeExpose
+import NoMissingTypeExpose
 import NoUnused.CustomTypeConstructorArgs
 import NoUnused.CustomTypeConstructors
 import NoUnused.Dependencies
@@ -36,27 +36,29 @@ config =
     , NoDebug.Log.rule
     , NoDebug.TodoOrToString.rule
     , NoExposingEverything.rule
-        |> Rule.ignoreErrorsForFiles
-            [ "src/Internal/Test.elm" ]
-    , NoImportingEverything.rule
-        [ "Internal.Test"
-        ]
+    , NoImportingEverything.rule []
     , NoMissingTypeAnnotation.rule
-    -- , NoMissingTypeExpose.rule
+    , NoMissingTypeExpose.rule
+        |> Rule.ignoreErrorsForFiles
+            [ "src/Tepa.elm"
+            , "src/Tepa/Scenario/LayerQuery.elm"
+            ]
     , NoUnused.CustomTypeConstructorArgs.rule
-        |> Rule.ignoreErrorsForFiles
-            [ "src/Internal/Test.elm"
-            , "src/Internal.elm"
-            ]
     , NoUnused.CustomTypeConstructors.rule []
-        |> Rule.ignoreErrorsForFiles
-            [ "src/Internal/Markup.elm"
-            ]
     , NoUnused.Dependencies.rule
-    -- , NoUnused.Exports.rule
+    , NoUnused.Exports.rule
+        |> Rule.ignoreErrorsForFiles
+            [ "src/Internal/SafeInt.elm"
+            ]
     , NoUnused.Modules.rule
     , NoUnused.Parameters.rule
     , NoUnused.Patterns.rule
     , NoUnused.Variables.rule
-    , Simplify.rule
+    , Simplify.defaults
+        |> Simplify.rule
     ]
+    |> List.map
+        ( Rule.ignoreErrorsForDirectories
+            [ "tests/VerifyExamples"
+            ]
+        )

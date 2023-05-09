@@ -308,15 +308,39 @@ toastItemView memory =
 
 {-| -}
 type alias ScenarioSet flags c m e =
-    { expectWarningMessage : { message : String } -> String -> Scenario flags c m e
-    , expectErrorMessage : { message : String } -> String -> Scenario flags c m e
-    , expectDisappearingWarningMessage : { message : String } -> String -> Scenario flags c m e
-    , expectDisappearingErrorMessage : { message : String } -> String -> Scenario flags c m e
-    , expectNoWarningMessages : String -> Scenario flags c m e
-    , expectNoErrorMessages : String -> Scenario flags c m e
-    , expectNoMessages : String -> Scenario flags c m e
-    , closeWarningsByMessage : { message : String } -> Scenario flags c m e
-    , closeErrorsByMessage : { message : String } -> Scenario flags c m e
+    { expectWarningMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectErrorMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectDisappearingWarningMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectDisappearingErrorMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectNoWarningMessages : Scenario.Markup -> Scenario flags c m e
+    , expectNoErrorMessages : Scenario.Markup -> Scenario flags c m e
+    , expectNoMessages : Scenario.Markup -> Scenario flags c m e
+    , closeWarningsByMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , closeErrorsByMessage :
+        { message : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
     }
 
 
@@ -348,18 +372,23 @@ scenario props =
     , closeWarningsByMessage =
         closeByMessage props
             WarningMessage
-            "Click close button on toast popup with warning message: "
     , closeErrorsByMessage =
         closeByMessage props
             ErrorMessage
-            "Click close button on toast popup with error message: "
     }
 
 
-expectMessage : ScenarioProps c m e -> MessageType -> { message : String } -> String -> Scenario flags c m e
-expectMessage props messageType { message } description =
+expectMessage :
+    ScenarioProps c m e
+    -> MessageType
+    ->
+        { message : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags c m e
+expectMessage props messageType { message } markup =
     Scenario.expectAppView props.session
-        description
+        markup
         { expectation =
             \{ body } ->
                 HtmlQuery.fromHtml (Html.div [] body)
@@ -376,10 +405,17 @@ expectMessage props messageType { message } description =
         }
 
 
-expectDisappearingMessage : ScenarioProps c m e -> MessageType -> { message : String } -> String -> Scenario flags c m e
-expectDisappearingMessage props messageType { message } description =
+expectDisappearingMessage :
+    ScenarioProps c m e
+    -> MessageType
+    ->
+        { message : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags c m e
+expectDisappearingMessage props messageType { message } markup =
     Scenario.expectAppView props.session
-        description
+        markup
         { expectation =
             \{ body } ->
                 HtmlQuery.fromHtml (Html.div [] body)
@@ -398,10 +434,14 @@ expectDisappearingMessage props messageType { message } description =
         }
 
 
-expectNoMessages : ScenarioProps c m e -> String -> String -> Scenario flags c m e
-expectNoMessages props itemClassname description =
+expectNoMessages :
+    ScenarioProps c m e
+    -> String
+    -> Scenario.Markup
+    -> Scenario flags c m e
+expectNoMessages props itemClassname markup =
     Scenario.expectAppView props.session
-        description
+        markup
         { expectation =
             \{ body } ->
                 HtmlQuery.fromHtml (Html.div [] body)
@@ -412,8 +452,15 @@ expectNoMessages props itemClassname description =
         }
 
 
-closeByMessage : ScenarioProps c m e -> MessageType -> String -> { message : String } -> Scenario flags c m e
-closeByMessage props messageType descPrefix { message } =
+closeByMessage :
+    ScenarioProps c m e
+    -> MessageType
+    ->
+        { message : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags c m e
+closeByMessage props messageType { message } markup =
     let
         target =
             props.querySelf
@@ -430,7 +477,7 @@ closeByMessage props messageType descPrefix { message } =
     in
     Scenario.sequence
         [ Scenario.layerEvent props.session
-            (descPrefix ++ message)
+            markup
             { target = target
             , event = props.wrapEvent CloseToastItem
             }

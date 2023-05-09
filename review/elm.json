@@ -10,9 +10,9 @@
             "jfmengels/elm-review": "2.4.2",
             "jfmengels/elm-review-common": "1.0.3",
             "jfmengels/elm-review-debug": "1.0.5",
-            "jfmengels/elm-review-simplify": "1.0.2",
+            "jfmengels/elm-review-simplify": "2.0.3",
             "jfmengels/elm-review-the-elm-architecture": "1.0.3",
-            "jfmengels/elm-review-unused": "1.1.9",
+            "jfmengels/elm-review-unused": "1.1.11",
             "sparksp/elm-review-always": "1.0.5",
             "stil4m/elm-syntax": "7.2.3"
         },

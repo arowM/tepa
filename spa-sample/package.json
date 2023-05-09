@@ -8,7 +8,9 @@
     "start:backend": "cd backend && npm start",
     "start:doc": "elm-doc-preview --port=8111",
     "review": "elm-review --fix",
-    "build": "rimraf dist/ && parcel build src/reset-state.html src/index.html --no-source-maps --dist-dir dist/ --public-url /tepa",
+    "build": "rimraf dist/ && parcel build src/scenario.html src/index.html --no-source-maps --dist-dir dist/ --public-url /tepa",
+    "build:scenario": "npm run build:scenario-worker && node ./cli/scenario-markdown.js",
+    "build:scenario-worker": "elm make src/ScenarioWorker.elm --output=./dist/scenario-worker.js",
     "test": "elm-verify-examples -r --fail-on-warn && elm-test && elm-review && elm-format --validate src && elm make src/App.elm --output=/dev/null"
   },
   "devDependencies": {

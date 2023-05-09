@@ -1,5 +1,5 @@
 module Internal.Core exposing
-    ( Model(..), Model_, memoryState, layerState
+    ( Model(..), Model_, memoryState
     , Msg(..), rootLayerMsg
     , mapMsg
     , NavKey(..)
@@ -9,7 +9,7 @@ module Internal.Core exposing
     , andRacePromise
     , andThenPromise
     , syncPromise
-    , liftPromiseMemory, liftPromiseEvent, mapPromiseCmd
+    , liftPromiseEvent, mapPromiseCmd
     , Request(..)
     , portRequest, customRequest, anyRequest
     , now
@@ -18,15 +18,12 @@ module Internal.Core exposing
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
-    , modify, push, currentState, return, cancel, lazy, listen
+    , modify, push, currentState, cancel, lazy, listen
     , sleep, listenTimeEvery
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
     , elementView, documentView, subscriptions
-    , Operation
-    , runOperation
-    , customOperation
     , LayerQuery(..)
     , runQuery
     , listenLayerEvent
@@ -88,13 +85,6 @@ module Internal.Core exposing
 @docs elementView, documentView, subscriptions
 
 
-# User Operation
-
-@docs Operation
-@docs runOperation
-@docs customOperation
-
-
 # LayerQuery
 
 @docs LayerQuery
@@ -115,8 +105,6 @@ import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Process
 import Task
-import Test.Html.Event as TestEvent
-import Test.Html.Query as TestQuery
 import Time exposing (Posix)
 
 
@@ -846,13 +834,8 @@ sequence =
         (\a acc ->
             acc
                 |> andThenPromise
-                    (\v ->
-                        case v of
-                            CompletedProcedure ->
-                                succeedPromise CompletedProcedure
-
-                            OnGoingProcedure ->
-                                a
+                    (\_ ->
+                        a
                     )
         )
         none
@@ -908,7 +891,6 @@ genNewLayerId =
 {-| -}
 type Void
     = OnGoingProcedure
-    | CompletedProcedure
 
 
 {-| -}
@@ -963,13 +945,6 @@ push f =
                     f eff.newContext.state
                         |> List.map (\c -> ( thisLayerId, c ))
             }
-
-
-{-| Must be harmfull and confusing.
--}
-return : Promise c m e Void
-return =
-    primitivePromise <| Resolved CompletedProcedure
 
 
 {-| Cancel all the subsequent Procedures.
@@ -1730,29 +1705,6 @@ subscriptions (Model model) =
         model.context.subs
         |> List.map Tuple.second
         |> Sub.batch
-
-
-
--- User Operation
-
-
-{-| -}
-type Operation e
-    = Operation (TestQuery.Single (Msg e) -> TestEvent.Event (Msg e))
-
-
-{-| -}
-runOperation : Operation e -> TestQuery.Single (Msg e) -> Result String (Msg e)
-runOperation (Operation f) single =
-    f single
-        |> TestEvent.toResult
-
-
-{-| -}
-customOperation : ( String, Value ) -> Operation e
-customOperation p =
-    TestEvent.simulate p
-        |> Operation
 
 
 

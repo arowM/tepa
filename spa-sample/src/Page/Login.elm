@@ -14,18 +14,18 @@ module Page.Login exposing
 import App.Route as Route
 import App.Session exposing (Session)
 import Expect
-import Expect.Builder
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
-import Tepa exposing (Layer, Msg, Void)
+import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath
-import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.Navigation as Nav
 import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
-import Tepa.Scenario.Operation as Operation
+import Test.Html.Event as HtmlEvent
+import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
 import Widget.Toast as Toast
@@ -467,13 +467,31 @@ runToastPromise pointer prom =
 
 {-| -}
 type alias ScenarioSet flags c m e =
-    { changeLoginId : String -> Scenario flags c m e
-    , changeLoginPass : String -> Scenario flags c m e
-    , clickSubmitLogin : Scenario flags c m e
-    , receiveLoginResp : Tepa.HttpResult String -> Scenario flags c m e
-    , expectAvailable : String -> Scenario flags c m e
-    , expectLoginFormShowNoErrors : String -> Scenario flags c m e
-    , expectLoginFormShowError : String -> Scenario flags c m e
+    { changeLoginId :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , changeLoginPass :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , clickSubmitLogin :
+        Scenario.Markup -> Scenario flags c m e
+    , receiveLoginResp :
+        Tepa.HttpResult String
+        -> Scenario.Markup
+        -> Scenario flags c m e
+    , expectAvailable :
+        Scenario.Markup -> Scenario flags c m e
+    , expectLoginFormShowNoErrors :
+        Scenario.Markup -> Scenario flags c m e
+    , expectLoginFormShowError :
+        { error : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags c m e
     , toast : Toast.ScenarioSet flags c m e
     }
 
@@ -515,47 +533,47 @@ scenario props =
     }
 
 
-changeLoginId : ScenarioProps c m e -> String -> Scenario flags c m e
-changeLoginId props str =
+changeLoginId : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeLoginId props { value } markup =
     Scenario.userOperation props.session
-        ("Type \"" ++ str ++ "\" for Login ID field")
+        markup
         { target =
             Query.find
                 [ localClassSelector "loginForm_input-id"
                 ]
-        , operation = Operation.change str
+        , operation = HtmlEvent.change value
         }
 
 
-changeLoginPass : ScenarioProps c m e -> String -> Scenario flags c m e
-changeLoginPass props str =
+changeLoginPass : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeLoginPass props { value } markup =
     Scenario.layerEvent props.session
-        ("Type \"" ++ str ++ "\" for Login Password field")
+        markup
         { target = props.querySelf
         , event =
-            ChangeLoginPass str
+            ChangeLoginPass value
                 |> props.wrapEvent
         }
 
 
-clickSubmitLogin : ScenarioProps c m e -> Scenario flags c m e
-clickSubmitLogin props =
+clickSubmitLogin : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+clickSubmitLogin props markup =
     Scenario.userOperation props.session
-        "Click \"Login\" button."
+        markup
         { target =
             Query.find
                 [ localClassSelector "loginForm_submitLogin"
                 , Selector.disabled False
                 ]
         , operation =
-            Operation.click
+            HtmlEvent.click
         }
 
 
-receiveLoginResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario flags c m e
-receiveLoginResp props res =
+receiveLoginResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags c m e
+receiveLoginResp props res markup =
     Scenario.customResponse props.session
-        "Backend responds to the login request."
+        markup
         { target = props.querySelf
         , response =
             \cmd ->
@@ -570,10 +588,10 @@ receiveLoginResp props res =
         }
 
 
-expectLoginFormShowNoErrors : ScenarioProps c m e -> String -> Scenario flags c m e
-expectLoginFormShowNoErrors props description =
+expectLoginFormShowNoErrors : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectLoginFormShowNoErrors props markup =
     Scenario.expectAppView props.session
-        description
+        markup
         { expectation =
             \{ body } ->
                 Query.fromHtml (Html.div [] body)
@@ -587,19 +605,19 @@ expectLoginFormShowNoErrors props description =
         }
 
 
-expectAvailable : ScenarioProps c m e -> String -> Scenario flags c m e
-expectAvailable props str =
+expectAvailable : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectAvailable props markup =
     Scenario.expectMemory props.session
-        str
+        markup
         { target = props.querySelf
-        , expectation = Expect.Builder.pass
+        , expectation = \_ -> Expect.pass
         }
 
 
-expectLoginFormShowError : ScenarioProps c m e -> String -> Scenario flags c m e
-expectLoginFormShowError props str =
+expectLoginFormShowError : ScenarioProps c m e -> { error : String } -> Scenario.Markup -> Scenario flags c m e
+expectLoginFormShowError props { error } markup =
     Scenario.expectAppView props.session
-        ("The login form shows an error: " ++ str)
+        markup
         { expectation =
             \{ body } ->
                 Query.fromHtml (Html.div [] body)
@@ -608,7 +626,7 @@ expectLoginFormShowError props str =
                         ]
                     |> Query.findAll
                         [ localClassSelector "loginForm_errorField_error"
-                        , Selector.text str
+                        , Selector.text error
                         ]
                     |> Query.count (Expect.greaterThan 0)
         }

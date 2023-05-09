@@ -1,6 +1,5 @@
 module Tepa.Navigation exposing
-    ( NavKey
-    , pushPath
+    ( pushPath
     , replacePath
     , back
     , forward
@@ -9,11 +8,6 @@ module Tepa.Navigation exposing
 {-| [Browser.Navigation](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation) alternative for TEPA.
 
 This module helps you manage the browser’s URL yourself.
-
-
-# NavKey
-
-@docs NavKey
 
 
 # Navigation Procedures
@@ -26,17 +20,9 @@ This module helps you manage the browser’s URL yourself.
 -}
 
 import Browser.Navigation as Nav
-import Internal.Core as Core exposing (Promise, Void)
+import Internal.Core as Core
+import Tepa exposing (NavKey, Promise, Void)
 import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
-
-
-{-| Alternative to [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
-
-A navigation Key is needed to create navigation Procedures that change the URL.
-
--}
-type alias NavKey =
-    Core.NavKey
 
 
 

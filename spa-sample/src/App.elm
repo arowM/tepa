@@ -21,9 +21,9 @@ import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
-import Tepa exposing (Layer, Msg, Void)
+import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath
-import Tepa.Navigation as Nav exposing (NavKey)
+import Tepa.Navigation as Nav
 import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery
@@ -458,7 +458,10 @@ type alias ScenarioSet flags =
     { login : PageLogin.ScenarioSet flags Command Memory Event
     , home : PageHome.ScenarioSet flags Command Memory Event
     , app :
-        { receiveProfile : Tepa.HttpResult String -> Scenario flags Command Memory Event
+        { receiveProfile :
+            Tepa.HttpResult String
+            -> Scenario.Markup
+            -> Scenario flags Command Memory Event
         }
     }
 
@@ -520,10 +523,10 @@ scenario session =
     }
 
 
-receiveProfile : Scenario.Session -> Tepa.HttpResult String -> Scenario flags Command Memory Event
-receiveProfile session res =
+receiveProfile : Scenario.Session -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags Command Memory Event
+receiveProfile session res markup =
     Scenario.customResponse session
-        "Backend responds to the session fetch request."
+        markup
         { target = LayerQuery.self
         , response =
             \cmd ->

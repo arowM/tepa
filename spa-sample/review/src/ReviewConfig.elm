@@ -35,6 +35,9 @@ config =
     [ NoAlways.rule
     , NoDebug.Log.rule
     , NoDebug.TodoOrToString.rule
+        |> Rule.ignoreErrorsForFiles
+            [ "src/Scenario.elm"
+            ]
     , NoExposingEverything.rule
     , NoImportingEverything.rule []
     , NoMissingTypeAnnotation.rule
@@ -58,6 +61,7 @@ config =
             [ "Widget.Toast.Command"
             , "Widget.Toast.Event"
             , "Page.Home.EditAccount.FormError"
+            , "Scenario.Msg"
             ]
         |> Simplify.rule
     ]
