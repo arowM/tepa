@@ -9,7 +9,7 @@ module Scenario exposing
 
 -}
 
-import App exposing (Command, Event, Memory)
+import App exposing (Event, Memory)
 import Browser
 import DebugToJson
 import Dict
@@ -18,7 +18,6 @@ import Html.Attributes as Attributes
 import Html.Events as Events
 import Json.Encode as JE exposing (Value)
 import MarkdownAst as Markdown
-import Tepa
 import Tepa.AbsolutePath exposing (absolutePath)
 import Tepa.Scenario as Scenario exposing (userComment)
 import Test exposing (Test)
@@ -146,7 +145,7 @@ onSakuraChanMainSession =
 
 
 type alias Section =
-    Scenario.Section Value Command Memory Event
+    Scenario.Section Value Memory Event
 
 
 {-| -}
@@ -188,7 +187,7 @@ introduction1 config =
             }
         , if config.dev then
             Scenario.systemComment sakuraChanMainSession <|
-                "Client requests user profile to server."
+                "The client requests the user profile from the server."
 
           else
             Scenario.none
@@ -208,13 +207,35 @@ introduction1 config =
                 """
           in
           onSakuraChanMainSession.app.receiveProfile
-            (Ok ( responseMeta, responseBody ))
+            (\_ ->
+                Just ( responseMeta, responseBody )
+            )
             { content =
-                [ Markdown.PlainText "Backend responds for profile request."
+                [ Markdown.PlainText "The backend responds to the profile request."
                 ]
             , detail =
-                [ Markdown.CodeBlock <| ppr responseMeta
-                , Markdown.CodeBlock <| "json" ++ responseBody
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanMainSession.app.fetchProfileEndpoint
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
                 ]
             , appear = config.dev
             }
@@ -267,6 +288,12 @@ introduction1 config =
         , onSakuraChanMainSession.login.clickSubmitLogin
             (Scenario.textContent "Clicked login button.")
         , let
+            requestBody =
+                JE.object
+                    [ ( "id", JE.string "guest" )
+                    , ( "pass", JE.string "fuestPass" )
+                    ]
+
             responseMeta =
                 { url = "https://example.com/api/login"
                 , statusCode = 401
@@ -282,13 +309,40 @@ introduction1 config =
                 """
           in
           onSakuraChanMainSession.login.receiveLoginResp
-            (Ok ( responseMeta, responseBody ))
+            (\body ->
+                if body == requestBody then
+                    Just ( responseMeta, responseBody )
+
+                else
+                    Nothing
+            )
             { content =
-                [ Markdown.PlainText "Backend responds for login request."
+                [ Markdown.PlainText "The backend responds to the login request."
                 ]
             , detail =
-                [ Markdown.CodeBlock <| ppr responseMeta
-                , Markdown.CodeBlock <| "json" ++ responseBody
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanMainSession.login.loginEndpoint
+                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
                 ]
             , appear = config.dev
             }
@@ -313,16 +367,17 @@ introduction1 config =
             (Scenario.textContent <| "Entered login password: \"" ++ value ++ "\"")
         , onSakuraChanMainSession.login.clickSubmitLogin
             (Scenario.textContent "Clicked login button.")
-        , onSakuraChanMainSession.login.receiveLoginResp
-            (Err Tepa.NetworkError)
-            { content =
-                [ Markdown.PlainText "The login request failed with network error"
-                ]
-            , detail = []
-            , appear = config.dev
-            }
+        , if config.dev then
+            Scenario.systemComment sakuraChanMainSession <|
+                "The client requests the user profile from the server with a timeout of 5000 milliseconds."
+
+          else
+            Scenario.none
+        , Scenario.sleep sakuraChanMainSession
+            (Scenario.textContent <| "Wait for 5000 milliseconds.")
+            5000
         , onSakuraChanMainSession.login.toast.expectErrorMessage
-            { message = "Network error, please try again."
+            { message = "Network error, please check your network and try again."
             }
             (Scenario.textContent "A toast pops up: \"Network error, please try again.\"")
         , userComment sakuraChan "Oops!"
@@ -330,7 +385,7 @@ introduction1 config =
             (Scenario.textContent <| "Wait for " ++ String.fromInt Toast.toastTimeout ++ " milliseconds.")
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
-            { message = "Network error, please try again."
+            { message = "Network error, please check your network and try again."
             }
             (Scenario.textContent "The popup begin to disappear.")
         , Scenario.sleep sakuraChanMainSession
@@ -342,6 +397,12 @@ introduction1 config =
         , onSakuraChanMainSession.login.clickSubmitLogin
             (Scenario.textContent "Clicked login button.")
         , let
+            requestBody =
+                JE.object
+                    [ ( "id", JE.string "guest" )
+                    , ( "pass", JE.string "guestPass" )
+                    ]
+
             responseMeta =
                 { url = "https://example.com/api/login"
                 , statusCode = 200
@@ -365,13 +426,40 @@ introduction1 config =
                 """
           in
           onSakuraChanMainSession.login.receiveLoginResp
-            (Ok ( responseMeta, responseBody ))
+            (\body ->
+                if body == requestBody then
+                    Just ( responseMeta, responseBody )
+
+                else
+                    Nothing
+            )
             { content =
-                [ Markdown.PlainText "Backend responds for login request."
+                [ Markdown.PlainText "The backend responds to the login request."
                 ]
             , detail =
-                [ Markdown.CodeBlock <| ppr responseMeta
-                , Markdown.CodeBlock <| "json" ++ responseBody
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanMainSession.login.loginEndpoint
+                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
                 ]
             , appear = config.dev
             }

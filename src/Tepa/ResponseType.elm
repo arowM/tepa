@@ -4,6 +4,8 @@ module Tepa.ResponseType exposing
     , httpError, httpMetadata, httpResponse
     , zone
     , RecordType, record, field, fromRecordType
+    , variant
+    , ResponseBody
     )
 
 {-|
@@ -28,6 +30,12 @@ module Tepa.ResponseType exposing
 # Record Type
 
 @docs RecordType, record, field, fromRecordType
+
+
+# Lower level functions
+
+@docs variant
+@docs ResponseBody
 
 -}
 
@@ -170,3 +178,18 @@ field =
 fromRecordType : RecordType a a -> ResponseType a
 fromRecordType =
     Internal.fromRecordType
+
+
+{-| -}
+variant :
+    { encode : a -> ( String, ResponseBody )
+    , decode : ( String, ResponseBody ) -> Maybe a
+    }
+    -> ResponseType a
+variant =
+    Internal.variant
+
+
+{-| -}
+type alias ResponseBody =
+    Internal.ResponseBody

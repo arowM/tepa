@@ -58,11 +58,13 @@ config =
     , NoUnused.Variables.rule
     , Simplify.defaults
         |> Simplify.ignoreCaseOfForTypes
-            [ "Widget.Toast.Command"
-            , "Widget.Toast.Event"
+            [ "Widget.Toast.Event"
             , "Page.Home.EditAccount.FormError"
             , "Scenario.Msg"
             ]
         |> Simplify.rule
+        |> Rule.ignoreErrorsForFiles
+            [ "tests/VerifyExample.elm"
+            ]
     ]
         |> List.map (Rule.ignoreErrorsForDirectories [ "../src" ])

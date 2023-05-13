@@ -3,8 +3,6 @@ module Widget.Toast exposing
     , init
     , view
     , Event
-    , Command
-    , runCommand
     , Closed
     , pushWarning
     , pushError
@@ -25,8 +23,6 @@ module Widget.Toast exposing
 @docs init
 @docs view
 @docs Event
-@docs Command
-@docs runCommand
 @docs Closed
 
 
@@ -62,6 +58,7 @@ import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise, Void)
+import Tepa.Http as Http
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
 import Tepa.Time
@@ -133,19 +130,6 @@ type Event
     = CloseToastItem
 
 
-{-| -}
-type Command
-    = Command Never
-
-
-{-| -}
-runCommand : Command -> Cmd (Msg Event)
-runCommand cmd =
-    case cmd of
-        Command _ ->
-            Cmd.none
-
-
 {-| Represents that the popup is closed by user or timeout.
 -}
 type Closed
@@ -158,42 +142,40 @@ type Closed
 
 {-| Show warning message.
 -}
-pushWarning : String -> Promise Command Memory Event Closed
+pushWarning : String -> Promise Memory Event Closed
 pushWarning =
     pushItem WarningMessage
 
 
 {-| Show error message.
 -}
-pushError : String -> Promise Command Memory Event Closed
+pushError : String -> Promise Memory Event Closed
 pushError =
     pushItem ErrorMessage
 
 
-pushItem : MessageType -> String -> Promise Command Memory Event Closed
+pushItem : MessageType -> String -> Promise Memory Event Closed
 pushItem type_ str =
-    let
-        newItem =
-            { isHidden = False
-            , messageType = type_
-            , content = str
+    Tepa.map (\_ -> Closed) <|
+        Tepa.putNewLayer
+            { get =
+                \getter (Memory m) ->
+                    List.filterMap getter m.items
+                        |> List.head
+            , modify =
+                \modifier (Memory m) ->
+                    Memory
+                        { m
+                            | items = List.map modifier m.items
+                        }
+            , init =
+                { isHidden = False
+                , messageType = type_
+                , content = str
+                }
             }
-    in
-    Tepa.newLayer
-        { get =
-            \getter (Memory m) ->
-                List.filterMap getter m.items
-                    |> List.head
-        , modify =
-            \modifier (Memory m) ->
-                Memory
-                    { m
-                        | items = List.map modifier m.items
-                    }
-        }
-        newItem
-        |> Tepa.andThenSequence
-            (\( newItemLayer, itemPointer ) ->
+        <|
+            \( newItemLayer, itemPointer ) ->
                 [ Tepa.modify <|
                     \(Memory m) ->
                         Memory { m | items = m.items ++ [ newItemLayer ] }
@@ -209,8 +191,6 @@ pushItem type_ str =
                                         m.items
                             }
                 ]
-            )
-        |> Tepa.map (\_ -> Closed)
 
 
 
@@ -224,7 +204,7 @@ type alias ToastItemMemory =
     }
 
 
-toastItemProcedure : Promise Command ToastItemMemory Event Void
+toastItemProcedure : Promise ToastItemMemory Event Void
 toastItemProcedure =
     Tepa.sequence
         [ Tepa.withLayerEvent
@@ -234,7 +214,7 @@ toastItemProcedure =
                         [ Tepa.none
                         ]
             )
-            |> Tepa.andRace (Tepa.Time.sleep toastTimeout)
+            |> Tepa.orFaster (Tepa.Time.sleep toastTimeout)
         , Tepa.modify
             (\m -> { m | isHidden = True })
         , Tepa.Time.sleep toastFadeOutDuration
@@ -248,18 +228,25 @@ toastItemProcedure =
 {-| Helper function to show HTTP request errors.
 -}
 pushHttpRequestError :
-    Tepa.HttpRequestError
-    -> Promise Command Memory Event Closed
-pushHttpRequestError err =
-    case err of
-        Tepa.Timeout ->
+    Http.Response a
+    -> Promise Memory Event Closed
+pushHttpRequestError resp =
+    case resp of
+        Http.Timeout ->
             pushError """Network error, please try again."""
 
-        Tepa.NetworkError ->
+        Http.NetworkError ->
             pushError """Network error, please try again."""
 
-        _ ->
+        Http.BadUrl _ ->
             pushError """Internal error, please contact our support team."""
+
+        Http.BadResponse _ _ ->
+            pushError """Internal error, please contact our support team."""
+
+        Http.GoodResponse _ _ ->
+            Tepa.none
+                |> Tepa.map (\_ -> Closed)
 
 
 
@@ -307,54 +294,53 @@ toastItemView memory =
 
 
 {-| -}
-type alias ScenarioSet flags c m e =
+type alias ScenarioSet flags m e =
     { expectWarningMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , expectErrorMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , expectDisappearingWarningMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , expectDisappearingErrorMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
-    , expectNoWarningMessages : Scenario.Markup -> Scenario flags c m e
-    , expectNoErrorMessages : Scenario.Markup -> Scenario flags c m e
-    , expectNoMessages : Scenario.Markup -> Scenario flags c m e
+        -> Scenario flags m e
+    , expectNoWarningMessages : Scenario.Markup -> Scenario flags m e
+    , expectNoErrorMessages : Scenario.Markup -> Scenario flags m e
+    , expectNoMessages : Scenario.Markup -> Scenario flags m e
     , closeWarningsByMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , closeErrorsByMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     }
 
 
 {-| -}
-type alias ScenarioProps c m e =
+type alias ScenarioProps m e =
     { querySelf : LayerQuery m Memory
     , wrapEvent : Event -> e
-    , unwrapCommand : c -> Maybe Command
     , session : Scenario.Session
     }
 
 
 {-| -}
-scenario : ScenarioProps c m e -> ScenarioSet flags c m e
+scenario : ScenarioProps m e -> ScenarioSet flags m e
 scenario props =
     { expectWarningMessage = expectMessage props WarningMessage
     , expectErrorMessage = expectMessage props ErrorMessage
@@ -379,13 +365,13 @@ scenario props =
 
 
 expectMessage :
-    ScenarioProps c m e
+    ScenarioProps m e
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags c m e
+    -> Scenario flags m e
 expectMessage props messageType { message } markup =
     Scenario.expectAppView props.session
         markup
@@ -406,13 +392,13 @@ expectMessage props messageType { message } markup =
 
 
 expectDisappearingMessage :
-    ScenarioProps c m e
+    ScenarioProps m e
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags c m e
+    -> Scenario flags m e
 expectDisappearingMessage props messageType { message } markup =
     Scenario.expectAppView props.session
         markup
@@ -435,10 +421,10 @@ expectDisappearingMessage props messageType { message } markup =
 
 
 expectNoMessages :
-    ScenarioProps c m e
+    ScenarioProps m e
     -> String
     -> Scenario.Markup
-    -> Scenario flags c m e
+    -> Scenario flags m e
 expectNoMessages props itemClassname markup =
     Scenario.expectAppView props.session
         markup
@@ -453,13 +439,13 @@ expectNoMessages props itemClassname markup =
 
 
 closeByMessage :
-    ScenarioProps c m e
+    ScenarioProps m e
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags c m e
+    -> Scenario flags m e
 closeByMessage props messageType { message } markup =
     let
         target =
@@ -478,7 +464,7 @@ closeByMessage props messageType { message } markup =
     Scenario.sequence
         [ Scenario.layerEvent props.session
             markup
-            { target = target
+            { layer = target
             , event = props.wrapEvent CloseToastItem
             }
         ]

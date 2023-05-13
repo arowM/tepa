@@ -1,6 +1,5 @@
 module App exposing
-    ( Command(..)
-    , Event
+    ( Event
     , Memory
     , Page(..)
     , Promise
@@ -10,21 +9,31 @@ module App exposing
     , scenario
     )
 
--- import Page.Users as PageUsers
+{-| Application main.
+
+@docs Event
+@docs Memory
+@docs Page
+@docs Promise
+@docs ScenarioSet
+@docs main
+@docs props
+@docs scenario
+
+-}
 
 import App.FetchProfile as FetchProfile
 import App.Route as Route
 import App.Session exposing (Session)
 import Browser exposing (Document)
-import Browser.Navigation
 import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
 import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath
+import Tepa.Http as Http
 import Tepa.Navigation as Nav
-import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery
 import Url exposing (Url)
@@ -37,14 +46,11 @@ import Url exposing (Url)
 {-| -}
 main : Tepa.Program Value Memory Event
 main =
-    Tepa.application
-        { props = props
-        , runCommand = runCommand
-        }
+    Tepa.application props
 
 
 {-| -}
-props : Tepa.ApplicationProps Value Command Memory Event
+props : Tepa.ApplicationProps Value Memory Event
 props =
     { init = init
     , procedure = procedure
@@ -58,6 +64,7 @@ props =
 -- Memory
 
 
+{-| -}
 type alias Memory =
     { page : Page
     }
@@ -73,9 +80,12 @@ init =
 -- Page
 
 
+{-| -}
 type Page
     = PageLoading
     | PageNotFound
+        { msession : Maybe Session
+        }
     | PageLogin (Layer PageLogin.Memory)
     | PageHome (Layer PageHome.Memory)
 
@@ -94,7 +104,7 @@ view =
                     PageLoading ->
                         pageLoadingView
 
-                    PageNotFound ->
+                    PageNotFound _ ->
                         pageNotFoundView
 
                     PageLogin pageLogin ->
@@ -142,39 +152,9 @@ type Event
 -- | PageUsersEvent PageUsers.Event
 
 
-{-| Abstructed Commands, which enables dependency injection.
--}
-type Command
-    = PageLoginCommand PageLogin.Command
-    | PageHomeCommand PageHome.Command
-      -- | PageUsersCommand PageUsers.Command
-    | FetchProfile (Tepa.HttpResult String -> Msg Event)
-    | LoadPage String
-
-
-{-| Run abstructed Commands as actual application Commands.
--}
-runCommand : Command -> Cmd (Msg Event)
-runCommand cmd =
-    case cmd of
-        PageLoginCommand c ->
-            PageLogin.runCommand c
-                |> Cmd.map (Tepa.mapMsg PageLoginEvent)
-
-        PageHomeCommand c ->
-            PageHome.runCommand c
-                |> Cmd.map (Tepa.mapMsg PageHomeEvent)
-
-        FetchProfile toMsg ->
-            FetchProfile.request toMsg
-
-        LoadPage url ->
-            Browser.Navigation.load url
-
-
 {-| -}
 type alias Promise a =
-    Tepa.Promise Command Memory Event a
+    Tepa.Promise Memory Event a
 
 
 type alias Pointer m =
@@ -189,75 +169,78 @@ type alias Pointer m =
 procedure : Value -> Url -> NavKey -> Promise Void
 procedure _ url key =
     Tepa.syncAll
-        [ linkControllProcedure key
-        , pageControllProcedure url key Nothing
+        -- Monitor app Events.
+        [ Tepa.listenLayerEvent (appEventHandler key)
+
+        -- Process initial procedures on loading app.
+        , pageProcedure url key Nothing
         ]
 
 
-
--- -- Link Controller
-
-
-{-| Handle link-click events.
--}
-linkControllProcedure : NavKey -> Promise Void
-linkControllProcedure key =
-    Tepa.withLayerEvent <|
-        \e ->
-            case e of
-                LinkClicked urlRequest ->
-                    case urlRequest of
-                        Browser.Internal url ->
-                            [ Nav.pushPath key (AbsolutePath.fromUrl url)
-                            , Tepa.lazy <|
-                                \_ -> linkControllProcedure key
+appEventHandler : NavKey -> Event -> List (Promise Void)
+appEventHandler key event =
+    case event of
+        UrlChanged newUrl ->
+            [ Tepa.bind Tepa.currentState <|
+                \state ->
+                    case state.page of
+                        PageLoading ->
+                            [ Tepa.lazy <|
+                                \_ -> pageProcedure newUrl key Nothing
                             ]
 
-                        Browser.External href ->
-                            [ loadPage href
-                            , Tepa.lazy <|
-                                \_ -> linkControllProcedure key
+                        PageNotFound param ->
+                            [ Tepa.lazy <|
+                                \_ -> pageProcedure newUrl key param.msession
                             ]
 
-                _ ->
-                    -- Await again when receive other events
-                    []
+                        PageLogin layer ->
+                            [ Tepa.lazy <|
+                                \_ -> pageProcedure newUrl key (Tepa.layerMemory layer).msession
+                            ]
 
+                        PageHome layer ->
+                            [ Tepa.lazy <|
+                                \_ -> pageProcedure newUrl key (Just (Tepa.layerMemory layer).session)
+                            ]
+            ]
 
-loadPage : String -> Promise Void
-loadPage url =
-    Tepa.push <| \_ -> LoadPage url
+        LinkClicked urlRequest ->
+            case urlRequest of
+                Browser.Internal url ->
+                    [ Nav.pushPath key (AbsolutePath.fromUrl url)
+                    ]
+
+                Browser.External href ->
+                    [ Nav.load href
+                    ]
+
+        _ ->
+            []
 
 
 
 -- -- Page Controller
 
 
-pageControllProcedure :
+pageProcedure :
     Url
     -> NavKey
     -> Maybe Session
     -> Promise Void
-pageControllProcedure url key msession =
+pageProcedure url key msession =
     case ( Route.fromUrl url, msession ) of
         ( Route.NotFound, _ ) ->
-            Tepa.sequence
-                [ Tepa.modify <|
-                    \m ->
-                        { m | page = PageNotFound }
-                , Tepa.withLayerEvent <|
-                    \e ->
-                        case e of
-                            UrlChanged newUrl ->
-                                [ Tepa.lazy <|
-                                    \_ ->
-                                        pageControllProcedure newUrl key msession
-                                ]
+            Tepa.modify <|
+                \m ->
+                    { m
+                        | page =
+                            PageNotFound
+                                { msession = msession
+                                }
+                    }
 
-                            _ ->
-                                []
-                ]
-
+        -- Users can access login page without sessions.
         ( Route.Login login, _ ) ->
             Tepa.putVariantLayer
                 { get = .page
@@ -266,100 +249,41 @@ pageControllProcedure url key msession =
                 , unwrap =
                     \m ->
                         case m of
-                            PageLogin a ->
-                                Just a
+                            PageLogin layer ->
+                                Just layer
 
                             _ ->
                                 Nothing
-                , init = PageLogin.init
+                , init = PageLogin.init msession
                 }
-                |> Tepa.andThen
-                    (\pageLoginPointer ->
-                        Tepa.syncAll
-                            -- When login succeed, `PageLogin.procedure` issues `Nav.pushPath` request.
-                            [ PageLogin.procedure login key
-                                |> runPageLoginPromise pageLoginPointer
-
-                            -- When users do not log in and move to another page:
-                            , Tepa.withLayerEvent <|
-                                \e2 ->
-                                    case e2 of
-                                        UrlChanged newUrl ->
-                                            [ runPageLoginPromise pageLoginPointer PageLogin.currentSession
-                                                |> Tepa.andThen (pageControllProcedure newUrl key)
-                                            ]
-
-                                        _ ->
-                                            []
-                            ]
-                    )
+            <|
+                \pointer ->
+                    [ PageLogin.procedure login key
+                        |> runPageLoginPromise pointer
+                    ]
 
         ( _, Nothing ) ->
-            requestFetchProfile
-                |> Tepa.andThen
-                    (\response ->
-                        case response of
-                            Err _ ->
-                                Tepa.sequence
-                                    [ Nav.pushPath key
-                                        (Route.Login { backUrl = Just url }
-                                            |> Route.toAbsolutePath
+            -- Check if the user has already logged in.
+            Tepa.bind FetchProfile.request <|
+                \response ->
+                    case response of
+                        FetchProfile.GoodResponse resp ->
+                            [ Tepa.lazy <|
+                                \_ ->
+                                    pageProcedure url
+                                        key
+                                        (Just
+                                            { profile = resp.profile
+                                            }
                                         )
-                                    , Tepa.withLayerEvent <|
-                                        \e ->
-                                            case e of
-                                                UrlChanged newUrl ->
-                                                    [ pageControllProcedure newUrl key Nothing
-                                                    ]
+                            ]
 
-                                                _ ->
-                                                    []
-                                    ]
-
-                            Ok FetchProfile.LoginRequired ->
-                                Tepa.sequence
-                                    [ Nav.pushPath key
-                                        (Route.Login { backUrl = Just url }
-                                            |> Route.toAbsolutePath
-                                        )
-                                    , Tepa.withLayerEvent <|
-                                        \e ->
-                                            case e of
-                                                UrlChanged newUrl ->
-                                                    [ pageControllProcedure newUrl key Nothing
-                                                    ]
-
-                                                _ ->
-                                                    []
-                                    ]
-
-                            Ok FetchProfile.OtherError ->
-                                Tepa.sequence
-                                    [ Nav.pushPath key
-                                        (Route.Login { backUrl = Just url }
-                                            |> Route.toAbsolutePath
-                                        )
-                                    , Tepa.withLayerEvent <|
-                                        \e ->
-                                            case e of
-                                                UrlChanged newUrl ->
-                                                    [ pageControllProcedure newUrl key Nothing
-                                                    ]
-
-                                                _ ->
-                                                    []
-                                    ]
-
-                            Ok (FetchProfile.GoodResponse resp) ->
-                                Tepa.lazy <|
-                                    \_ ->
-                                        pageControllProcedure url
-                                            key
-                                            (Just
-                                                { profile = resp.profile
-                                                }
-                                            )
-                    )
+                        _ ->
+                            [ Nav.pushPath key
+                                (Route.Login { backUrl = Just url }
+                                    |> Route.toAbsolutePath
+                                )
+                            ]
 
         ( Route.Home, Just session ) ->
             Tepa.putVariantLayer
@@ -376,42 +300,19 @@ pageControllProcedure url key msession =
                                 Nothing
                 , init = PageHome.init session
                 }
-                |> Tepa.andThen
-                    (\pageHomePointer ->
-                        Tepa.syncAll
-                            [ PageHome.procedure key url
-                                |> runPageHomePromise pageHomePointer
-                            , Tepa.withLayerEvent <|
-                                \e ->
-                                    case e of
-                                        UrlChanged newUrl ->
-                                            [ runPageHomePromise pageHomePointer PageHome.currentSession
-                                                |> Tepa.andThen
-                                                    (pageControllProcedure newUrl key << Just)
-                                            ]
-
-                                        _ ->
-                                            []
-                            ]
-                    )
+            <|
+                \pointer ->
+                    [ PageHome.procedure key url
+                        |> runPageHomePromise pointer
+                    ]
 
         _ ->
             Tepa.none
 
 
-requestFetchProfile : Promise (Result Tepa.HttpRequestError FetchProfile.Response)
-requestFetchProfile =
-    Tepa.httpRequest
-        { name = "requestFetchProfile"
-        , bodyType = ResponseType.string
-        , request = FetchProfile
-        , response = FetchProfile.response
-        }
-
-
 runPageLoginPromise :
     Pointer PageLogin.Memory
-    -> Tepa.Promise PageLogin.Command PageLogin.Memory PageLogin.Event a
+    -> Tepa.Promise PageLogin.Memory PageLogin.Event a
     -> Promise a
 runPageLoginPromise pointer prom =
     Tepa.onLayer pointer prom
@@ -426,12 +327,11 @@ runPageLoginPromise pointer prom =
                         _ ->
                             Nothing
             }
-        |> Tepa.mapCmd PageLoginCommand
 
 
 runPageHomePromise :
     Pointer PageHome.Memory
-    -> Tepa.Promise PageHome.Command PageHome.Memory PageHome.Event a
+    -> Tepa.Promise PageHome.Memory PageHome.Event a
     -> Promise a
 runPageHomePromise pointer prom =
     Tepa.onLayer pointer prom
@@ -446,7 +346,6 @@ runPageHomePromise pointer prom =
                         _ ->
                             Nothing
             }
-        |> Tepa.mapCmd PageHomeCommand
 
 
 
@@ -455,13 +354,17 @@ runPageHomePromise pointer prom =
 
 {-| -}
 type alias ScenarioSet flags =
-    { login : PageLogin.ScenarioSet flags Command Memory Event
-    , home : PageHome.ScenarioSet flags Command Memory Event
+    { login : PageLogin.ScenarioSet flags Memory Event
+    , home : PageHome.ScenarioSet flags Memory Event
     , app :
         { receiveProfile :
-            Tepa.HttpResult String
+            (() -> Maybe ( Http.Metadata, String ))
             -> Scenario.Markup
-            -> Scenario flags Command Memory Event
+            -> Scenario flags Memory Event
+        , fetchProfileEndpoint :
+            { method : String
+            , url : String
+            }
         }
     }
 
@@ -483,14 +386,6 @@ scenario session =
                                     Nothing
                         )
             , wrapEvent = PageLoginEvent
-            , unwrapCommand =
-                \c ->
-                    case c of
-                        PageLoginCommand c1 ->
-                            Just c1
-
-                        _ ->
-                            Nothing
             , session = session
             }
     , home =
@@ -507,33 +402,28 @@ scenario session =
                                     Nothing
                         )
             , wrapEvent = PageHomeEvent
-            , unwrapCommand =
-                \c ->
-                    case c of
-                        PageHomeCommand c1 ->
-                            Just c1
-
-                        _ ->
-                            Nothing
             , session = session
             }
     , app =
         { receiveProfile = receiveProfile session
+        , fetchProfileEndpoint =
+            { method = FetchProfile.method
+            , url = FetchProfile.endpointUrl
+            }
         }
     }
 
 
-receiveProfile : Scenario.Session -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags Command Memory Event
-receiveProfile session res markup =
-    Scenario.customResponse session
+receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags Memory Event
+receiveProfile session toResponse markup =
+    Scenario.httpResponse session
         markup
-        { target = LayerQuery.self
+        { layer = LayerQuery.self
         , response =
-            \cmd ->
-                case cmd of
-                    FetchProfile toMsg ->
-                        Just <| toMsg res
+            \rawRequest ->
+                if rawRequest.url == FetchProfile.endpointUrl then
+                    toResponse ()
 
-                    _ ->
-                        Nothing
+                else
+                    Nothing
         }

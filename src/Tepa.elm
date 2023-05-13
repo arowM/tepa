@@ -1,15 +1,15 @@
 module Tepa exposing
     ( Promise
     , map
-    , liftEvent, mapCmd, onLayer
+    , liftEvent, onLayer
     , Pointer
-    , andRace
+    , orFaster
     , andThen
     , sync
     , Void, void
-    , sequence, andThenSequence, none, cancel
+    , sequence, andThenSequence, bind, none, cancel
     , syncAll
-    , modify, push, listen, lazy
+    , modify, listen, lazy
     , when
     , unless
     , withMaybe
@@ -17,13 +17,15 @@ module Tepa exposing
     , succeed
     , currentState, layerEvent
     , portRequest
-    , httpRequest, HttpResult, HttpRequestError(..), isGoodStatus
-    , expectStringResponse, expectBytesResponse
     , customRequest
     , anyRequest
     , withLayerEvent, listenLayerEvent
     , Layer, isPointedBy
-    , putMaybeLayer, putVariantLayer, newListItemLayer, newLayer
+    , layerMemory
+    , maybeLayer, putMaybeLayer
+    , variantLayer, putVariantLayer
+    , newListItemLayer, putNewListItemLayer
+    , newLayer, putNewLayer
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , element
     , document
@@ -42,6 +44,7 @@ module Tepa exposing
     , Model
     , onUrlChange
     , onUrlRequest
+    , push
     )
 
 {-|
@@ -55,13 +58,13 @@ module Tepa exposing
 # Transformers
 
 @docs map
-@docs liftEvent, mapCmd, onLayer
+@docs liftEvent, onLayer
 @docs Pointer
 
 
 # Composition
 
-@docs andRace
+@docs orFaster
 @docs andThen
 @docs sync
 
@@ -71,9 +74,9 @@ module Tepa exposing
 Promises that returns `Void` are called as a _Procedure_.
 
 @docs Void, void
-@docs sequence, andThenSequence, none, cancel
+@docs sequence, andThenSequence, bind, none, cancel
 @docs syncAll
-@docs modify, push, listen, lazy
+@docs modify, listen, lazy
 
 
 # Helper Procedures
@@ -89,8 +92,6 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs succeed
 @docs currentState, layerEvent
 @docs portRequest
-@docs httpRequest, HttpResult, HttpRequestError, isGoodStatus
-@docs expectStringResponse, expectBytesResponse
 @docs customRequest
 @docs anyRequest
 
@@ -103,7 +104,11 @@ Promises that returns `Void` are called as a _Procedure_.
 # Layer
 
 @docs Layer, isPointedBy
-@docs putMaybeLayer, putVariantLayer, newListItemLayer, newLayer
+@docs layerMemory
+@docs maybeLayer, putMaybeLayer
+@docs variantLayer, putVariantLayer
+@docs newListItemLayer, putNewListItemLayer
+@docs newLayer, putNewLayer
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
 
 
@@ -135,20 +140,20 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 @docs onUrlChange
 @docs onUrlRequest
 
+
+# Lower level functions
+
+@docs push
+
 -}
 
 import Browser
-import Bytes exposing (Bytes)
 import Html exposing (Attribute, Html)
-import Http
 import Internal.Core as Core
     exposing
         ( Msg(..)
         , Promise(..)
         )
-import Internal.RequestId exposing (RequestId)
-import Internal.ResponseType as ResponseType
-import Json.Decode exposing (Decoder)
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Tepa.ResponseType exposing (ResponseType)
@@ -157,8 +162,8 @@ import Url exposing (Url)
 
 {-| The Promise represents the eventual completion of an operation and its resulting value. Similar to [Promise in JS](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise).
 -}
-type alias Promise cmd memory event result =
-    Core.Promise cmd memory event result
+type alias Promise memory event result =
+    Core.Promise memory event result
 
 
 {-| Build a Promise that is always completed with the given value immediately.
@@ -166,14 +171,14 @@ type alias Promise cmd memory event result =
 This is usefull for building Promise for concurrent operations with `sync`.
 
 -}
-succeed : a -> Promise cmd memory event a
+succeed : a -> Promise memory event a
 succeed =
     Core.succeedPromise
 
 
 {-| Transform a resulting value produced by a Promise.
 -}
-map : (a -> b) -> Promise c m e a -> Promise c m e b
+map : (a -> b) -> Promise m e a -> Promise m e b
 map =
     Core.mapPromise
 
@@ -184,25 +189,15 @@ liftEvent :
     { wrap : e1 -> e0
     , unwrap : e0 -> Maybe e1
     }
-    -> Promise c m e1 a
-    -> Promise c m e0 a
+    -> Promise m e1 a
+    -> Promise m e0 a
 liftEvent =
     Core.liftPromiseEvent
 
 
-{-| Transform the Commands produced by a Procedure.
-
-You can also use this to inject actual Commands.
-
--}
-mapCmd : (c -> cmd) -> Promise c m e a -> Promise cmd m e a
-mapCmd =
-    Core.mapPromiseCmd
-
-
 {-| Call a child Layer Promise.
 -}
-onLayer : Pointer m m1 -> Promise c m1 e a -> Promise c m e a
+onLayer : Pointer m m1 -> Promise m1 e a -> Promise m e a
 onLayer =
     Core.onLayer
 
@@ -220,6 +215,12 @@ isPointedBy =
 
 
 {-| -}
+layerMemory : Layer m -> m
+layerMemory (Core.Layer _ m) =
+    m
+
+
+{-| -}
 type alias Pointer m m1 =
     Core.Pointer m m1
 
@@ -228,32 +229,32 @@ type alias Pointer m m1 =
 -- Composition
 
 
-{-| Run another Promise concurrently to get the firtst result.
+{-| Run another Promise concurrently to get the faster result.
 
 May you want to set timeout on your request:
 
-    requestWithTimeout : Promise Command Memory Event (Result () Response)
+    requestWithTimeout : Promise Memory Event (Result () Response)
     requestWithTimeout =
         myRequest
             |> map Ok
-            |> andRace
+            |> orFaster
                 (sleep 10000
                     |> map Err
                 )
 
-    sleep : Promise Command Memory Event Void
+    sleep : Promise Memory Event Void
     sleep =
         Debug.todo ""
 
 -}
-andRace : Promise c m e a -> Promise c m e a -> Promise c m e a
-andRace =
+orFaster : Promise m e a -> Promise m e a -> Promise m e a
+orFaster =
     Core.andRacePromise
 
 
 {-| Build a new Promise that evaluate two Promises sequentially.
 -}
-andThen : (a -> Promise c m e b) -> Promise c m e a -> Promise c m e b
+andThen : (a -> Promise m e b) -> Promise m e a -> Promise m e b
 andThen =
     Core.andThenPromise
 
@@ -265,23 +266,23 @@ andThen =
         , resp2 : Resp2
         }
 
-    request1 : Promise Command Memory Event Resp1
+    request1 : Promise Memory Event Resp1
     request1 =
         Debug.todo ""
 
-    request2 : Promise Command Memory Event Resp2
+    request2 : Promise Memory Event Resp2
     request2 =
         Debug.todo ""
 
     -- Returns `Response` value when both Promises has been completed.
-    batched : Promise Command Memory Event Response
+    batched : Promise Memory Event Response
     batched =
         succeed Response
             (sync request1)
             (sync request2)
 
 -}
-sync : Promise c m e a -> Promise c m e (a -> b) -> Promise c m e b
+sync : Promise m e a -> Promise m e (a -> b) -> Promise m e b
 sync =
     Core.syncPromise
 
@@ -296,14 +297,14 @@ type alias Void =
 
 
 {-| -}
-void : Promise c m e a -> Promise c m e Void
+void : Promise m e a -> Promise m e Void
 void =
     Core.void
 
 
 {-| Concatenate given sequence of Procedures.
 -}
-sequence : List (Promise c m e Void) -> Promise c m e Void
+sequence : List (Promise m e Void) -> Promise m e Void
 sequence =
     Core.sequence
 
@@ -314,28 +315,46 @@ sequence =
         andThen (f >> sequence)
 
 -}
-andThenSequence : (a -> List (Promise c m e Void)) -> Promise c m e a -> Promise c m e Void
+andThenSequence : (a -> List (Promise m e Void)) -> Promise m e a -> Promise m e Void
 andThenSequence f =
     andThen (f >> sequence)
 
 
+{-| Flipped version of `andThenSequence`.
+
+You can use `bind` to bind some Promise result to a variable:
+
+    [ bind
+        somePromise
+      <|
+        \result ->
+            [ yourSequence dependsOn result
+            ]
+    ]
+
+-}
+bind : Promise m e a -> (a -> List (Promise m e Void)) -> Promise m e Void
+bind promise f =
+    andThenSequence f promise
+
+
 {-| Procedure that does nothing.
 -}
-none : Promise c m e Void
+none : Promise m e Void
 none =
     Core.none
 
 
 {-| Cancel all the subsequent Procedures.
 -}
-cancel : Promise c m e Void
+cancel : Promise m e Void
 cancel =
     Core.cancel
 
 
 {-| Run Procedures concurrently, and await all to be completed.
 -}
-syncAll : List (Promise c m e Void) -> Promise c m e Void
+syncAll : List (Promise m e Void) -> Promise m e Void
 syncAll =
     Core.concurrent
 
@@ -345,26 +364,26 @@ syncAll =
 Note that the update operation, passed as the second argument, is performed atomically; it means the state of the Memory is not updated by another process during it is read and written by the `modify`.
 
 -}
-modify : (m -> m) -> Promise c m e Void
+modify : (m -> m) -> Promise m e Void
 modify =
     Core.modify
 
 
 {-| Lower level function to push Commands.
 
-Consider using `portRequest` or `customRequest` if possible.
+For detailed documentation and testing, do use this. We recommend using special functions like `Tepa.Http.Request`.
 
 -}
-push : (m -> c) -> Promise c m e Void
-push f =
-    Core.push <| \m -> [ f m ]
+push : (m -> Cmd (Msg e)) -> Promise m e Void
+push =
+    Core.push
 
 
 {-| Construct a Promise that start Subscription and listen to its Events till the Layer expires.
 
 Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
 
-    myProcedures : List (Promise Command Memory Event Void)
+    myProcedures : List (Promise Memory Event Void)
     myProcedures =
         [ newLayer myLayerPosition initValue
             |> andThen
@@ -392,15 +411,15 @@ Keep in mind that this Promise blocks subsequent Promises, so it is common pract
 listen :
     { name : String
     , subscription : m -> Sub e
-    , handler : e -> List (Promise c m e Void)
+    , handler : e -> List (Promise m e Void)
     }
-    -> Promise c m e Void
+    -> Promise m e Void
 listen =
     Core.listen
 
 
 {-| -}
-lazy : (() -> Promise c m e Void) -> Promise c m e Void
+lazy : (() -> Promise m e Void) -> Promise m e Void
 lazy =
     Core.lazy
 
@@ -411,7 +430,7 @@ lazy =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `True`, otherwise same as `none`.
 -}
-when : Bool -> List (Promise c m e Void) -> Promise c m e Void
+when : Bool -> List (Promise m e Void) -> Promise m e Void
 when p ps =
     if p then
         sequence ps
@@ -422,14 +441,14 @@ when p ps =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `False`, otherwise same as `none`.
 -}
-unless : Bool -> List (Promise c m e Void) -> Promise c m e Void
+unless : Bool -> List (Promise m e Void) -> Promise m e Void
 unless p =
     when (not p)
 
 
 {-| Evaluate the sequence of Procedures returned by the callback function only if the first argument is `Just`, otherwise same as `none`.
 -}
-withMaybe : Maybe a -> (a -> List (Promise c m e Void)) -> Promise c m e Void
+withMaybe : Maybe a -> (a -> List (Promise m e Void)) -> Promise m e Void
 withMaybe ma f =
     case ma of
         Nothing ->
@@ -440,7 +459,7 @@ withMaybe ma f =
 
 
 {-| -}
-sequenceOnLayer : Pointer m m1 -> List (Promise c m1 e Void) -> Promise c m e Void
+sequenceOnLayer : Pointer m m1 -> List (Promise m1 e Void) -> Promise m e Void
 sequenceOnLayer p proms =
     sequence proms
         |> onLayer p
@@ -448,7 +467,7 @@ sequenceOnLayer p proms =
 
 {-| Run callback function when the Layer received an event; if the callback function returns empty List, it awaits another event again.
 -}
-withLayerEvent : (e -> List (Promise c m e Void)) -> Promise c m e Void
+withLayerEvent : (e -> List (Promise m e Void)) -> Promise m e Void
 withLayerEvent f =
     layerEvent
         |> andThen
@@ -466,7 +485,7 @@ withLayerEvent f =
 
 Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
 
-    myProcedures : List (Promise Command Memory Event Void)
+    myProcedures : List (Promise Memory Event Void)
     myProcedures =
         [ newLayer myLayerPosition initValue
             |> andThen
@@ -486,7 +505,7 @@ Keep in mind that this Promise blocks subsequent Promises, so it is common pract
                 []
 
 -}
-listenLayerEvent : (e -> List (Promise c m e Void)) -> Promise c m e Void
+listenLayerEvent : (e -> List (Promise m e Void)) -> Promise m e Void
 listenLayerEvent =
     Core.listenLayerEvent
 
@@ -506,7 +525,7 @@ Note that this returns the Memory state when it is resolved:
 
     -- The `currentState` in this Promise returns the memory state when it called,
     -- i.e., when the `request1` is called, but not when the `request1` receives response.
-    myPromise : Promise Command Memory Event Response
+    myPromise : Promise Memory Event Response
     myPromise =
         succeed Response
             (async currentState)
@@ -517,7 +536,7 @@ Note that this returns the Memory state when it is resolved:
         Debug.todo ""
 
 -}
-currentState : Promise c m e m
+currentState : Promise m e m
 currentState =
     Core.currentState
 
@@ -527,7 +546,7 @@ currentState =
 This resolves with every Event the Layer receives; for specific Layer Events, you can use `withLayerEvent` and `listenLayerEvent` helper functions.
 
 -}
-layerEvent : Promise c m e e
+layerEvent : Promise m e e
 layerEvent =
     Core.layerEvent
 
@@ -544,15 +563,15 @@ app.ports.requestGetLocalName.subscribe((req) => {
     app.ports.receiveGetLocalName.send({
       // The `requestId` value, generated by TEPA, links
       // the subscribe port to the relevant send port.
-      requestId: req.requestId,
-      body: {
+      "id": req.id,
+      "body": {
         name: localStorage.getItem(`Name.${req.body.userId}`),
       },
     });
   } catch {
     app.ports.receiveGetLocalName.send({
-      requestId: req.id,
-      body: {
+      "id": req.id,
+      "body": {
         name: null,
       },
     });
@@ -573,160 +592,48 @@ In Elm side:
         { name : Maybe String
         }
 
-    requestLocalName : String -> Promise Command Memory Event LocalNameResponse
+    requestLocalName : String -> Promise Memory Event LocalNameResponse
     requestLocalName userId =
         portRequest
             { name = "Request for localStorage value"
-            , request =
-                \m { requestId } ->
-                    requestGetLocalName <|
-                        JE.object
-                            [ ( "requestId", requestId )
-                            , ( "body"
-                              , JE.object
-                                    [ ( "userId"
-                                      , JE.string userId
-                                      )
-                                    ]
+            , ports =
+                { request = requestGetLocalName
+                , response = receiveGetLocalName
+                }
+            , requestBody =
+                JE.object
+                    [ ( "requestId", requestId )
+                    , ( "body"
+                      , JE.object
+                            [ ( "userId"
+                              , JE.string userId
                               )
                             ]
-            , receiver = receiveGetLocalName
-            , resposne =
-                \requestId ->
-                    JD.map2 (\rid body -> ( rid, body ))
-                        (JD.field "requestId" requestId)
-                        (JD.field "body"
-                            (JD.map LocalNameResponse
-                                (JD.field "name"
-                                    (JD.nullable JD.string)
-                                )
-                            )
-                        )
+                      )
+                    ]
             }
 
 -}
 portRequest :
     { name : String
-    , request : m -> { requestId : Value } -> c
-    , receiver : (Value -> Msg e) -> Sub (Msg e)
-    , response : Decoder RequestId -> Decoder ( RequestId, resp )
+    , ports :
+        { request : Value -> Cmd (Msg e)
+        , response : (Value -> Msg e) -> Sub (Msg e)
+        }
+    , requestBody : Value
     }
-    -> Promise c m e resp
+    -> Promise m e Value
 portRequest =
     Core.portRequest
 
 
 {-| -}
-httpRequest :
-    { name : String
-    , bodyType : ResponseType body
-    , request : (HttpResult body -> Msg e) -> c
-    , response : Http.Metadata -> body -> a
-    }
-    -> Promise c m e (Result HttpRequestError a)
-httpRequest o =
-    customRequest
-        { name = o.name
-        , responseType =
-            ResponseType.result
-                httpRequestError
-                (ResponseType.tuple
-                    ResponseType.httpMetadata
-                    o.bodyType
-                )
-        , request = o.request
-        }
-        |> map (Result.map (\( meta, b ) -> o.response meta b))
-
-
-{-| -}
-expectStringResponse : (HttpResult String -> msg) -> Http.Expect msg
-expectStringResponse toMsg =
-    Http.expectStringResponse toMsg toHttpResult
-
-
-{-| -}
-expectBytesResponse : (HttpResult Bytes -> msg) -> Http.Expect msg
-expectBytesResponse toMsg =
-    Http.expectBytesResponse toMsg toHttpResult
-
-
-toHttpResult : Http.Response body -> HttpResult body
-toHttpResult resp =
-    case resp of
-        Http.BadUrl_ str ->
-            Err <| BadUrl str
-
-        Http.Timeout_ ->
-            Err Timeout
-
-        Http.NetworkError_ ->
-            Err NetworkError
-
-        Http.BadStatus_ meta b ->
-            Ok ( meta, b )
-
-        Http.GoodStatus_ meta b ->
-            Ok ( meta, b )
-
-
-{-| -}
-isGoodStatus : Http.Metadata -> Bool
-isGoodStatus meta =
-    200 <= meta.statusCode && meta.statusCode < 300
-
-
-{-| -}
-type alias HttpResult body =
-    Result HttpRequestError ( Http.Metadata, body )
-
-
-{-| -}
-type HttpRequestError
-    = BadUrl String
-    | Timeout
-    | NetworkError
-
-
-httpRequestError : ResponseType HttpRequestError
-httpRequestError =
-    ResponseType.variant
-        { encode =
-            \a ->
-                case a of
-                    BadUrl str ->
-                        ( "BadUrl", ResponseType.encode ResponseType.string str )
-
-                    Timeout ->
-                        ( "Timeout", ResponseType.encode ResponseType.unit () )
-
-                    NetworkError ->
-                        ( "NetworkError", ResponseType.encode ResponseType.unit () )
-        , decode =
-            \body ->
-                case body of
-                    ( "BadUrl", v ) ->
-                        ResponseType.decode ResponseType.string v
-                            |> Maybe.map BadUrl
-
-                    ( "Timeout", _ ) ->
-                        Just Timeout
-
-                    ( "NetworkError", _ ) ->
-                        Just NetworkError
-
-                    _ ->
-                        Nothing
-        }
-
-
-{-| -}
 customRequest :
     { name : String
-    , request : (a -> Msg e) -> c
+    , request : (a -> Msg e) -> Cmd (Msg e)
     , responseType : ResponseType a
     }
-    -> Promise c m e a
+    -> Promise m e a
 customRequest =
     Core.customRequest
 
@@ -734,11 +641,11 @@ customRequest =
 {-| -}
 anyRequest :
     { name : String
-    , request : (a -> Msg e) -> c
+    , request : (a -> Msg e) -> Cmd (Msg e)
     , wrap : a -> e
     , unwrap : e -> Maybe a
     }
-    -> Promise c m e a
+    -> Promise m e a
 anyRequest =
     Core.anyRequest
 
@@ -747,14 +654,31 @@ anyRequest =
 -- Layer
 
 
-{-| -}
+{-| Procedure style of `maybeLayer`.
+
+    putMaybeLayer param =
+        bind (maybeLayer param)
+
+-}
 putMaybeLayer :
     { get : m -> Maybe (Layer m1)
     , set : Maybe (Layer m1) -> m -> m
     , init : m1
     }
-    -> Promise c m e (Pointer m m1)
-putMaybeLayer o =
+    -> (Pointer m m1 -> List (Promise m e Void))
+    -> Promise m e Void
+putMaybeLayer param =
+    bind (maybeLayer param)
+
+
+{-| -}
+maybeLayer :
+    { get : m -> Maybe (Layer m1)
+    , set : Maybe (Layer m1) -> m -> m
+    , init : m1
+    }
+    -> Promise m e (Pointer m m1)
+maybeLayer o =
     newLayer
         { get =
             \getter m ->
@@ -765,8 +689,8 @@ putMaybeLayer o =
                 o.get m
                     |> Maybe.map modifier
                     |> (\ml1 -> o.set ml1 m)
+        , init = o.init
         }
-        o.init
         |> andThen
             (\( layer, pointer ) ->
                 (modify <| o.set (Just layer))
@@ -774,7 +698,12 @@ putMaybeLayer o =
             )
 
 
-{-| -}
+{-| Procedure style of `variantLayer`.
+
+    putVariantLayer param =
+        bind (variantLayer param)
+
+-}
 putVariantLayer :
     { get : m -> v
     , set : v -> m -> m
@@ -782,8 +711,22 @@ putVariantLayer :
     , unwrap : v -> Maybe (Layer m1)
     , init : m1
     }
-    -> Promise c m e (Pointer m m1)
-putVariantLayer o =
+    -> (Pointer m m1 -> List (Promise m e Void))
+    -> Promise m e Void
+putVariantLayer param =
+    bind (variantLayer param)
+
+
+{-| -}
+variantLayer :
+    { get : m -> v
+    , set : v -> m -> m
+    , wrap : Layer m1 -> v
+    , unwrap : v -> Maybe (Layer m1)
+    , init : m1
+    }
+    -> Promise m e (Pointer m m1)
+variantLayer o =
     newLayer
         { get =
             \getter m ->
@@ -798,13 +741,30 @@ putVariantLayer o =
 
                     Just l1 ->
                         o.set (o.wrap <| modifier l1) m
+        , init = o.init
         }
-        o.init
         |> andThen
             (\( layer, pointer ) ->
                 (modify <| o.set (o.wrap layer))
                     |> map (\_ -> pointer)
             )
+
+
+{-| Procedure style of `newListItemLayer`.
+
+    putNewListItemLayer param init =
+        bind (newListItemLayer param)
+
+-}
+putNewListItemLayer :
+    { get : m -> List (Layer m1)
+    , set : List (Layer m1) -> m -> m
+    , init : m1
+    }
+    -> (( Layer m1, Pointer m m1 ) -> List (Promise m e Void))
+    -> Promise m e Void
+putNewListItemLayer param =
+    bind (newListItemLayer param)
 
 
 {-| -}
@@ -813,8 +773,7 @@ newListItemLayer :
     , set : List (Layer m1) -> m -> m
     , init : m1
     }
-    -> m1
-    -> Promise c m e ( Layer m1, Pointer m m1 )
+    -> Promise m e ( Layer m1, Pointer m m1 )
 newListItemLayer o =
     newLayer
         { get =
@@ -827,18 +786,40 @@ newListItemLayer o =
                 o.get m
                     |> List.map modifier
                     |> (\l1s -> o.set l1s m)
+        , init = o.init
         }
+
+
+{-| Procedure style of `maybeLayer`.
+
+    putNewLayer param =
+        bind (newLayer param)
+
+-}
+putNewLayer :
+    { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
+    , modify : (Layer m1 -> Layer m1) -> m -> m
+    , init : m1
+    }
+    -> (( Layer m1, Pointer m m1 ) -> List (Promise m e Void))
+    -> Promise m e Void
+putNewLayer param =
+    bind (newLayer param)
 
 
 {-| -}
 newLayer :
     { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
     , modify : (Layer m1 -> Layer m1) -> m -> m
+    , init : m1
     }
-    -> m1
-    -> Promise c m e ( Layer m1, Pointer m m1 )
-newLayer =
+    -> Promise m e ( Layer m1, Pointer m m1 )
+newLayer param =
     Core.newLayer
+        { get = param.get
+        , modify = param.modify
+        }
+        param.init
 
 
 {-| -}
@@ -877,13 +858,10 @@ eventMixin =
 
 
 {-| Procedure version of [Browser.element](https://package.elm-lang.org/packages/elm/browser/latest/Browser#element).
-
-You can use `mapCmd` to inject actual Cmds into your Procedure build with custom type Commands.
-
 -}
 element :
     { init : memory
-    , procedure : flags -> Promise (Cmd (Msg event)) memory event Void
+    , procedure : flags -> Promise memory event Void
     , view : Layer memory -> Html (Msg event)
     }
     -> Program flags memory event
@@ -899,13 +877,10 @@ element option =
 
 
 {-| Procedure version of [Browser.document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#document).
-
-You can use `mapCmd` to inject actual Cmds into your Procedure build with custom type Commands.
-
 -}
 document :
     { init : memory
-    , procedure : flags -> Promise (Cmd (Msg event)) memory event Void
+    , procedure : flags -> Promise memory event Void
     , view : Layer memory -> Document (Msg event)
     }
     -> Program flags memory event
@@ -926,18 +901,15 @@ The `onUrlRequest` and `onUrlChange` Events are published to the application roo
 
 -}
 application :
-    { props : ApplicationProps flags cmd memory event
-    , runCommand : cmd -> Cmd (Msg event)
-    }
+    ApplicationProps flags memory event
     -> Program flags memory event
-application { props, runCommand } =
+application props =
     let
         option =
             { init = props.init
             , procedure =
                 \flags url key ->
                     props.procedure flags url key
-                        |> mapCmd runCommand
             , view = props.view
             , onUrlRequest = props.onUrlRequest
             , onUrlChange = props.onUrlChange
@@ -956,9 +928,9 @@ application { props, runCommand } =
 
 
 {-| -}
-type alias ApplicationProps flags cmd memory event =
+type alias ApplicationProps flags memory event =
     { init : memory
-    , procedure : flags -> Url -> NavKey -> Promise cmd memory event Void
+    , procedure : flags -> Url -> NavKey -> Promise memory event Void
     , view : Layer memory -> Document (Msg event)
     , onUrlRequest : Browser.UrlRequest -> event
     , onUrlChange : Url -> event
@@ -977,7 +949,7 @@ type alias NavKey =
 {-| An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).
 -}
 type alias Program flags memory event =
-    Platform.Program flags (Model (Cmd (Msg event)) memory event) (Msg event)
+    Platform.Program flags (Model memory event) (Msg event)
 
 
 {-| Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
@@ -992,15 +964,14 @@ type alias Document a =
 
 {-| TEA update function implementation for running your Procedures.
 -}
-update : Msg event -> Model (Cmd (Msg event)) memory event -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
+update : Msg event -> Model memory event -> ( Model memory event, Cmd (Msg event) )
 update msg model =
     let
         newState =
             Core.update msg model
     in
     ( newState.nextModel
-    , [ List.map Tuple.second newState.cmds
-      , List.map (\(Core.Request _ _ c) -> c) newState.requests
+    , [ List.map (\(Core.Request _ _ _ c) -> c) newState.requests
       , newState.realCmds
       ]
         |> List.concat
@@ -1010,21 +981,21 @@ update msg model =
 
 {-| Construct the TEA element view function.
 -}
-elementView : (Layer memory -> Html (Msg event)) -> Model cmd memory event -> Html (Msg event)
+elementView : (Layer memory -> Html (Msg event)) -> Model memory event -> Html (Msg event)
 elementView =
     Core.elementView
 
 
 {-| Just like `Procedure.documentView`.
 -}
-documentView : (Layer memory -> Document (Msg event)) -> Model cmd memory event -> Document (Msg event)
+documentView : (Layer memory -> Document (Msg event)) -> Model memory event -> Document (Msg event)
 documentView =
     Core.documentView
 
 
 {-| TEA subscriptions function implementation for running your Procedures.
 -}
-subscriptions : Model cmd memory event -> Sub (Msg event)
+subscriptions : Model memory event -> Sub (Msg event)
 subscriptions =
     Core.subscriptions
 
@@ -1033,16 +1004,15 @@ subscriptions =
 -}
 init :
     memory
-    -> Promise (Cmd (Msg event)) memory event Void
-    -> ( Model (Cmd (Msg event)) memory event, Cmd (Msg event) )
+    -> Promise memory event Void
+    -> ( Model memory event, Cmd (Msg event) )
 init memory procs =
     let
         newState =
             Core.init memory procs
     in
     ( newState.nextModel
-    , [ List.map Tuple.second newState.cmds
-      , List.map (\(Core.Request _ _ c) -> c) newState.requests
+    , [ List.map (\(Core.Request _ _ _ c) -> c) newState.requests
       , newState.realCmds
       ]
         |> List.concat
@@ -1064,8 +1034,8 @@ mapMsg =
 
 {-| TEA Model that stores your Procedure state.
 -}
-type alias Model c m e =
-    Core.Model c m e
+type alias Model m e =
+    Core.Model m e
 
 
 {-| Construct a TEA `onUrlChange` property value.

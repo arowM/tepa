@@ -3,12 +3,14 @@ module Page.Home.EditAccount exposing
     , EditAccount
     , Response(..)
     , GoodResponseBody
-    , response
     , Form
     , FormError(..)
     , displayFormError
     , fromForm
     , toFormErrors
+    , response
+    , method
+    , endpointUrl
     )
 
 {-| Module about edit account request.
@@ -24,7 +26,6 @@ module Page.Home.EditAccount exposing
 
 @docs Response
 @docs GoodResponseBody
-@docs response
 
 
 # Form decoding
@@ -37,15 +38,21 @@ If you are not familiar with the concept of _form decoding_, see [blog post](htt
 @docs fromForm
 @docs toFormErrors
 
+
+# Endpoint specification
+
+@docs response
+@docs method
+@docs endpointUrl
+
 -}
 
-import App.Session exposing (Profile)
 import Form.Decoder as FD
-import Http
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
 import Json.Encode as JE
-import Tepa
+import Tepa exposing (Promise)
+import Tepa.Http as Http
 import Url.Builder as Url
 
 
@@ -66,22 +73,33 @@ type alias EditAccount_ =
 
 {-| Request server for editing account.
 -}
-request : EditAccount -> (Tepa.HttpResult String -> msg) -> Cmd msg
-request (EditAccount editAccount) toMsg =
+request : EditAccount -> Promise m e Response
+request (EditAccount editAccount) =
     Http.post
-        { url =
-            Url.absolute
-                [ "api"
-                , "edit-profile-name"
-                ]
-                []
-        , body =
+        { url = endpointUrl
+        , requestBody =
             Http.jsonBody <|
                 JE.object
                     [ ( "name", JE.string editAccount.name )
                     ]
-        , expect = Tepa.expectStringResponse toMsg
         }
+        |> Tepa.map response
+
+
+{-| -}
+method : String
+method =
+    "POST"
+
+
+{-| -}
+endpointUrl : String
+endpointUrl =
+    Url.absolute
+        [ "api"
+        , "edit-profile-name"
+        ]
+        []
 
 
 
@@ -91,7 +109,7 @@ request (EditAccount editAccount) toMsg =
 {-| Successful response body.
 -}
 type alias GoodResponseBody =
-    { profile : Profile
+    { name : String
     }
 
 
@@ -99,93 +117,159 @@ type alias GoodResponseBody =
 -}
 type Response
     = GoodResponse GoodResponseBody
-    | LoginRequired
-    | OtherError
+    | LoginRequiredResponse
+    | TemporaryErrorResponse
+    | FatalErrorResponse
 
 
 {-|
 
     import Dict
-    import Http
+    import Tepa.Http as Http
 
-    response
+    successfulMeta : Http.Metadata
+    successfulMeta =
         { url = "https://example.com/api/edit-profile-name"
         , statusCode = 200
         , statusText = "OK"
         , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
         }
+
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
-            "id": "Sakura-chan-ID",
             "name": "Sakura-chan"
           }
         }
         """
+        |> response
     --> GoodResponse
-    -->     { profile =
-    -->         { id = "Sakura-chan-ID"
-    -->         , name = Just "Sakura-chan"
-    -->         }
+    -->     { name = "Sakura-chan"
     -->     }
 
-    response
-        { url = "https://example.com/api/edit-profile-name"
-        , statusCode = 401
-        , statusText = "Unauthorized"
-        , headers = Dict.empty
-        }
+    -- "name" value cannot be null.
+    Http.GoodResponse successfulMeta
         """
         {
-          "code": "AnyErrorCode"
+          "profile": {
+            "name": null
+          }
         }
         """
-    --> LoginRequired
+        |> response
+    --> FatalErrorResponse
 
-    response
-        { url = "https://example.com/api/edit-profile-name"
-        , statusCode = 404
-        , statusText = "Not Found"
-        , headers = Dict.empty
-        }
+    -- "name" field is required.
+    Http.GoodResponse successfulMeta
         """
         {
-          "code": "ValidErrorCode"
+          "profile": {
+          }
         }
         """
-    --> OtherError
+        |> response
+    --> FatalErrorResponse
+
+    -- `FatalErrorResponse` on Invalid JSON payload.
+    Http.GoodResponse successfulMeta
+        """
+        {
+          "profile": {
+            "name": "Sakura-chan"
+          }
+        """
+        |> response
+    --> FatalErrorResponse
+
+    -- Handles "LoginRequired" error code specially.
+    Http.BadResponse
+        ( { url = "https://example.com/api/edit-profile-name"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
+        """
+        {
+          "code": "LoginRequired"
+        }
+        """
+        |> response
+    --> LoginRequiredResponse
+
+    -- `FatalErrorResponse` on other error codes.
+    Http.BadResponse
+        ( { url = "https://example.com/api/edit-profile-name"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
+        """
+        {
+          "code": "OtherErrorCode"
+        }
+        """
+        |> response
+    --> FatalErrorResponse
+
+    -- Bad URL error is not a temprary error, so it is `FatalErrorResponse`.
+    Http.BadUrl "foobar"
+        |> response
+    --> FatalErrorResponse
+
+    Http.NetworkError
+        |> response
+    --> TemporaryErrorResponse
+
+    Http.Timeout
+        |> response
+    --> TemporaryErrorResponse
 
 -}
-response : Http.Metadata -> String -> Response
-response meta str =
-    if Tepa.isGoodStatus meta then
-        case JD.decodeString goodStatusDecoder str of
-            Ok body ->
-                GoodResponse body
+response : Http.Response String -> Response
+response rawResponse =
+    case rawResponse of
+        Http.GoodResponse _ rawBody ->
+            let
+                decoder : JD.Decoder Response
+                decoder =
+                    JD.field "profile"
+                        (JD.succeed GoodResponseBody
+                            |> JDP.required "name" JD.string
+                            |> JD.map GoodResponse
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-            Err _ ->
-                OtherError
+        Http.BadResponse _ rawBody ->
+            let
+                decoder =
+                    JD.field "code"
+                        (JD.string
+                            |> JD.andThen
+                                (\code ->
+                                    if code == "LoginRequired" then
+                                        JD.succeed LoginRequiredResponse
 
-    else
-        case meta.statusCode of
-            401 ->
-                LoginRequired
+                                    else
+                                        JD.fail "Unknown code"
+                                )
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-            _ ->
-                OtherError
+        Http.BadUrl _ ->
+            FatalErrorResponse
 
+        Http.NetworkError ->
+            TemporaryErrorResponse
 
-goodStatusDecoder : JD.Decoder GoodResponseBody
-goodStatusDecoder =
-    JD.succeed GoodResponseBody
-        |> JDP.required "profile" profileDecoder
-
-
-profileDecoder : JD.Decoder Profile
-profileDecoder =
-    JD.succeed Profile
-        |> JDP.required "id" JD.string
-        |> JDP.required "name" (JD.maybe JD.string)
+        Http.Timeout ->
+            TemporaryErrorResponse
 
 
 

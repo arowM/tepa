@@ -1,27 +1,37 @@
 module Page.Login exposing
-    ( Command
-    , Event
+    ( Event
     , Memory
     , ScenarioSet
-    , currentSession
     , init
     , procedure
-    , runCommand
     , scenario
     , view
     )
 
+{-| Login page.
+
+@docs Event
+@docs Memory
+@docs ScenarioSet
+@docs init
+@docs procedure
+@docs scenario
+@docs view
+
+-}
+
 import App.Route as Route
 import App.Session exposing (Session)
 import Expect
+import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
 import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath
+import Tepa.Http as Http
 import Tepa.Navigation as Nav
-import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
 import Test.Html.Event as HtmlEvent
@@ -40,10 +50,10 @@ type alias Memory =
 
 
 {-| -}
-init : Memory
-init =
+init : Maybe Session -> Memory
+init msession =
     { loginForm = initLoginForm
-    , msession = Nothing
+    , msession = msession
     , toast = Nothing
     }
 
@@ -93,7 +103,10 @@ type alias LoginFormMemory =
 
 initLoginForm : LoginFormMemory
 initLoginForm =
-    { form = Login.initForm
+    { form =
+        { id = ""
+        , pass = ""
+        }
     , isBusy = False
 
     -- Do not show errors initially to avoid bothering
@@ -110,7 +123,7 @@ loginFormView memory =
         errors =
             List.concat
                 [ if memory.incorrectIdOrPass then
-                    [ Login.IncorrectIdOrPass
+                    [ Login.IncorrectIdOrPassword
                     ]
 
                   else
@@ -201,26 +214,8 @@ loginFormView memory =
 -- Procedures
 
 
-{-| -}
-type Command
-    = ToastCommand Toast.Command
-    | RequestLogin Login.Login (Tepa.HttpResult String -> Msg Event)
-
-
-{-| -}
-runCommand : Command -> Cmd (Msg Event)
-runCommand cmd =
-    case cmd of
-        ToastCommand toastCommand ->
-            Toast.runCommand toastCommand
-                |> Cmd.map (Tepa.mapMsg ToastEvent)
-
-        RequestLogin login toMsg ->
-            Login.request login toMsg
-
-
 type alias Promise a =
-    Tepa.Promise Command Memory Event a
+    Tepa.Promise Memory Event a
 
 
 type alias Pointer m =
@@ -232,13 +227,6 @@ type alias Bucket =
     , props : Route.LoginProps
     , toastPointer : Pointer Toast.Memory
     }
-
-
-{-| -}
-currentSession : Promise (Maybe Session)
-currentSession =
-    Tepa.currentState
-        |> Tepa.map (\m -> m.msession)
 
 
 
@@ -254,20 +242,20 @@ procedure props key =
         , set = \toast m -> { m | toast = toast }
         , init = Toast.init
         }
-        |> Tepa.andThen
-            (\toastPointer ->
-                let
-                    bucket =
-                        { key = key
-                        , props = props
-                        , toastPointer = toastPointer
-                        }
-                in
-                -- Main Procedures
-                Tepa.syncAll
-                    [ loginFormProcedure bucket
-                    ]
-            )
+    <|
+        \toastPointer ->
+            let
+                bucket =
+                    { key = key
+                    , props = props
+                    , toastPointer = toastPointer
+                    }
+            in
+            -- Main Procedures
+            [ Tepa.syncAll
+                [ loginFormProcedure bucket
+                ]
+            ]
 
 
 loginFormProcedure : Bucket -> Promise Void
@@ -332,109 +320,98 @@ submitLoginProcedure bucket =
     Tepa.sequence
         [ modifyLoginForm <|
             \m -> { m | isBusy = True }
-        , Tepa.currentState
-            |> Tepa.andThen
-                (\curr ->
-                    case Login.fromForm curr.loginForm.form of
-                        Err _ ->
-                            Tepa.sequence
-                                [ modifyLoginForm <|
-                                    \m ->
-                                        { m
-                                            | isBusy = False
-                                            , showError = True
-                                        }
-                                , Tepa.lazy <| \_ -> loginFormProcedure bucket
-                                ]
+        , Tepa.bind Tepa.currentState <|
+            \curr ->
+                case Login.fromForm curr.loginForm.form of
+                    Err _ ->
+                        [ modifyLoginForm <|
+                            \m ->
+                                { m
+                                    | isBusy = False
+                                    , showError = True
+                                }
+                        , Tepa.lazy <| \_ -> loginFormProcedure bucket
+                        ]
 
-                        Ok login ->
-                            requestLogin login
-                                |> Tepa.andThen
-                                    (\response ->
-                                        case response of
-                                            Err err ->
-                                                Tepa.syncAll
-                                                    [ Toast.pushHttpRequestError err
-                                                        |> runToastPromise bucket.toastPointer
-                                                        |> Tepa.void
-                                                    , Tepa.sequence
-                                                        [ modifyLoginForm <|
-                                                            \m ->
-                                                                { m | isBusy = False }
-                                                        , Tepa.lazy <|
-                                                            \_ ->
-                                                                loginFormProcedure bucket
-                                                        ]
-                                                    ]
+                    Ok login ->
+                        [ Tepa.bind (Login.request login) <|
+                            \response ->
+                                case response of
+                                    Login.TemporaryErrorResponse ->
+                                        [ Tepa.syncAll
+                                            [ Toast.pushError
+                                                "Network error, please check your network and try again."
+                                                |> runToastPromise bucket.toastPointer
+                                                |> Tepa.void
+                                            , Tepa.sequence
+                                                [ modifyLoginForm <|
+                                                    \m ->
+                                                        { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ ->
+                                                        loginFormProcedure bucket
+                                                ]
+                                            ]
+                                        ]
 
-                                            Ok Login.OtherError ->
-                                                Tepa.syncAll
-                                                    [ Toast.pushError
-                                                        "Internal error, please contact our support team."
-                                                        |> runToastPromise bucket.toastPointer
-                                                        |> Tepa.void
-                                                    , Tepa.sequence
-                                                        [ modifyLoginForm <|
-                                                            \m ->
-                                                                { m | isBusy = False }
-                                                        , Tepa.lazy <|
-                                                            \_ ->
-                                                                loginFormProcedure bucket
-                                                        ]
-                                                    ]
+                                    Login.FatalErrorResponse ->
+                                        [ Tepa.syncAll
+                                            [ Toast.pushError
+                                                "Internal error, please contact our support team."
+                                                |> runToastPromise bucket.toastPointer
+                                                |> Tepa.void
+                                            , Tepa.sequence
+                                                [ modifyLoginForm <|
+                                                    \m ->
+                                                        { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ ->
+                                                        loginFormProcedure bucket
+                                                ]
+                                            ]
+                                        ]
 
-                                            Ok Login.IncorrectIdOrPassword ->
-                                                Tepa.syncAll
-                                                    [ Tepa.sequence
-                                                        [ modifyLoginForm <|
-                                                            \m ->
-                                                                { m
-                                                                    | isBusy = False
-                                                                    , incorrectIdOrPass = True
-                                                                }
-                                                        , Tepa.lazy <|
-                                                            \_ ->
-                                                                loginFormProcedure bucket
-                                                        ]
-                                                    ]
+                                    Login.IncorrectIdOrPasswordResponse ->
+                                        [ Tepa.syncAll
+                                            [ Tepa.sequence
+                                                [ modifyLoginForm <|
+                                                    \m ->
+                                                        { m
+                                                            | isBusy = False
+                                                            , incorrectIdOrPass = True
+                                                        }
+                                                , Tepa.lazy <|
+                                                    \_ ->
+                                                        loginFormProcedure bucket
+                                                ]
+                                            ]
+                                        ]
 
-                                            Ok (Login.GoodResponse resp) ->
-                                                Tepa.sequence
-                                                    [ Tepa.modify <|
-                                                        \m ->
-                                                            { m
-                                                                | msession =
-                                                                    Just
-                                                                        { profile = resp.profile
-                                                                        }
-                                                                , loginForm =
-                                                                    let
-                                                                        loginForm =
-                                                                            m.loginForm
-                                                                    in
-                                                                    { loginForm
-                                                                        | isBusy = False
-                                                                    }
+                                    Login.GoodResponse resp ->
+                                        [ Tepa.modify <|
+                                            \m ->
+                                                { m
+                                                    | msession =
+                                                        Just
+                                                            { profile = resp.profile
                                                             }
-                                                    , Nav.pushPath bucket.key
-                                                        (bucket.props.backUrl
-                                                            |> Maybe.map AbsolutePath.fromUrl
-                                                            |> Maybe.withDefault (Route.toAbsolutePath Route.Home)
-                                                        )
-                                                    ]
-                                    )
-                )
+                                                    , loginForm =
+                                                        let
+                                                            loginForm =
+                                                                m.loginForm
+                                                        in
+                                                        { loginForm
+                                                            | isBusy = False
+                                                        }
+                                                }
+                                        , Nav.pushPath bucket.key
+                                            (bucket.props.backUrl
+                                                |> Maybe.map AbsolutePath.fromUrl
+                                                |> Maybe.withDefault (Route.toAbsolutePath Route.Home)
+                                            )
+                                        ]
+                        ]
         ]
-
-
-requestLogin : Login.Login -> Promise (Result Tepa.HttpRequestError Login.Response)
-requestLogin login =
-    Tepa.httpRequest
-        { name = "requestLogin"
-        , bodyType = ResponseType.string
-        , request = RequestLogin login
-        , response = Login.response
-        }
 
 
 
@@ -443,7 +420,7 @@ requestLogin login =
 
 runToastPromise :
     Pointer Toast.Memory
-    -> Tepa.Promise Toast.Command Toast.Memory Toast.Event a
+    -> Tepa.Promise Toast.Memory Toast.Event a
     -> Promise a
 runToastPromise pointer prom =
     Tepa.onLayer pointer prom
@@ -458,7 +435,6 @@ runToastPromise pointer prom =
                         _ ->
                             Nothing
             }
-        |> Tepa.mapCmd ToastCommand
 
 
 
@@ -466,46 +442,49 @@ runToastPromise pointer prom =
 
 
 {-| -}
-type alias ScenarioSet flags c m e =
+type alias ScenarioSet flags m e =
     { changeLoginId :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , changeLoginPass :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , clickSubmitLogin :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
     , receiveLoginResp :
-        Tepa.HttpResult String
+        (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , expectAvailable :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
     , expectLoginFormShowNoErrors :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
     , expectLoginFormShowError :
         { error : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
-    , toast : Toast.ScenarioSet flags c m e
+        -> Scenario flags m e
+    , toast : Toast.ScenarioSet flags m e
+    , loginEndpoint :
+        { method : String
+        , url : String
+        }
     }
 
 
-type alias ScenarioProps c m e =
+type alias ScenarioProps m e =
     { querySelf : LayerQuery m Memory
     , wrapEvent : Event -> e
-    , unwrapCommand : c -> Maybe Command
     , session : Scenario.Session
     }
 
 
 {-| -}
-scenario : ScenarioProps c m e -> ScenarioSet flags c m e
+scenario : ScenarioProps m e -> ScenarioSet flags m e
 scenario props =
     { changeLoginId = changeLoginId props
     , changeLoginPass = changeLoginPass props
@@ -520,24 +499,20 @@ scenario props =
                 props.querySelf
                     |> LayerQuery.child .toast
             , wrapEvent = ToastEvent >> props.wrapEvent
-            , unwrapCommand =
-                \c ->
-                    case props.unwrapCommand c of
-                        Just (ToastCommand c1) ->
-                            Just c1
-
-                        _ ->
-                            Nothing
             , session = props.session
             }
+    , loginEndpoint =
+        { method = Login.method
+        , url = Login.endpointUrl
+        }
     }
 
 
-changeLoginId : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeLoginId : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Scenario flags m e
 changeLoginId props { value } markup =
     Scenario.userOperation props.session
         markup
-        { target =
+        { layer =
             Query.find
                 [ localClassSelector "loginForm_input-id"
                 ]
@@ -545,22 +520,22 @@ changeLoginId props { value } markup =
         }
 
 
-changeLoginPass : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeLoginPass : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Scenario flags m e
 changeLoginPass props { value } markup =
     Scenario.layerEvent props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , event =
             ChangeLoginPass value
                 |> props.wrapEvent
         }
 
 
-clickSubmitLogin : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+clickSubmitLogin : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 clickSubmitLogin props markup =
     Scenario.userOperation props.session
         markup
-        { target =
+        { layer =
             Query.find
                 [ localClassSelector "loginForm_submitLogin"
                 , Selector.disabled False
@@ -570,25 +545,31 @@ clickSubmitLogin props markup =
         }
 
 
-receiveLoginResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags c m e
-receiveLoginResp props res markup =
-    Scenario.customResponse props.session
+receiveLoginResp :
+    ScenarioProps m e
+    -> (Value -> Maybe ( Http.Metadata, String ))
+    -> Scenario.Markup
+    -> Scenario flags m e
+receiveLoginResp props toResponse markup =
+    Scenario.httpResponse props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , response =
-            \cmd ->
-                case props.unwrapCommand cmd of
-                    Just (RequestLogin _ toMsg) ->
-                        toMsg res
-                            |> Tepa.mapMsg props.wrapEvent
-                            |> Just
+            \rawRequest ->
+                if rawRequest.url == Login.endpointUrl && rawRequest.method == Login.method then
+                    case rawRequest.requestBody of
+                        Scenario.JsonHttpRequestBody value ->
+                            toResponse value
 
-                    _ ->
-                        Nothing
+                        _ ->
+                            Nothing
+
+                else
+                    Nothing
         }
 
 
-expectLoginFormShowNoErrors : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectLoginFormShowNoErrors : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 expectLoginFormShowNoErrors props markup =
     Scenario.expectAppView props.session
         markup
@@ -605,16 +586,16 @@ expectLoginFormShowNoErrors props markup =
         }
 
 
-expectAvailable : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectAvailable : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 expectAvailable props markup =
     Scenario.expectMemory props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , expectation = \_ -> Expect.pass
         }
 
 
-expectLoginFormShowError : ScenarioProps c m e -> { error : String } -> Scenario.Markup -> Scenario flags c m e
+expectLoginFormShowError : ScenarioProps m e -> { error : String } -> Scenario.Markup -> Scenario flags m e
 expectLoginFormShowError props { error } markup =
     Scenario.expectAppView props.session
         markup

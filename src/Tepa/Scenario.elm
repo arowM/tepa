@@ -24,6 +24,10 @@ module Tepa.Scenario exposing
     , layerEvent
     , listenerEvent
     , sleep
+    , httpResponse
+    , httpBytesResponse
+    , HttpRequest
+    , HttpRequestBody(..)
     , portResponse
     , customResponse
     , fromJust
@@ -92,6 +96,14 @@ module Tepa.Scenario exposing
 @docs sleep
 
 
+## Http response Simulators
+
+@docs httpResponse
+@docs httpBytesResponse
+@docs HttpRequest
+@docs HttpRequestBody
+
+
 ## Response Simulators
 
 @docs portResponse
@@ -113,8 +125,11 @@ module Tepa.Scenario exposing
 -}
 
 import Browser exposing (Document)
+import Bytes exposing (Bytes)
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
+import File exposing (File)
+import Http
 import Internal.AbsolutePath as AbsolutePath
 import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
@@ -146,9 +161,9 @@ import Url exposing (Url)
 The Scenario you built can be converted to tests with `toTest`, and to documents with `toHtml` or `toMarkdown`.
 
 -}
-type Scenario flags cmd memory event
+type Scenario flags memory event
     = Scenario
-        { test : TestConfig flags cmd memory event -> TestContext cmd memory event -> SeqTest.Sequence (TestContext cmd memory event)
+        { test : TestConfig flags memory event -> TestContext memory event -> SeqTest.Sequence (TestContext memory event)
         , markup :
             RenderConfig -> ListBlock -> Result InvalidMarkup ListBlock
         }
@@ -166,39 +181,38 @@ type alias ListBlock =
         MdBuilder.ListBlock
 
 
-type alias TestConfig flags c m e =
+type alias TestConfig flags m e =
     { view : m -> Document (Msg e)
-    , init : flags -> Url -> Result String (SessionContext c m e)
+    , init : flags -> Url -> Result String (SessionContext m e)
     , onUrlChange : AbsolutePath -> Msg e
     }
 
 
-type alias TestContext c m e =
-    { sessions : Dict SessionId (SessionContext c m e)
+{-| -}
+type alias TestContext m e =
+    { sessions : Dict String (SessionContext m e)
     , currentTime : Int -- in milliseconds
     }
 
 
-type alias SessionId =
-    String
-
-
-type alias SessionContext c m e =
-    { model : Model c m e
-    , cmds : List ( LayerId, c )
-    , requests : List (Core.Request c)
-    , timers : List Timer
-    , listeners : List Listener
+{-| -}
+type alias SessionContext m e =
+    { model : Model m e
+    , requests : List (Core.Request e) -- reversed
+    , portRequests : List ( ( RequestId, LayerId ), Value ) -- reversed
+    , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
+    , timers : List (Timer e)
+    , listeners : List Listener -- reversed
     , history : History
     }
 
 
-{-| Manage sleep operations.
+{-| Manage timeout operations.
 -}
-type alias Timer =
+type alias Timer e =
     { runAfter : Int
     , every : Maybe Int
-    , requestId : RequestId
+    , msg : Posix -> Core.Msg e
     , layerId : LayerId
     }
 
@@ -222,7 +236,7 @@ type InvalidMarkup
 
 {-| A Scenario that does nothing.
 -}
-none : Scenario flags c m e
+none : Scenario flags m e
 none =
     Scenario
         { test = noneTest
@@ -231,14 +245,14 @@ none =
 
 
 {-| -}
-noneTest : TestConfig flags c m e -> TestContext c m e -> SeqTest.Sequence (TestContext c m e)
+noneTest : TestConfig flags m e -> TestContext m e -> SeqTest.Sequence (TestContext m e)
 noneTest _ =
     SeqTest.pass
 
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
 -}
-sequence : List (Scenario flags c m e) -> Scenario flags c m e
+sequence : List (Scenario flags m e) -> Scenario flags m e
 sequence =
     List.foldl
         (\a acc ->
@@ -247,7 +261,7 @@ sequence =
         none
 
 
-mappend : Scenario flags c m e -> Scenario flags c m e -> Scenario flags c m e
+mappend : Scenario flags m e -> Scenario flags m e -> Scenario flags m e
 mappend (Scenario s1) (Scenario s2) =
     Scenario
         { test =
@@ -329,9 +343,9 @@ In such case, you can declare common section, and refer to the title in `depende
         }
 
 -}
-type alias Section flags command memory event =
+type alias Section flags memory event =
     { title : String
-    , content : List (Scenario flags command memory event)
+    , content : List (Scenario flags memory event)
     , dependency : Dependency
     }
 
@@ -428,7 +442,7 @@ This Scenario only affects document generation, and is ignored for scenario test
 You can start with `userComment` and `systemComment` to build the skeleton of your scenario, and gradually replace `userComment` with Event Simulator and `systemComment` with Expectation.
 
 -}
-userComment : User -> String -> Scenario flags c m e
+userComment : User -> String -> Scenario flags m e
 userComment (User user) commentText =
     comment
         { content =
@@ -445,7 +459,7 @@ userComment (User user) commentText =
 This Scenario only affects document generation, and is ignored for scenario test generation.
 
 -}
-systemComment : Session -> String -> Scenario flags c m e
+systemComment : Session -> String -> Scenario flags m e
 systemComment (Session session) commentText =
     comment
         { content =
@@ -464,7 +478,7 @@ systemComment (Session session) commentText =
 
 {-| Lower level function to add detailed comments.
 -}
-comment : Markup -> Scenario flags c m e
+comment : Markup -> Scenario flags m e
 comment markup =
     Scenario
         { test = noneTest
@@ -599,7 +613,7 @@ Suppose your application has a counter:
             , detail = []
             , appear = True
             }
-            { target =
+            { layer =
                 pageHomeLayer
             , expectation =
                 \pageHome ->
@@ -624,10 +638,10 @@ expectMemory :
     Session
     -> Markup
     ->
-        { target : LayerQuery m m1
+        { layer : LayerQuery m m1
         , expectation : List m1 -> Expectation
         }
-    -> Scenario flags c m e
+    -> Scenario flags m e
 expectMemory (Session session) markup o =
     let
         description =
@@ -644,7 +658,7 @@ expectMemory (Session session) markup o =
                                     "expectMemory: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.target sessionContext.model of
+                        case Core.runQuery o.layer sessionContext.model of
                             [] ->
                                 SeqTest.fail description <|
                                     \_ ->
@@ -758,7 +772,7 @@ expectAppView :
     ->
         { expectation : Document (Msg event) -> Expectation
         }
-    -> Scenario flags c m event
+    -> Scenario flags m event
 expectAppView (Session session) markup { expectation } =
     let
         description =
@@ -842,7 +856,7 @@ loadApp :
         { path : AbsolutePath
         , flags : flags
         }
-    -> Scenario flags c m e
+    -> Scenario flags m e
 loadApp (Session session) markup o =
     let
         description =
@@ -883,7 +897,7 @@ loadApp (Session session) markup o =
         }
 
 
-{-| Publish an event to its Layer.
+{-| Publish an event to the only first Layer specified by query.
 
 Suppose your application has a popup:
 
@@ -902,15 +916,17 @@ Suppose your application has a popup:
 
 The example above publishes `ClickPopupCancelButton` event to the LayerId for the `popup` Layer.
 
+If no Layers are found for the query, the test fails.
+
 -}
 layerEvent :
     Session
     -> Markup
     ->
-        { target : LayerQuery m m1
+        { layer : LayerQuery m m1
         , event : event
         }
-    -> Scenario flags c m event
+    -> Scenario flags m event
 layerEvent (Session session) markup o =
     let
         description =
@@ -927,29 +943,26 @@ layerEvent (Session session) markup o =
                                     "layerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.target sessionContext.model of
+                        case Core.runQuery o.layer sessionContext.model of
                             [] ->
                                 SeqTest.fail description <|
                                     \_ ->
                                         Expect.fail
                                             "layerEvent: No Layers for the query."
 
-                            layer1s ->
+                            (Core.Layer lid _) :: _ ->
                                 let
                                     res =
-                                        List.map
-                                            (\(Core.Layer lid _) ->
-                                                Core.LayerMsg
-                                                    { layerId = lid
-                                                    , event = o.event
-                                                    }
-                                            )
-                                            layer1s
-                                            |> applyMsgsTo
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                        update
+                                            { onUrlChange = config.onUrlChange
+                                            , currentTime = context.currentTime
+                                            }
+                                            (Core.LayerMsg
+                                                { layerId = lid
+                                                , event = o.event
                                                 }
-                                                sessionContext
+                                            )
+                                            sessionContext
                                 in
                                 case res of
                                     Err err ->
@@ -985,7 +998,7 @@ layerEvent (Session session) markup o =
 
 {-| About options:
 
-  - target: Query to specify the event target element from your current page HTML.
+  - layer: Query to specify the event target element from your current page HTML.
 
     Use querying functions that [Test.Html.Query](https://package.elm-lang.org/packages/elm-explorations/test/latest/Test-Html-Query) module exports.
 
@@ -1000,10 +1013,10 @@ userOperation :
     Session
     -> Markup
     ->
-        { target : Single (Msg e) -> Single (Msg e)
+        { layer : Single (Msg e) -> Single (Msg e)
         , operation : ( String, Value )
         }
-    -> Scenario flags c m e
+    -> Scenario flags m e
 userOperation (Session session) markup o =
     let
         (User user) =
@@ -1030,7 +1043,7 @@ userOperation (Session session) markup o =
                                     |> .body
                                     |> Html.div []
                                     |> Test.Html.Query.fromHtml
-                                    |> o.target
+                                    |> o.layer
                                     |> TestEvent.simulate o.operation
                                     |> TestEvent.toResult
                         in
@@ -1086,7 +1099,7 @@ userOperation (Session session) markup o =
         }
 
 
-{-| Publish an event to a Listner.
+{-| Publish an event to the only first Listner specified by its name and query.
 
 Suppose your application has a WebSocket message Listener named "WebSocket message Listener":
 
@@ -1096,7 +1109,7 @@ Suppose your application has a WebSocket message Listener named "WebSocket messa
         [ Debug.todo "After some operations..."
         , listenerEvent sakuraChanMainSession
             (textContent "Receive WebSocket message")
-            { target = "WebSocket message Listener"
+            { layer = "WebSocket message Listener"
             , event =
                 WebSocketMessage <|
                     JE.object
@@ -1106,18 +1119,18 @@ Suppose your application has a WebSocket message Listener named "WebSocket messa
         , Debug.todo "..."
         ]
 
-If no Layers found for the query, it does nothing and just passes the test.
+If no Layers found for the query, it does nothing and the test passes.
 
 -}
 listenerEvent :
     Session
     -> Markup
     ->
-        { target : LayerQuery m m1
-        , listenerName : String
+        { layer : LayerQuery m m1
+        , name : String
         , event : event
         }
-    -> Scenario flags c m event
+    -> Scenario flags m event
 listenerEvent (Session session) markup o =
     let
         description =
@@ -1134,49 +1147,51 @@ listenerEvent (Session session) markup o =
                                     "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.target sessionContext.model of
+                        case Core.runQuery o.layer sessionContext.model of
                             [] ->
                                 SeqTest.pass context
 
-                            layer1s ->
-                                let
-                                    res =
-                                        List.concatMap
-                                            (\(Core.Layer thisLid _) ->
-                                                sessionContext.listeners
-                                                    |> List.filterMap
-                                                        (\listener ->
-                                                            if listener.layerId == thisLid && listener.uniqueName == o.listenerName then
-                                                                Just <|
-                                                                    Core.ListenerMsg
-                                                                        { requestId = listener.requestId
-                                                                        , event = o.event
-                                                                        }
+                            (Core.Layer thisLid _) :: _ ->
+                                sessionContext.listeners
+                                    |> List.filterMap
+                                        (\listener ->
+                                            if listener.layerId == thisLid && listener.uniqueName == o.name then
+                                                Just <|
+                                                    Core.ListenerMsg
+                                                        { requestId = listener.requestId
+                                                        , event = o.event
+                                                        }
 
-                                                            else
-                                                                Nothing
-                                                        )
-                                            )
-                                            layer1s
-                                            |> applyMsgsTo
+                                            else
+                                                Nothing
+                                        )
+                                    |> List.head
+                                    |> Maybe.map
+                                        (\msg ->
+                                            update
                                                 { onUrlChange = config.onUrlChange
                                                 , currentTime = context.currentTime
                                                 }
+                                                msg
                                                 sessionContext
-                                in
-                                case res of
-                                    Err err ->
-                                        SeqTest.fail description <|
-                                            \_ -> Expect.fail err
-
-                                    Ok nextSessionContext ->
-                                        { context
-                                            | sessions =
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context.sessions
-                                        }
-                                            |> SeqTest.pass
+                                                |> Result.map
+                                                    (\nextSessionContext ->
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.insert session.uniqueName
+                                                                        nextSessionContext
+                                                                        context.sessions
+                                                            }
+                                                    )
+                                                |> unwrapResult
+                                                    (\err ->
+                                                        SeqTest.fail description <|
+                                                            \_ -> Expect.fail err
+                                                    )
+                                        )
+                                    |> Maybe.withDefault
+                                        (SeqTest.pass context)
         , markup =
             \config ->
                 let
@@ -1203,7 +1218,7 @@ sleep :
     Session
     -> Markup
     -> Int
-    -> Scenario flags c m e
+    -> Scenario flags m e
 sleep (Session session) markup msec =
     let
         description =
@@ -1267,8 +1282,8 @@ advanceClock :
     , currentTime : Int
     }
     -> Int
-    -> SessionContext c m e
-    -> Result String (SessionContext c m e)
+    -> SessionContext m e
+    -> Result String (SessionContext m e)
 advanceClock config msec context =
     case context.timers of
         [] ->
@@ -1292,12 +1307,13 @@ advanceClock config msec context =
                                         { timer | runAfter = interval }
 
                     newConfig =
-                        { config
-                            | currentTime = config.currentTime + timer.runAfter
-                        }
+                        { config | currentTime = currentTime }
+
+                    currentTime =
+                        config.currentTime + timer.runAfter
                 in
                 update newConfig
-                    (Core.WakeUpMsg { requestId = timer.requestId })
+                    (timer.msg <| Time.millisToPosix currentTime)
                     { context | timers = newTimers }
                     |> Result.andThen
                         (advanceClock newConfig (msec - timer.runAfter))
@@ -1326,7 +1342,7 @@ Suppose your application requests to access localStorage via port request named 
         [ Debug.todo "After request to the port..."
         , portResponse sakuraChanMainSession
             (textContent "Received response.")
-            { target = "Port to get page.account.bio"
+            { layer = "Port to get page.account.bio"
             , response =
                 JE.string "I'm Sakura-chan."
             }
@@ -1340,11 +1356,12 @@ portResponse :
     Session
     -> Markup
     ->
-        { target : LayerQuery m m1
-        , response : command -> Maybe Value
+        { layer : LayerQuery m m1 -- first layer
+        , name : String
+        , response : Value -> Maybe Value
         }
-    -> Scenario flags command m e
-portResponse (Session session) markup o =
+    -> Scenario flags m e
+portResponse (Session session) markup param =
     let
         description =
             "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
@@ -1360,48 +1377,55 @@ portResponse (Session session) markup o =
                                     "portResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.target sessionContext.model of
+                        case Core.runQuery param.layer sessionContext.model of
                             [] ->
-                                context
-                                    |> SeqTest.pass
+                                -- It is natural to receive responses after the Layer has expired.
+                                SeqTest.pass context
 
-                            layer1s ->
-                                let
-                                    res =
-                                        List.concatMap
-                                            (\(Core.Layer lid_ _) ->
-                                                List.filterMap
-                                                    (\(Core.Request _ lid c) ->
-                                                        if lid == lid_ then
-                                                            o.response c
-                                                                |> Maybe.map
-                                                                    (\v -> Core.PortResponseMsg { response = v })
-
-                                                        else
-                                                            Nothing
+                            (Core.Layer lid_ _) :: _ ->
+                                takeLastMatched
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == lid_ then
+                                            param.response req
+                                                |> Maybe.map
+                                                    (\resp ->
+                                                        Core.PortResponseMsg
+                                                            { requestId = rid
+                                                            , response = resp
+                                                            }
                                                     )
-                                                    sessionContext.requests
-                                            )
-                                            layer1s
-                                            |> applyMsgsTo
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.portRequests
+                                    |> Result.fromMaybe "portResponse: No commands found for the response."
+                                    |> Result.andThen
+                                        (\( msg, nextPortRequests ) ->
+                                            update
                                                 { onUrlChange = config.onUrlChange
                                                 , currentTime = context.currentTime
                                                 }
-                                                sessionContext
-                                in
-                                case res of
-                                    Err err ->
-                                        SeqTest.fail description <|
-                                            \_ -> Expect.fail err
-
-                                    Ok nextSessionContext ->
-                                        { context
-                                            | sessions =
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context.sessions
-                                        }
-                                            |> SeqTest.pass
+                                                msg
+                                                { sessionContext
+                                                    | portRequests = nextPortRequests
+                                                }
+                                        )
+                                    |> Result.map
+                                        (\nextSessionContext ->
+                                            SeqTest.pass
+                                                { context
+                                                    | sessions =
+                                                        Dict.insert session.uniqueName
+                                                            nextSessionContext
+                                                            context.sessions
+                                                }
+                                        )
+                                    |> unwrapResult
+                                        (\err ->
+                                            SeqTest.fail description <|
+                                                \_ -> Expect.fail err
+                                        )
         , markup =
             \config ->
                 let
@@ -1431,7 +1455,7 @@ Suppose your application requests user infomation to the backend server via cust
         [ Debug.todo "After request to the backend..."
         , portResponse sakuraChanMainSession
             (textContent "Received response.")
-            { target = "Request for user info"
+            { layer = "Request for user info"
             , response =
                 UserInfoResponse <|
                     Ok
@@ -1449,11 +1473,12 @@ customResponse :
     Session
     -> Markup
     ->
-        { target : LayerQuery m m1
-        , response : command -> Maybe (Msg event)
+        { layer : LayerQuery m m1
+        , name : String
+        , response : Msg event
         }
-    -> Scenario flags command m event
-customResponse (Session session) markup o =
+    -> Scenario flags m event
+customResponse (Session session) markup param =
     let
         description =
             "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
@@ -1469,46 +1494,48 @@ customResponse (Session session) markup o =
                                     "customResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.target sessionContext.model of
+                        case Core.runQuery param.layer sessionContext.model of
                             [] ->
-                                context
-                                    |> SeqTest.pass
+                                -- It is natural to receive responses after the Layer has expired.
+                                SeqTest.pass context
 
-                            layer1s ->
-                                let
-                                    res =
-                                        List.concatMap
-                                            (\(Core.Layer lid_ _) ->
-                                                List.filterMap
-                                                    (\(Core.Request _ lid c) ->
-                                                        if lid == lid_ then
-                                                            o.response c
+                            (Core.Layer lid_ _) :: _ ->
+                                takeLastMatched
+                                    (\(Core.Request name _ lid _) ->
+                                        if lid == lid_ && name == param.name then
+                                            Just param.response
 
-                                                        else
-                                                            Nothing
-                                                    )
-                                                    sessionContext.requests
-                                            )
-                                            layer1s
-                                            |> applyMsgsTo
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.requests
+                                    |> Result.fromMaybe "customResponse: No commands found for the response."
+                                    |> Result.andThen
+                                        (\( msg, nextRequests ) ->
+                                            update
                                                 { onUrlChange = config.onUrlChange
                                                 , currentTime = context.currentTime
                                                 }
-                                                sessionContext
-                                in
-                                case res of
-                                    Err err ->
-                                        SeqTest.fail description <|
-                                            \_ -> Expect.fail err
-
-                                    Ok nextSessionContext ->
-                                        { context
-                                            | sessions =
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context.sessions
-                                        }
-                                            |> SeqTest.pass
+                                                msg
+                                                { sessionContext
+                                                    | requests = nextRequests
+                                                }
+                                        )
+                                    |> Result.map
+                                        (\nextSessionContext ->
+                                            SeqTest.pass
+                                                { context
+                                                    | sessions =
+                                                        Dict.insert session.uniqueName
+                                                            nextSessionContext
+                                                            context.sessions
+                                                }
+                                        )
+                                    |> unwrapResult
+                                        (\err ->
+                                            SeqTest.fail description <|
+                                                \_ -> Expect.fail err
+                                        )
         , markup =
             \config ->
                 let
@@ -1550,7 +1577,7 @@ If the given value is `Nothing`, document generation and tests fails.
         ]
 
 -}
-fromJust : String -> Maybe a -> (a -> List (Scenario flags c m e)) -> Scenario flags c m e
+fromJust : String -> Maybe a -> (a -> List (Scenario flags m e)) -> Scenario flags m e
 fromJust description ma f =
     case ma of
         Nothing ->
@@ -1573,7 +1600,7 @@ fromJust description ma f =
 
 {-| Similar to `fromJust`, but extract `Ok` valur from `Result`.
 -}
-fromOk : String -> Result err a -> (a -> List (Scenario flags c m e)) -> Scenario flags c m e
+fromOk : String -> Result err a -> (a -> List (Scenario flags m e)) -> Scenario flags m e
 fromOk description res f =
     case res of
         Err _ ->
@@ -1601,8 +1628,8 @@ fromOk description res f =
 {-| Generate scenario tests.
 -}
 toTest :
-    { props : ApplicationProps flags cmd memory event
-    , sections : List (Section flags cmd memory event)
+    { props : ApplicationProps flags memory event
+    , sections : List (Section flags memory event)
     }
     -> Test
 toTest o =
@@ -1664,8 +1691,9 @@ toTest o =
                                                 }
                                                 newState.logs
                                                 { model = newState.nextModel
-                                                , cmds = newState.cmds
                                                 , requests = newState.requests
+                                                , portRequests = []
+                                                , httpRequests = []
                                                 , timers = []
                                                 , listeners = []
                                                 , history =
@@ -1690,9 +1718,9 @@ applyMsgsTo :
     { onUrlChange : AbsolutePath -> Msg e
     , currentTime : Int
     }
-    -> SessionContext c m e
+    -> SessionContext m e
     -> List (Msg e)
-    -> Result String (SessionContext c m e)
+    -> Result String (SessionContext m e)
 applyMsgsTo config context =
     List.foldl
         (\msg acc ->
@@ -1708,16 +1736,17 @@ update :
     , currentTime : Int
     }
     -> Msg e
-    -> SessionContext c m e
-    -> Result String (SessionContext c m e)
+    -> SessionContext m e
+    -> Result String (SessionContext m e)
 update config msg context =
     let
         newState =
             Core.update msg context.model
     in
     { model = newState.nextModel
-    , cmds = newState.cmds
-    , requests = newState.requests ++ context.requests -- reversed
+    , requests = newState.requests ++ context.requests
+    , portRequests = context.portRequests
+    , httpRequests = context.httpRequests
     , timers = context.timers
     , listeners = context.listeners
     , history = context.history
@@ -1730,8 +1759,8 @@ applyLogs :
     , currentTime : Int
     }
     -> List Core.Log
-    -> SessionContext c m e
-    -> Result String (SessionContext c m e)
+    -> SessionContext m e
+    -> Result String (SessionContext m e)
 applyLogs config logs context =
     List.foldl
         (\log acc ->
@@ -1748,8 +1777,8 @@ applyLog :
     , currentTime : Int
     }
     -> Core.Log
-    -> SessionContext c m e
-    -> Result String (SessionContext c m e)
+    -> SessionContext m e
+    -> Result String (SessionContext m e)
 applyLog config log context =
     case log of
         Core.SetTimer rid lid msec ->
@@ -1759,7 +1788,10 @@ applyLog config log context =
                         putTimer
                             { runAfter = msec
                             , every = Nothing
-                            , requestId = rid
+                            , msg =
+                                \_ ->
+                                    Core.WakeUpMsg
+                                        { requestId = rid }
                             , layerId = lid
                             }
                             context.timers
@@ -1772,7 +1804,12 @@ applyLog config log context =
                         putTimer
                             { runAfter = msec
                             , every = Just msec
-                            , requestId = rid
+                            , msg =
+                                \curr ->
+                                    Core.IntervalMsg
+                                        { requestId = rid
+                                        , timestamp = curr
+                                        }
                             , layerId = lid
                             }
                             context.timers
@@ -1786,6 +1823,38 @@ applyLog config log context =
                     }
                 )
                 context
+
+        Core.IssuePortRequest rid lid req ->
+            Ok
+                { context
+                    | portRequests =
+                        ( ( rid, lid ), req ) :: context.portRequests
+                }
+
+        Core.IssueHttpRequest rid lid req ->
+            Ok
+                { context
+                    | httpRequests =
+                        ( ( rid, lid ), req ) :: context.httpRequests
+                    , timers =
+                        case req.timeout of
+                            Nothing ->
+                                context.timers
+
+                            Just timeout ->
+                                putTimer
+                                    { runAfter = timeout
+                                    , every = Nothing
+                                    , msg =
+                                        \_ ->
+                                            Core.HttpResponseMsg
+                                                { requestId = rid
+                                                , response = Err Core.Timeout
+                                                }
+                                    , layerId = lid
+                                    }
+                                    context.timers
+                }
 
         Core.AddListener rid lid name ->
             Ok
@@ -1803,18 +1872,23 @@ applyLog config log context =
         Core.ResolvePortRequest rid ->
             Ok
                 { context
-                    | requests =
+                    | portRequests =
                         List.filter
-                            (\(Core.Request rid_ _ _) ->
+                            (\( ( rid_, _ ), _ ) ->
                                 rid_ /= rid
                             )
-                            context.requests
-                    , listeners =
+                            context.portRequests
+                }
+
+        Core.ResolveHttpRequest rid ->
+            Ok
+                { context
+                    | httpRequests =
                         List.filter
-                            (\listener ->
-                                listener.requestId /= rid
+                            (\( ( rid_, _ ), _ ) ->
+                                rid_ /= rid
                             )
-                            context.listeners
+                            context.httpRequests
                 }
 
         Core.ResolveRequest rid ->
@@ -1822,7 +1896,7 @@ applyLog config log context =
                 { context
                     | requests =
                         List.filter
-                            (\(Core.Request rid_ _ _) ->
+                            (\(Core.Request _ rid_ _ _) ->
                                 rid_ /= rid
                             )
                             context.requests
@@ -1833,10 +1907,18 @@ applyLog config log context =
                 { context
                     | requests =
                         List.filter
-                            (\(Core.Request _ lid_ _) ->
+                            (\(Core.Request _ _ lid_ _) ->
                                 lid_ /= lid
                             )
                             context.requests
+                    , portRequests =
+                        List.filter
+                            (\( ( _, lid_ ), _ ) -> lid_ /= lid)
+                            context.portRequests
+                    , httpRequests =
+                        List.filter
+                            (\( ( _, lid_ ), _ ) -> lid_ /= lid)
+                            context.httpRequests
                     , timers =
                         List.filter
                             (\timer ->
@@ -1892,7 +1974,7 @@ applyLog config log context =
                         }
 
 
-putTimer : Timer -> List Timer -> List Timer
+putTimer : Timer e -> List (Timer e) -> List (Timer e)
 putTimer new timers =
     case timers of
         [] ->
@@ -1910,7 +1992,7 @@ putTimer new timers =
 -}
 toHtml :
     { title : String
-    , sections : List (Section flags c m e)
+    , sections : List (Section flags m e)
     , config : RenderConfig
     }
     -> Html msg
@@ -1987,7 +2069,7 @@ renderInvalidMarkdown reason =
 -}
 toMarkdown :
     { title : String
-    , sections : List (Section flags c m e)
+    , sections : List (Section flags m e)
     , config : RenderConfig
     }
     -> Result InvalidMarkup String
@@ -1998,7 +2080,7 @@ toMarkdown o =
 
 buildMarkdown :
     { title : String
-    , sections : List (Section flags c m e)
+    , sections : List (Section flags m e)
     , config : RenderConfig
     }
     -> Result InvalidMarkup MdAst.Section
@@ -2091,6 +2173,7 @@ buildMarkdown o =
   - processLoadAppMarkup: Processor for `loadApp` markup
   - processLayerEventMarkup: Processor for `layerEvent` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
+  - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
   - processCustomResponseMarkup: Processor for `customResponse` markup
 
@@ -2127,6 +2210,11 @@ type alias RenderConfig =
     , processUserOperationMarkup :
         { uniqueSessionName : String
         , userName : String
+        }
+        -> Markup
+        -> Markup
+    , processHttpResponseMarkup :
+        { uniqueSessionName : String
         }
         -> Markup
         -> Markup
@@ -2217,6 +2305,7 @@ ja_JP =
     , processLoadAppMarkup = prependSessionName
     , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
+    , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
     , processCustomResponseMarkup = prependSessionSystemName
     }
@@ -2351,6 +2440,7 @@ en_US =
     , processLoadAppMarkup = prependSessionName
     , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
+    , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
     , processCustomResponseMarkup = prependSessionSystemName
     }
@@ -2394,3 +2484,325 @@ monthIndex month =
 
         Time.Dec ->
             12
+
+
+
+-- Http
+
+
+{-| Http request that your web API server will receive:
+
+  - `method` like `GET` and `PUT`, all in upper case
+  - `headers` like `accept` and `cookie`, all names in lower case, and all values as it is
+  - `url`
+  - `requestBody`
+
+**Note**: It is possible for a request to have the same header multiple times. In that case, all the values end up in a single entry in the headers dictionary. The values are separated by commas.
+
+-}
+type alias HttpRequest =
+    { method : String
+    , headers : Dict String String
+    , url : String
+    , requestBody : HttpRequestBody
+    }
+
+
+fromCoreHttpRequest : Core.HttpRequest -> HttpRequest
+fromCoreHttpRequest param =
+    { method = String.toUpper param.method
+    , headers =
+        List.foldl
+            (\( k, v ) acc ->
+                Dict.update
+                    (String.toLower k)
+                    (\mvs ->
+                        case mvs of
+                            Just vs ->
+                                Just <| vs ++ ", " ++ v
+
+                            Nothing ->
+                                Just v
+                    )
+                    acc
+            )
+            Dict.empty
+            param.headers
+    , url = param.url
+    , requestBody = fromCoreHttpRequestBody param.requestBody
+    }
+
+
+{-| -}
+type HttpRequestBody
+    = EmptyHttpRequestBody
+    | StringHttpRequestBody String String
+    | JsonHttpRequestBody Value
+    | FileHttpRequestBody File
+    | BytesHttpRequestBody String Bytes
+
+
+fromCoreHttpRequestBody : Core.HttpRequestBody -> HttpRequestBody
+fromCoreHttpRequestBody core =
+    case core of
+        Core.EmptyHttpRequestBody ->
+            EmptyHttpRequestBody
+
+        Core.StringHttpRequestBody mime str ->
+            StringHttpRequestBody mime str
+
+        Core.JsonHttpRequestBody value ->
+            JsonHttpRequestBody value
+
+        Core.FileHttpRequestBody file ->
+            FileHttpRequestBody file
+
+        Core.BytesHttpRequestBody mime bytes ->
+            BytesHttpRequestBody mime bytes
+
+
+{-| Simulate response to the `Tepa.Http.request` and `Tepa.Http.bytesRequest`.
+
+Suppose your application requests to access localStorage via port request named "Port to get page.account.bio":
+
+    import Json.Encode as JE
+
+    myScenario =
+        [ Debug.todo "After request to the port..."
+        , portResponse sakuraChanMainSession
+            (textContent "Received response.")
+            { layer = pageHomeLayer
+            , name = "Port to get page.account.bio"
+            , response =
+                JE.string "I'm Sakura-chan."
+            }
+        , Debug.todo "..."
+        ]
+
+If no Layers found for the query, it does nothing and just passes the test.
+
+-}
+httpResponse :
+    Session
+    -> Markup
+    ->
+        { layer : LayerQuery m m1
+        , response : HttpRequest -> Maybe ( Http.Metadata, String )
+        }
+    -> Scenario flags m e
+httpResponse (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \config context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case Core.runQuery param.layer sessionContext.model of
+                            [] ->
+                                -- It is natural to receive responses after the Layer has expired.
+                                SeqTest.pass context
+
+                            (Core.Layer lid_ _) :: _ ->
+                                takeLastMatched
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == lid_ then
+                                            param.response (fromCoreHttpRequest req)
+                                                |> Maybe.map
+                                                    (\resp ->
+                                                        Core.HttpResponseMsg
+                                                            { requestId = rid
+                                                            , response = Ok resp
+                                                            }
+                                                    )
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.httpRequests
+                                    |> Result.fromMaybe "httpResponse: No requests found for the response."
+                                    |> Result.andThen
+                                        (\( msg, nextHttpRequests ) ->
+                                            update
+                                                { onUrlChange = config.onUrlChange
+                                                , currentTime = context.currentTime
+                                                }
+                                                msg
+                                                { sessionContext
+                                                    | httpRequests = nextHttpRequests
+                                                }
+                                        )
+                                    |> Result.map
+                                        (\nextSessionContext ->
+                                            SeqTest.pass
+                                                { context
+                                                    | sessions =
+                                                        Dict.insert session.uniqueName
+                                                            nextSessionContext
+                                                            context.sessions
+                                                }
+                                        )
+                                    |> unwrapResult
+                                        (\err ->
+                                            SeqTest.fail description <|
+                                                \_ -> Expect.fail err
+                                        )
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processHttpResponseMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+{-| Similar to `httpResponse`, but responds with `Bytes`.
+-}
+httpBytesResponse :
+    Session
+    -> Markup
+    ->
+        { layer : LayerQuery m m1
+        , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
+        }
+    -> Scenario flags m e
+httpBytesResponse (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \config context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case Core.runQuery param.layer sessionContext.model of
+                            [] ->
+                                -- It is natural to receive responses after the Layer has expired.
+                                SeqTest.pass context
+
+                            (Core.Layer lid_ _) :: _ ->
+                                takeLastMatched
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == lid_ then
+                                            param.response (fromCoreHttpRequest req)
+                                                |> Maybe.map
+                                                    (\resp ->
+                                                        Core.HttpBytesResponseMsg
+                                                            { requestId = rid
+                                                            , response = Ok resp
+                                                            }
+                                                    )
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.httpRequests
+                                    |> Result.fromMaybe "httpResponse: No requests found for the response."
+                                    |> Result.andThen
+                                        (\( msg, nextHttpRequests ) ->
+                                            update
+                                                { onUrlChange = config.onUrlChange
+                                                , currentTime = context.currentTime
+                                                }
+                                                msg
+                                                { sessionContext
+                                                    | httpRequests = nextHttpRequests
+                                                }
+                                        )
+                                    |> Result.map
+                                        (\nextSessionContext ->
+                                            SeqTest.pass
+                                                { context
+                                                    | sessions =
+                                                        Dict.insert session.uniqueName
+                                                            nextSessionContext
+                                                            context.sessions
+                                                }
+                                        )
+                                    |> unwrapResult
+                                        (\err ->
+                                            SeqTest.fail description <|
+                                                \_ -> Expect.fail err
+                                        )
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processHttpResponseMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+takeLastMatched : (a -> Maybe b) -> List a -> Maybe ( b, List a )
+takeLastMatched f ls =
+    let
+        res =
+            List.foldl
+                (\a acc ->
+                    case acc of
+                        ( Just b, accLs {- ordered -} ) ->
+                            ( Just b, a :: accLs )
+
+                        ( Nothing, accLs {- ordered -} ) ->
+                            case f a of
+                                Just b ->
+                                    -- remove the matched element from result
+                                    ( Just b, accLs )
+
+                                Nothing ->
+                                    ( Nothing, a :: accLs )
+                )
+                ( Nothing, [] )
+                (List.reverse ls {- reversed -})
+    in
+    case res of
+        ( Just b, resLs {- ordered -} ) ->
+            Just ( b, resLs )
+
+        _ ->
+            Nothing
+
+
+unwrapResult : (e -> a) -> Result e a -> a
+unwrapResult f res =
+    case res of
+        Err e ->
+            f e
+
+        Ok a ->
+            a

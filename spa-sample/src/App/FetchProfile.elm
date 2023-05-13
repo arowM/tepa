@@ -3,6 +3,8 @@ module App.FetchProfile exposing
     , Response(..)
     , GoodResponseBody
     , response
+    , method
+    , endpointUrl
     )
 
 {-| Module about fetch profile request.
@@ -17,15 +19,21 @@ module App.FetchProfile exposing
 
 @docs Response
 @docs GoodResponseBody
+
+
+# Endpoint specification
+
 @docs response
+@docs method
+@docs endpointUrl
 
 -}
 
-import App.Session exposing (Profile)
-import Http
+import App.Session as Session exposing (Profile)
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
-import Tepa
+import Tepa exposing (Promise)
+import Tepa.Http as Http
 import Url.Builder as Url
 
 
@@ -35,17 +43,26 @@ import Url.Builder as Url
 
 {-| Request server for user profile.
 -}
-request : (Tepa.HttpResult String -> msg) -> Cmd msg
-request toMsg =
+request : Promise m e Response
+request =
     Http.get
-        { url =
-            Url.absolute
-                [ "api"
-                , "profile"
-                ]
-                []
-        , expect = Tepa.expectStringResponse toMsg
+        { url = endpointUrl
         }
+        |> Tepa.map response
+
+
+endpointUrl : String
+endpointUrl =
+    Url.absolute
+        [ "api"
+        , "profile"
+        ]
+        []
+
+
+method : String
+method =
+    "GET"
 
 
 
@@ -63,21 +80,25 @@ type alias GoodResponseBody =
 -}
 type Response
     = GoodResponse GoodResponseBody
-    | LoginRequired
-    | OtherError
+    | LoginRequiredResponse
+    | TemporaryErrorResponse
+    | FatalErrorResponse
 
 
 {-|
 
     import Dict
-    import Http
+    import Tepa.Http as Http
 
-    response
+    successfulMeta : Http.Metadata
+    successfulMeta =
         { url = "https://example.com/api/profile"
         , statusCode = 200
         , statusText = "OK"
         , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
         }
+
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
@@ -86,6 +107,7 @@ type Response
           }
         }
         """
+        |> response
     --> GoodResponse
     -->     { profile =
     -->         { id = "Sakura-chan-ID"
@@ -93,74 +115,135 @@ type Response
     -->         }
     -->     }
 
-    response
-        { url = "https://example.com/api/profile"
-        , statusCode = 200
-        , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
-        }
+    -- Accept null "name" value
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
+            "id": "Sakura-chan-ID",
+            "name": null
           }
         }
         """
-    --> OtherError
+        |> response
+    --> GoodResponse
+    -->     { profile =
+    -->         { id = "Sakura-chan-ID"
+    -->         , name = Nothing
+    -->         }
+    -->     }
 
-    response
-        { url = "https://example.com/api/profile"
-        , statusCode = 401
-        , statusText = "Unauthorized"
-        , headers = Dict.empty
-        }
+    -- "name" field is required.
+    Http.GoodResponse successfulMeta
         """
         {
-          "code": "AnyErrorCode"
+          "profile": {
+            "id": "Sakura-chan-ID"
+          }
         }
         """
-    --> LoginRequired
+        |> response
+    --> FatalErrorResponse
 
-    response
-        { url = "https://example.com/api/profile"
-        , statusCode = 404
-        , statusText = "Not Found"
-        , headers = Dict.empty
-        }
+    -- `FatalErrorResponse` on Invalid JSON payload.
+    Http.GoodResponse successfulMeta
         """
         {
-          "code": "ValidErrorCode"
+          "profile": {
+            "id": "Sakura-chan-ID",
+            "name": "Sakura-chan"
+          }
+        """
+        |> response
+    --> FatalErrorResponse
+
+    -- Handles "LoginRequired" error code specially.
+    Http.BadResponse
+        ( { url = "https://example.com/api/profile"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
+        """
+        {
+          "code": "LoginRequired"
         }
         """
-    --> OtherError
+        |> response
+    --> LoginRequiredResponse
+
+    -- `FatalErrorResponse` on other error codes.
+    Http.BadResponse
+        ( { url = "https://example.com/api/profile"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
+        """
+        {
+          "code": "OtherErrorCode"
+        }
+        """
+        |> response
+    --> FatalErrorResponse
+
+    -- Bad URL error is not a temprary error, so it is `FatalErrorResponse`.
+    Http.BadUrl "foobar"
+        |> response
+    --> FatalErrorResponse
+
+    Http.NetworkError
+        |> response
+    --> TemporaryErrorResponse
+
+    Http.Timeout
+        |> response
+    --> TemporaryErrorResponse
 
 -}
-response : Http.Metadata -> String -> Response
-response meta str =
-    if Tepa.isGoodStatus meta then
-        case JD.decodeString goodStatusDecoder str of
-            Ok body ->
-                GoodResponse body
+response : Http.Response String -> Response
+response rawResponse =
+    case rawResponse of
+        Http.GoodResponse _ rawBody ->
+            let
+                decoder : JD.Decoder Response
+                decoder =
+                    JD.field "profile"
+                        (JD.succeed Session.Profile
+                            |> JDP.required "id" JD.string
+                            |> JDP.required "name" (JD.nullable JD.string)
+                            |> JD.map GoodResponseBody
+                            |> JD.map GoodResponse
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-            Err _ ->
-                OtherError
+        Http.BadResponse _ rawBody ->
+            let
+                decoder =
+                    JD.field "code"
+                        (JD.string
+                            |> JD.andThen
+                                (\code ->
+                                    if code == "LoginRequired" then
+                                        JD.succeed LoginRequiredResponse
 
-    else
-        case meta.statusCode of
-            401 ->
-                LoginRequired
+                                    else
+                                        JD.fail "Unknown code"
+                                )
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-            _ ->
-                OtherError
+        Http.BadUrl _ ->
+            FatalErrorResponse
 
+        Http.NetworkError ->
+            TemporaryErrorResponse
 
-goodStatusDecoder : JD.Decoder GoodResponseBody
-goodStatusDecoder =
-    JD.succeed GoodResponseBody
-        |> JDP.required "profile" profileDecoder
-
-
-profileDecoder : JD.Decoder Profile
-profileDecoder =
-    JD.succeed Profile
-        |> JDP.required "id" JD.string
-        |> JDP.required "name" (JD.maybe JD.string)
+        Http.Timeout ->
+            TemporaryErrorResponse

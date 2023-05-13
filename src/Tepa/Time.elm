@@ -22,7 +22,7 @@ import Time exposing (Posix)
 Block progress on the current procedure for the given number of milliseconds. The JavaScript equivalent of this is `setTimeout` which lets you delay work until later.
 
 -}
-sleep : Int -> Promise c m e Void
+sleep : Int -> Promise m e Void
 sleep =
     Internal.sleep
 
@@ -32,7 +32,7 @@ sleep =
 Get the POSIX time at the moment when this Promise is evaluated.
 
 -}
-now : Promise c m e Posix
+now : Promise m e Posix
 now =
     Internal.now
 
@@ -44,7 +44,7 @@ Get the current time periodically at the specified interval in milliseconds (lik
 -}
 every :
     Int
-    -> (Posix -> List (Promise c m e Void))
-    -> Promise c m e Void
+    -> (Posix -> List (Promise m e Void))
+    -> Promise m e Void
 every =
     Internal.listenTimeEvery

@@ -1,29 +1,41 @@
 module Page.Home exposing
-    ( Command
-    , Event
+    ( Event
     , Memory
     , Promise
     , ScenarioProps
     , ScenarioSet
-    , currentSession
     , init
     , procedure
-    , runCommand
     , scenario
     , view
     )
 
+{-| Home page.
+
+@docs Event
+@docs Memory
+@docs Promise
+@docs ScenarioProps
+@docs ScenarioSet
+@docs init
+@docs procedure
+@docs scenario
+@docs view
+
+-}
+
 import App.Route as Route
 import App.Session exposing (Session)
 import Expect
+import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
 import Tepa exposing (Layer, Msg, NavKey, Void)
 import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
+import Tepa.Http as Http
 import Tepa.Navigation as Nav
-import Tepa.ResponseType as ResponseType
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Scenario.LayerQuery exposing (LayerQuery)
 import Test.Html.Query as Query
@@ -178,26 +190,8 @@ editAccountFormView memory =
 
 
 {-| -}
-type Command
-    = ToastCommand Toast.Command
-    | RequestEditAccount EditAccount.EditAccount (Tepa.HttpResult String -> Msg Event)
-
-
-{-| -}
-runCommand : Command -> Cmd (Msg Event)
-runCommand cmd =
-    case cmd of
-        ToastCommand toastCommand ->
-            Toast.runCommand toastCommand
-                |> Cmd.map (Tepa.mapMsg ToastEvent)
-
-        RequestEditAccount editAccount toMsg ->
-            EditAccount.request editAccount toMsg
-
-
-{-| -}
 type alias Promise a =
-    Tepa.Promise Command Memory Event a
+    Tepa.Promise Memory Event a
 
 
 type alias Pointer m =
@@ -209,13 +203,6 @@ type alias Bucket =
     , requestPath : AbsolutePath
     , toastPointer : Pointer Toast.Memory
     }
-
-
-{-| -}
-currentSession : Promise Session
-currentSession =
-    Tepa.currentState
-        |> Tepa.map (\m -> m.session)
 
 
 
@@ -231,20 +218,20 @@ procedure key url =
         , set = \toast m -> { m | toast = toast }
         , init = Toast.init
         }
-        |> Tepa.andThen
-            (\toastPointer ->
-                let
-                    bucket =
-                        { key = key
-                        , requestPath = AbsolutePath.fromUrl url
-                        , toastPointer = toastPointer
-                        }
-                in
-                -- Main Procedures
-                Tepa.syncAll
-                    [ editAccountFormProcedure bucket
-                    ]
-            )
+    <|
+        \toastPointer ->
+            let
+                bucket =
+                    { key = key
+                    , requestPath = AbsolutePath.fromUrl url
+                    , toastPointer = toastPointer
+                    }
+            in
+            -- Main Procedures
+            [ Tepa.syncAll
+                [ editAccountFormProcedure bucket
+                ]
+            ]
 
 
 editAccountFormProcedure : Bucket -> Promise Void
@@ -295,96 +282,94 @@ submitAccountProcedure bucket =
     Tepa.sequence
         [ modifyEditAccountForm <|
             \m -> { m | isBusy = True }
-        , Tepa.currentState
-            |> Tepa.andThen
-                (\curr ->
-                    case EditAccount.fromForm curr.editAccountForm.form of
-                        Err _ ->
-                            Tepa.sequence
-                                [ modifyEditAccountForm <|
-                                    \m ->
-                                        { m
-                                            | isBusy = False
-                                            , showError = True
-                                        }
-                                , Tepa.lazy <| \_ -> editAccountFormProcedure bucket
-                                ]
+        , Tepa.bind Tepa.currentState <|
+            \curr ->
+                case EditAccount.fromForm curr.editAccountForm.form of
+                    Err _ ->
+                        [ modifyEditAccountForm <|
+                            \m ->
+                                { m
+                                    | isBusy = False
+                                    , showError = True
+                                }
+                        , Tepa.lazy <| \_ -> editAccountFormProcedure bucket
+                        ]
 
-                        Ok editAccount ->
-                            requestEditAccount editAccount
-                                |> Tepa.andThen
-                                    (\response ->
-                                        case response of
-                                            Err err ->
-                                                Tepa.syncAll
-                                                    [ Toast.pushHttpRequestError err
-                                                        |> runToastPromise bucket.toastPointer
-                                                        |> Tepa.void
-                                                    , Tepa.sequence
-                                                        [ modifyEditAccountForm <|
-                                                            \m ->
-                                                                { m | isBusy = False }
-                                                        , Tepa.lazy <|
-                                                            \_ ->
-                                                                editAccountFormProcedure bucket
-                                                        ]
-                                                    ]
+                    Ok editAccount ->
+                        [ Tepa.bind
+                            (EditAccount.request editAccount)
+                          <|
+                            \response ->
+                                case response of
+                                    EditAccount.TemporaryErrorResponse ->
+                                        [ Tepa.syncAll
+                                            [ Toast.pushError
+                                                "Network error, please check your network and try again."
+                                                |> runToastPromise bucket.toastPointer
+                                                |> Tepa.void
+                                            , Tepa.sequence
+                                                [ modifyEditAccountForm <|
+                                                    \m ->
+                                                        { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ ->
+                                                        editAccountFormProcedure bucket
+                                                ]
+                                            ]
+                                        ]
 
-                                            Ok EditAccount.OtherError ->
-                                                Tepa.syncAll
-                                                    [ Toast.pushError
-                                                        "Internal error, please contact our support team."
-                                                        |> runToastPromise bucket.toastPointer
-                                                        |> Tepa.void
-                                                    , Tepa.sequence
-                                                        [ modifyEditAccountForm <|
-                                                            \m ->
-                                                                { m | isBusy = False }
-                                                        , Tepa.lazy <|
-                                                            \_ ->
-                                                                editAccountFormProcedure bucket
-                                                        ]
-                                                    ]
+                                    EditAccount.FatalErrorResponse ->
+                                        [ Tepa.syncAll
+                                            [ Toast.pushError
+                                                "Internal error, please contact our support team."
+                                                |> runToastPromise bucket.toastPointer
+                                                |> Tepa.void
+                                            , Tepa.sequence
+                                                [ modifyEditAccountForm <|
+                                                    \m ->
+                                                        { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ ->
+                                                        editAccountFormProcedure bucket
+                                                ]
+                                            ]
+                                        ]
 
-                                            Ok EditAccount.LoginRequired ->
-                                                Nav.pushPath bucket.key bucket.requestPath
+                                    EditAccount.LoginRequiredResponse ->
+                                        [ Nav.pushPath bucket.key bucket.requestPath
+                                        ]
 
-                                            Ok (EditAccount.GoodResponse resp) ->
-                                                Tepa.sequence
-                                                    [ Tepa.modify <|
-                                                        \m ->
-                                                            { m
-                                                                | session =
-                                                                    let
-                                                                        session =
-                                                                            m.session
-                                                                    in
-                                                                    { session | profile = resp.profile }
-                                                                , editAccountForm =
-                                                                    let
-                                                                        editAccountForm =
-                                                                            m.editAccountForm
-                                                                    in
-                                                                    { editAccountForm
-                                                                        | isBusy = False
-                                                                    }
-                                                            }
-                                                    , Tepa.lazy <|
-                                                        \_ -> editAccountFormProcedure bucket
-                                                    ]
-                                    )
-                )
+                                    EditAccount.GoodResponse resp ->
+                                        [ Tepa.modify <|
+                                            \m ->
+                                                { m
+                                                    | session =
+                                                        let
+                                                            session =
+                                                                m.session
+                                                        in
+                                                        { session
+                                                            | profile =
+                                                                let
+                                                                    profile =
+                                                                        session.profile
+                                                                in
+                                                                { profile | name = Just resp.name }
+                                                        }
+                                                    , editAccountForm =
+                                                        let
+                                                            editAccountForm =
+                                                                m.editAccountForm
+                                                        in
+                                                        { editAccountForm
+                                                            | isBusy = False
+                                                        }
+                                                }
+                                        , Tepa.lazy <|
+                                            \_ -> editAccountFormProcedure bucket
+                                        ]
+                        ]
         ]
-
-
-requestEditAccount : EditAccount.EditAccount -> Promise (Result Tepa.HttpRequestError EditAccount.Response)
-requestEditAccount editAccount =
-    Tepa.httpRequest
-        { name = "requestEditAccount"
-        , bodyType = ResponseType.string
-        , request = RequestEditAccount editAccount
-        , response = EditAccount.response
-        }
 
 
 
@@ -393,7 +378,7 @@ requestEditAccount editAccount =
 
 runToastPromise :
     Pointer Toast.Memory
-    -> Tepa.Promise Toast.Command Toast.Memory Toast.Event a
+    -> Tepa.Promise Toast.Memory Toast.Event a
     -> Promise a
 runToastPromise pointer prom =
     Tepa.onLayer pointer prom
@@ -408,7 +393,6 @@ runToastPromise pointer prom =
                         _ ->
                             Nothing
             }
-        |> Tepa.mapCmd ToastCommand
 
 
 
@@ -416,94 +400,104 @@ runToastPromise pointer prom =
 
 
 {-| -}
-type alias ScenarioSet flags c m e =
+type alias ScenarioSet flags m e =
     { changeEditAccountFormAccountId :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , clickSubmitEditAccount :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
     , receiveEditAccountResp :
-        Tepa.HttpResult String
+        (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
-        -> Scenario flags c m e
+        -> Scenario flags m e
     , expectAvailable :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
     , expectEditAccountFormShowNoErrors :
-        Scenario.Markup -> Scenario flags c m e
+        Scenario.Markup -> Scenario flags m e
+    , editAccountEndpoint :
+        { method : String
+        , url : String
+        }
     }
 
 
-type alias ScenarioProps c m e =
+{-| -}
+type alias ScenarioProps m e =
     { querySelf : LayerQuery m Memory
     , wrapEvent : Event -> e
-    , unwrapCommand : c -> Maybe Command
     , session : Scenario.Session
     }
 
 
 {-| -}
-scenario : ScenarioProps c m e -> ScenarioSet flags c m e
+scenario : ScenarioProps m e -> ScenarioSet flags m e
 scenario props =
     { changeEditAccountFormAccountId = changeEditAccountFormAccountId props
     , clickSubmitEditAccount = clickSubmitEditAccount props
     , receiveEditAccountResp = receiveEditAccountResp props
     , expectAvailable = expectAvailable props
     , expectEditAccountFormShowNoErrors = expectEditAccountFormShowNoErrors props
+    , editAccountEndpoint =
+        { method = EditAccount.method
+        , url = EditAccount.endpointUrl
+        }
     }
 
 
-changeEditAccountFormAccountId : ScenarioProps c m e -> { value : String } -> Scenario.Markup -> Scenario flags c m e
+changeEditAccountFormAccountId : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Scenario flags m e
 changeEditAccountFormAccountId props { value } markup =
     Scenario.layerEvent props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , event =
             ChangeEditAccountFormAccountId value
                 |> props.wrapEvent
         }
 
 
-clickSubmitEditAccount : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+clickSubmitEditAccount : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 clickSubmitEditAccount props markup =
     Scenario.layerEvent props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , event =
             ClickSubmitEditAccount
                 |> props.wrapEvent
         }
 
 
-receiveEditAccountResp : ScenarioProps c m e -> Tepa.HttpResult String -> Scenario.Markup -> Scenario flags c m e
-receiveEditAccountResp props res markup =
-    Scenario.customResponse props.session
+receiveEditAccountResp : ScenarioProps m e -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags m e
+receiveEditAccountResp props toResponse markup =
+    Scenario.httpResponse props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , response =
-            \cmd ->
-                case props.unwrapCommand cmd of
-                    Just (RequestEditAccount _ toMsg) ->
-                        toMsg res
-                            |> Tepa.mapMsg props.wrapEvent
-                            |> Just
+            \rawRequest ->
+                if rawRequest.url == EditAccount.endpointUrl then
+                    case rawRequest.requestBody of
+                        Scenario.JsonHttpRequestBody value ->
+                            toResponse value
 
-                    _ ->
-                        Nothing
+                        _ ->
+                            Nothing
+
+                else
+                    Nothing
         }
 
 
-expectAvailable : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectAvailable : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 expectAvailable props markup =
     Scenario.expectMemory props.session
         markup
-        { target = props.querySelf
+        { layer = props.querySelf
         , expectation = \_ -> Expect.pass
         }
 
 
-expectEditAccountFormShowNoErrors : ScenarioProps c m e -> Scenario.Markup -> Scenario flags c m e
+expectEditAccountFormShowNoErrors : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 expectEditAccountFormShowNoErrors props markup =
     Scenario.expectAppView props.session
         markup

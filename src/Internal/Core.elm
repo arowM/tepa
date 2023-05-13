@@ -9,9 +9,10 @@ module Internal.Core exposing
     , andRacePromise
     , andThenPromise
     , syncPromise
-    , liftPromiseEvent, mapPromiseCmd
+    , liftPromiseEvent
     , Request(..)
     , portRequest, customRequest, anyRequest
+    , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , now
     , layerEvent
     , Layer(..), Pointer(..), isPointedBy
@@ -26,7 +27,7 @@ module Internal.Core exposing
     , elementView, documentView, subscriptions
     , LayerQuery(..)
     , runQuery
-    , listenLayerEvent
+    , HttpRequestBody(..), listenLayerEvent
     )
 
 {-|
@@ -52,9 +53,10 @@ module Internal.Core exposing
 @docs andRacePromise
 @docs andThenPromise
 @docs syncPromise
-@docs liftPromiseMemory, liftPromiseEvent, mapPromiseCmd
+@docs liftPromiseMemory, liftPromiseEvent
 @docs Request
 @docs portRequest, customRequest, anyRequest
+@docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs now
 @docs layerEvent
 @docs Layer, Pointer, isPointedBy
@@ -94,14 +96,17 @@ module Internal.Core exposing
 
 import Browser exposing (Document)
 import Browser.Navigation as Nav
+import Bytes exposing (Bytes)
+import File exposing (File)
 import Html exposing (Attribute, Html)
 import Html.Attributes as Attributes
+import Http
 import Internal.AbsolutePath exposing (AbsolutePath(..))
 import Internal.LayerId as LayerId exposing (LayerId)
 import Internal.RequestId as RequestId exposing (RequestId)
 import Internal.ResponseType as ResponseType exposing (ResponseBody, ResponseType)
 import Json.Decode as JD exposing (Decoder)
-import Json.Encode exposing (Value)
+import Json.Encode as JE exposing (Value)
 import Mixin exposing (Mixin)
 import Process
 import Task
@@ -113,21 +118,21 @@ import Time exposing (Posix)
 
 
 {-| -}
-type Model cmd memory event
-    = Model (Model_ cmd memory event)
+type Model memory event
+    = Model (Model_ memory event)
 
 
 {-| -}
-type alias Model_ c m e =
+type alias Model_ m e =
     -- New context after the evaluation.
     { context : Context m e
 
     -- New state to evaluate next time.
-    , next : Msg e -> Context m e -> NewState c m e
+    , next : Msg e -> Context m e -> NewState m e
     }
 
 
-endOfModel : Context m e -> Model c m e
+endOfModel : Context m e -> Model m e
 endOfModel context =
     Model
         { context = context
@@ -148,28 +153,26 @@ type alias Context m e =
 
 {-| New application state after some operations.
 -}
-type alias NewState c m e =
-    { nextModel : Model c m e
-    , cmds : List ( LayerId, c )
-    , requests : List (Request c) -- reversed
-    , realCmds : List (Cmd (Msg e))
+type alias NewState m e =
+    { nextModel : Model m e
+    , requests : List (Request e) -- reversed
+    , realCmds : List (Cmd (Msg e)) -- reversed
     , logs : List Log
     }
 
 
 {-| -}
-type Request c
-    = Request RequestId LayerId c
+type Request e
+    = Request String RequestId LayerId (Cmd (Msg e))
 
 
-endOfNewState : Context m e -> NewState c m e
+endOfNewState : Context m e -> NewState m e
 endOfNewState context =
     { nextModel =
         Model
             { context = context
             , next = \_ -> endOfNewState
             }
-    , cmds = []
     , requests = []
     , realCmds = []
     , logs = []
@@ -178,14 +181,14 @@ endOfNewState context =
 
 {-| Current memory state.
 -}
-memoryState : Model cmd memory event -> memory
+memoryState : Model memory event -> memory
 memoryState (Model model) =
     model.context.state
 
 
 {-| Current Layer state.
 -}
-layerState : Model cmd memory event -> Layer memory
+layerState : Model memory event -> Layer memory
 layerState (Model model) =
     let
         (ThisLayerId lid) =
@@ -200,14 +203,27 @@ type Log
     = SetTimer RequestId LayerId Int
     | StartTimeEvery RequestId LayerId Int
     | RequestCurrentTime RequestId
+    | IssueHttpRequest RequestId LayerId HttpRequest
+    | IssuePortRequest RequestId LayerId Value
     | AddListener RequestId LayerId String
     | ResolvePortRequest RequestId
     | ResolveRequest RequestId
+    | ResolveHttpRequest RequestId
     | LayerExpired LayerId
     | PushPath AbsolutePath
     | ReplacePath AbsolutePath
     | Back Int
     | Forward Int
+
+
+type alias HttpRequest =
+    { method : String
+    , headers : List ( String, String )
+    , url : String
+    , requestBody : HttpRequestBody
+    , timeout : Maybe Int
+    , tracker : Maybe String
+    }
 
 
 
@@ -229,7 +245,16 @@ type Msg event
         , response : ResponseBody
         }
     | PortResponseMsg
-        { response : Value
+        { requestId : RequestId
+        , response : Value
+        }
+    | HttpResponseMsg
+        { requestId : RequestId
+        , response : Result HttpRequestError ( Http.Metadata, String )
+        }
+    | HttpBytesResponseMsg
+        { requestId : RequestId
+        , response : Result HttpRequestError ( Http.Metadata, Bytes )
         }
     | CurrentTimeMsg
         { requestId : RequestId
@@ -286,13 +311,26 @@ mapMsg f msg1 =
 
         PortResponseMsg r ->
             PortResponseMsg
-                { response = r.response
+                { requestId = r.requestId
+                , response = r.response
                 }
 
         ListenerMsg r ->
             ListenerMsg
                 { requestId = r.requestId
                 , event = f r.event
+                }
+
+        HttpResponseMsg r ->
+            HttpResponseMsg
+                { requestId = r.requestId
+                , response = r.response
+                }
+
+        HttpBytesResponseMsg r ->
+            HttpBytesResponseMsg
+                { requestId = r.requestId
+                , response = r.response
                 }
 
         CurrentTimeMsg r ->
@@ -355,7 +393,8 @@ unwrapMsg f msg1 =
 
         PortResponseMsg r ->
             PortResponseMsg
-                { response = r.response
+                { requestId = r.requestId
+                , response = r.response
                 }
 
         ListenerMsg r ->
@@ -368,6 +407,18 @@ unwrapMsg f msg1 =
                         { requestId = r.requestId
                         , event = e
                         }
+
+        HttpResponseMsg r ->
+            HttpResponseMsg
+                { requestId = r.requestId
+                , response = r.response
+                }
+
+        HttpBytesResponseMsg r ->
+            HttpBytesResponseMsg
+                { requestId = r.requestId
+                , response = r.response
+                }
 
         CurrentTimeMsg r ->
             CurrentTimeMsg
@@ -416,32 +467,31 @@ type NavKey
 
 {-| The Promise represents the eventual completion of an operation and its resulting value.
 -}
-type Promise c m e a
-    = Promise (Context m e -> PromiseEffect c m e a)
+type Promise m e a
+    = Promise (Context m e -> PromiseEffect m e a)
 
 
 {-| Effects by evaluating a Promise.
 -}
-type alias PromiseEffect c m e a =
+type alias PromiseEffect m e a =
     { newContext : Context m e
-    , cmds : List ( LayerId, c )
-    , requests : List (Request c) -- reversed
-    , realCmds : List (Cmd (Msg e))
+    , requests : List (Request e) -- reversed
+    , realCmds : List (Cmd (Msg e)) -- reversed
     , logs : List Log
-    , state : PromiseState c m e a
+    , state : PromiseState m e a
     }
 
 
 {-| Represents current Promise state.
 -}
-type PromiseState c m e a
+type PromiseState m e a
     = Resolved a
     | Rejected
-    | AwaitMsg (Msg e -> m -> Promise c m e a)
+    | AwaitMsg (Msg e -> m -> Promise m e a)
 
 
 {-| -}
-mapPromise : (a -> b) -> Promise c m e a -> Promise c m e b
+mapPromise : (a -> b) -> Promise m e a -> Promise m e b
 mapPromise f (Promise prom) =
     Promise <|
         \context ->
@@ -450,7 +500,6 @@ mapPromise f (Promise prom) =
                     prom context
             in
             { newContext = effA.newContext
-            , cmds = effA.cmds
             , requests = effA.requests
             , realCmds = effA.realCmds
             , logs = effA.logs
@@ -469,12 +518,11 @@ mapPromise f (Promise prom) =
             }
 
 
-primitivePromise : PromiseState c m e a -> Promise c m e a
+primitivePromise : PromiseState m e a -> Promise m e a
 primitivePromise state =
     Promise <|
         \context ->
             { newContext = context
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs = []
@@ -482,7 +530,7 @@ primitivePromise state =
             }
 
 
-setLogs : List Log -> Promise c m e a -> Promise c m e a
+setLogs : List Log -> Promise m e a -> Promise m e a
 setLogs logs (Promise f) =
     Promise <|
         \context ->
@@ -495,28 +543,28 @@ setLogs logs (Promise f) =
 
 {-| Promise that just resolves to `a`.
 -}
-succeedPromise : a -> Promise c m e a
+succeedPromise : a -> Promise m e a
 succeedPromise a =
     primitivePromise <| Resolved a
 
 
 {-| Promise that just rejected.
 -}
-failPromise : Promise c m e a
+failPromise : Promise m e a
 failPromise =
     primitivePromise Rejected
 
 
 {-| Promise that just await next Msg.
 -}
-justAwaitPromise : (Msg e -> m -> Promise c m e a) -> Promise c m e a
+justAwaitPromise : (Msg e -> m -> Promise m e a) -> Promise m e a
 justAwaitPromise f =
     primitivePromise <| AwaitMsg f
 
 
 {-| Await both Promises to be completed.
 -}
-syncPromise : Promise c m e a -> Promise c m e (a -> b) -> Promise c m e b
+syncPromise : Promise m e a -> Promise m e (a -> b) -> Promise m e b
 syncPromise (Promise promA) (Promise promF) =
     Promise <|
         \context ->
@@ -528,7 +576,6 @@ syncPromise (Promise promA) (Promise promF) =
                     promA effF.newContext
             in
             { newContext = effA.newContext
-            , cmds = effF.cmds ++ effA.cmds
             , requests = effA.requests ++ effF.requests -- reversed
             , realCmds = effF.realCmds ++ effA.realCmds
             , logs = effF.logs ++ effA.logs
@@ -562,7 +609,7 @@ syncPromise (Promise promA) (Promise promF) =
 
 {-| Await one of the Promises to be completed.
 -}
-andRacePromise : Promise c m e a -> Promise c m e a -> Promise c m e a
+andRacePromise : Promise m e a -> Promise m e a -> Promise m e a
 andRacePromise (Promise prom2) (Promise prom1) =
     Promise <|
         \context ->
@@ -574,7 +621,6 @@ andRacePromise (Promise prom2) (Promise prom1) =
                     prom2 eff1.newContext
             in
             { newContext = eff2.newContext
-            , cmds = eff1.cmds ++ eff2.cmds
             , requests = eff2.requests ++ eff1.requests -- reversed
             , realCmds = eff1.realCmds ++ eff2.realCmds
             , logs = eff1.logs ++ eff2.logs
@@ -603,7 +649,7 @@ andRacePromise (Promise prom2) (Promise prom1) =
 
 {-| Run Promises sequentially.
 -}
-andThenPromise : (a -> Promise c m e b) -> Promise c m e a -> Promise c m e b
+andThenPromise : (a -> Promise m e b) -> Promise m e a -> Promise m e b
 andThenPromise f (Promise promA) =
     Promise <|
         \context ->
@@ -621,7 +667,6 @@ andThenPromise f (Promise promA) =
                             promB effA.newContext
                     in
                     { newContext = effB.newContext
-                    , cmds = effA.cmds ++ effB.cmds
                     , requests = effB.requests ++ effA.requests -- reversed
                     , realCmds = effA.realCmds ++ effB.realCmds
                     , logs = effA.logs ++ effB.logs
@@ -630,7 +675,6 @@ andThenPromise f (Promise promA) =
 
                 Rejected ->
                     { newContext = effA.newContext
-                    , cmds = effA.cmds
                     , requests = effA.requests
                     , realCmds = effA.realCmds
                     , logs = effA.logs
@@ -639,7 +683,6 @@ andThenPromise f (Promise promA) =
 
                 AwaitMsg promNextA ->
                     { newContext = effA.newContext
-                    , cmds = effA.cmds
                     , requests = effA.requests
                     , realCmds = effA.realCmds
                     , logs = effA.logs
@@ -654,8 +697,8 @@ andThenPromise f (Promise promA) =
 {-| -}
 liftPromiseMemory :
     Pointer_ m m1
-    -> Promise c m1 e a
-    -> Promise c m e a
+    -> Promise m1 e a
+    -> Promise m e a
 liftPromiseMemory o (Promise prom1) =
     Promise <|
         \context ->
@@ -666,7 +709,6 @@ liftPromiseMemory o (Promise prom1) =
                             o.layerId
                     in
                     { newContext = context
-                    , cmds = []
                     , requests = []
                     , realCmds = []
                     , logs =
@@ -700,7 +742,6 @@ liftPromiseMemory o (Promise prom1) =
                                     )
                                     eff1.newContext.subs
                         }
-                    , cmds = eff1.cmds
                     , requests = eff1.requests
                     , realCmds = eff1.realCmds
                     , logs = eff1.logs
@@ -725,41 +766,12 @@ liftPromiseMemory o (Promise prom1) =
 
 
 {-| -}
-mapPromiseCmd : (c -> cmd) -> Promise c m e a -> Promise cmd m e a
-mapPromiseCmd f (Promise prom) =
-    Promise <|
-        \context ->
-            let
-                eff =
-                    prom context
-            in
-            { newContext = eff.newContext
-            , cmds = List.map (\( lid, c ) -> ( lid, f c )) eff.cmds
-            , requests = List.map (\(Request rid lid c) -> Request rid lid (f c)) eff.requests
-            , realCmds = eff.realCmds
-            , logs = eff.logs
-            , state =
-                case eff.state of
-                    Resolved a ->
-                        Resolved a
-
-                    Rejected ->
-                        Rejected
-
-                    AwaitMsg nextProm ->
-                        AwaitMsg <|
-                            \msg m ->
-                                mapPromiseCmd f (nextProm msg m)
-            }
-
-
-{-| -}
 liftPromiseEvent :
     { wrap : e1 -> e0
     , unwrap : e0 -> Maybe e1
     }
-    -> Promise c m e1 a
-    -> Promise c m e0 a
+    -> Promise m e1 a
+    -> Promise m e0 a
 liftPromiseEvent o (Promise prom1) =
     Promise <|
         \context0 ->
@@ -794,8 +806,7 @@ liftPromiseEvent o (Promise prom1) =
                             )
                             newContext1.subs
                 }
-            , cmds = eff1.cmds
-            , requests = eff1.requests
+            , requests = List.map (\(Request name rid lid cmd) -> Request name rid lid (Cmd.map (mapMsg o.wrap) cmd)) eff1.requests
             , realCmds = List.map (Cmd.map (mapMsg o.wrap)) eff1.realCmds
             , logs = eff1.logs
             , state =
@@ -822,13 +833,13 @@ liftPromiseEvent o (Promise prom1) =
 
 
 {-| -}
-none : Promise c m e Void
+none : Promise m e Void
 none =
     succeedPromise OnGoingProcedure
 
 
 {-| -}
-sequence : List (Promise c m e Void) -> Promise c m e Void
+sequence : List (Promise m e Void) -> Promise m e Void
 sequence =
     List.foldl
         (\a acc ->
@@ -842,7 +853,7 @@ sequence =
 
 
 {-| -}
-concurrent : List (Promise c m e Void) -> Promise c m e Void
+concurrent : List (Promise m e Void) -> Promise m e Void
 concurrent =
     List.foldl
         (\a acc ->
@@ -854,12 +865,11 @@ concurrent =
 
 
 {-| -}
-currentState : Promise c m e m
+currentState : Promise m e m
 currentState =
     Promise <|
         \context ->
             { newContext = context
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs = []
@@ -868,7 +878,7 @@ currentState =
 
 
 {-| -}
-genNewLayerId : Promise c m e LayerId
+genNewLayerId : Promise m e LayerId
 genNewLayerId =
     Promise <|
         \context ->
@@ -880,7 +890,6 @@ genNewLayerId =
                     { context | nextLayerId = LayerId.inc newLayerId }
             in
             { newContext = newContext
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs = []
@@ -894,19 +903,18 @@ type Void
 
 
 {-| -}
-void : Promise c m e a -> Promise c m e Void
+void : Promise m e a -> Promise m e Void
 void =
     andThenPromise (\_ -> none)
 
 
 {-| -}
-onGoingProcedure : (PromiseEffect c m e Void -> PromiseEffect c m e Void) -> Promise c m e Void
+onGoingProcedure : (PromiseEffect m e Void -> PromiseEffect m e Void) -> Promise m e Void
 onGoingProcedure f =
     Promise <|
         \context ->
             f
                 { newContext = context
-                , cmds = []
                 , requests = []
                 , realCmds = []
                 , logs = []
@@ -915,7 +923,7 @@ onGoingProcedure f =
 
 
 {-| -}
-modify : (m -> m) -> Promise c m e Void
+modify : (m -> m) -> Promise m e Void
 modify f =
     onGoingProcedure <|
         \eff ->
@@ -932,30 +940,22 @@ modify f =
 
 
 {-| -}
-push : (m -> List c) -> Promise c m e Void
+push : (m -> Cmd (Msg e)) -> Promise m e Void
 push f =
     onGoingProcedure <|
         \eff ->
-            let
-                (ThisLayerId thisLayerId) =
-                    eff.newContext.thisLayerId
-            in
-            { eff
-                | cmds =
-                    f eff.newContext.state
-                        |> List.map (\c -> ( thisLayerId, c ))
-            }
+            { eff | realCmds = f eff.newContext.state :: eff.realCmds }
 
 
 {-| Cancel all the subsequent Procedures.
 -}
-cancel : Promise c m e Void
+cancel : Promise m e Void
 cancel =
     primitivePromise Rejected
 
 
 {-| -}
-lazy : (() -> Promise c m e Void) -> Promise c m e Void
+lazy : (() -> Promise m e Void) -> Promise m e Void
 lazy f =
     Promise <|
         \context ->
@@ -977,7 +977,7 @@ newLayer :
     , modify : (Layer m1 -> Layer m1) -> m -> m
     }
     -> m1
-    -> Promise c m e ( Layer m1, Pointer m m1 )
+    -> Promise m e ( Layer m1, Pointer m m1 )
 newLayer o m1 =
     genNewLayerId
         |> andThenPromise
@@ -1015,7 +1015,7 @@ newLayer o m1 =
 
 
 {-| -}
-onLayer : Pointer m m1 -> Promise c m1 e a -> Promise c m e a
+onLayer : Pointer m m1 -> Promise m1 e a -> Promise m e a
 onLayer (Pointer layer) procs =
     liftPromiseMemory layer procs
 
@@ -1128,9 +1128,9 @@ isPointedBy (Pointer pointer) (Layer layerId _) =
 listen :
     { name : String
     , subscription : m -> Sub e
-    , handler : e -> List (Promise c m e Void)
+    , handler : e -> List (Promise m e Void)
     }
-    -> Promise c m e Void
+    -> Promise m e Void
 listen { name, subscription, handler } =
     Promise <|
         \context ->
@@ -1161,7 +1161,7 @@ listen { name, subscription, handler } =
                         , event = e
                         }
 
-                awaitForever : Msg e -> m -> Promise c m e Void
+                awaitForever : Msg e -> m -> Promise m e Void
                 awaitForever msg _ =
                     case msg of
                         ListenerMsg listenerMsg ->
@@ -1179,7 +1179,6 @@ listen { name, subscription, handler } =
                             justAwaitPromise awaitForever
             in
             { newContext = newContext
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs =
@@ -1191,8 +1190,8 @@ listen { name, subscription, handler } =
 
 {-| -}
 listenLayerEvent :
-    (e -> List (Promise c m e Void))
-    -> Promise c m e Void
+    (e -> List (Promise m e Void))
+    -> Promise m e Void
 listenLayerEvent handler =
     Promise <|
         \context ->
@@ -1200,7 +1199,7 @@ listenLayerEvent handler =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                awaitForever : Msg e -> m -> Promise c m e Void
+                awaitForever : Msg e -> m -> Promise m e Void
                 awaitForever msg _ =
                     case msg of
                         LayerMsg layerMsg ->
@@ -1218,7 +1217,6 @@ listenLayerEvent handler =
                             justAwaitPromise awaitForever
             in
             { newContext = context
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs = []
@@ -1227,7 +1225,7 @@ listenLayerEvent handler =
 
 
 {-| -}
-sleep : Int -> Promise c m e Void
+sleep : Int -> Promise m e Void
 sleep msec =
     Promise <|
         \context ->
@@ -1238,7 +1236,7 @@ sleep msec =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                nextPromise : Msg e -> m -> Promise c m e Void
+                nextPromise : Msg e -> m -> Promise m e Void
                 nextPromise msg _ =
                     case msg of
                         WakeUpMsg wakeUpMsg ->
@@ -1255,7 +1253,6 @@ sleep msec =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , cmds = []
             , requests = []
             , realCmds =
                 [ Process.sleep (toFloat msec)
@@ -1272,8 +1269,8 @@ sleep msec =
 {-| -}
 listenTimeEvery :
     Int
-    -> (Posix -> List (Promise c m e Void))
-    -> Promise c m e Void
+    -> (Posix -> List (Promise m e Void))
+    -> Promise m e Void
 listenTimeEvery interval handler =
     Promise <|
         \context ->
@@ -1303,7 +1300,7 @@ listenTimeEvery interval handler =
                         , timestamp = timestamp
                         }
 
-                awaitForever : Msg e -> m -> Promise c m e Void
+                awaitForever : Msg e -> m -> Promise m e Void
                 awaitForever msg _ =
                     case msg of
                         IntervalMsg param ->
@@ -1322,7 +1319,6 @@ listenTimeEvery interval handler =
             in
             { newContext =
                 newContext
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs =
@@ -1333,13 +1329,195 @@ listenTimeEvery interval handler =
 
 
 {-| -}
+type HttpRequestError
+    = BadUrl String
+    | Timeout
+    | NetworkError
+
+
+{-| -}
+type HttpRequestBody
+    = EmptyHttpRequestBody
+    | StringHttpRequestBody String String
+    | JsonHttpRequestBody Value
+    | FileHttpRequestBody File
+    | BytesHttpRequestBody String Bytes
+
+
+toHttpBody : HttpRequestBody -> Http.Body
+toHttpBody body =
+    case body of
+        EmptyHttpRequestBody ->
+            Http.emptyBody
+
+        StringHttpRequestBody mime val ->
+            Http.stringBody mime val
+
+        JsonHttpRequestBody v ->
+            Http.jsonBody v
+
+        FileHttpRequestBody file ->
+            Http.fileBody file
+
+        BytesHttpRequestBody mime val ->
+            Http.bytesBody mime val
+
+
+{-| -}
+httpRequest : HttpRequest -> Promise m e (Result HttpRequestError ( Http.Metadata, String ))
+httpRequest request =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                nextPromise : Msg e -> m -> Promise m e (Result HttpRequestError ( Http.Metadata, String ))
+                nextPromise msg _ =
+                    case msg of
+                        HttpResponseMsg param ->
+                            if param.requestId == myRequestId then
+                                succeedPromise param.response
+                                    |> setLogs
+                                        [ ResolveHttpRequest myRequestId
+                                        ]
+
+                            else
+                                justAwaitPromise nextPromise
+
+                        _ ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , requests = []
+            , realCmds =
+                [ Http.request
+                    { method = request.method
+                    , headers =
+                        List.map
+                            (\( label, value ) -> Http.header label value)
+                            request.headers
+                    , url = request.url
+                    , body =
+                        toHttpBody request.requestBody
+                    , expect =
+                        Http.expectStringResponse
+                            (\resp ->
+                                HttpResponseMsg
+                                    { requestId = myRequestId
+                                    , response = resp
+                                    }
+                            )
+                            processRawHttpResponse
+                    , timeout = Maybe.map toFloat request.timeout
+                    , tracker = request.tracker
+                    }
+                ]
+            , logs =
+                [ IssueHttpRequest myRequestId thisLayerId request
+                ]
+            , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+httpBytesRequest : HttpRequest -> Promise m e (Result HttpRequestError ( Http.Metadata, Bytes ))
+httpBytesRequest request =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                nextPromise : Msg e -> m -> Promise m e (Result HttpRequestError ( Http.Metadata, Bytes ))
+                nextPromise msg _ =
+                    case msg of
+                        HttpBytesResponseMsg param ->
+                            if param.requestId == myRequestId then
+                                succeedPromise param.response
+                                    |> setLogs
+                                        [ ResolveHttpRequest myRequestId
+                                        ]
+
+                            else
+                                justAwaitPromise nextPromise
+
+                        _ ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , requests = []
+            , realCmds =
+                [ Http.request
+                    { method = request.method
+                    , headers =
+                        List.map
+                            (\( label, value ) -> Http.header label value)
+                            request.headers
+                    , url = request.url
+                    , body =
+                        toHttpBody request.requestBody
+                    , expect =
+                        Http.expectBytesResponse
+                            (\resp ->
+                                HttpBytesResponseMsg
+                                    { requestId = myRequestId
+                                    , response = resp
+                                    }
+                            )
+                            processRawHttpResponse
+                    , timeout = Maybe.map toFloat request.timeout
+                    , tracker = request.tracker
+                    }
+                ]
+            , logs =
+                [ IssueHttpRequest myRequestId thisLayerId request
+                ]
+            , state = AwaitMsg nextPromise
+            }
+
+
+processRawHttpResponse : Http.Response a -> Result HttpRequestError ( Http.Metadata, a )
+processRawHttpResponse resp =
+    case resp of
+        Http.BadUrl_ str ->
+            Err <| BadUrl str
+
+        Http.Timeout_ ->
+            Err Timeout
+
+        Http.NetworkError_ ->
+            Err NetworkError
+
+        Http.BadStatus_ meta body ->
+            Ok ( meta, body )
+
+        Http.GoodStatus_ meta body ->
+            Ok ( meta, body )
+
+
+{-| -}
 portRequest :
     { name : String
-    , request : m -> { requestId : Value } -> c
-    , receiver : (Value -> Msg e) -> Sub (Msg e)
-    , response : Decoder RequestId -> Decoder ( RequestId, resp )
+    , ports :
+        { request : Value -> Cmd (Msg e)
+        , response : (Value -> Msg e) -> Sub (Msg e)
+        }
+    , requestBody : Value
     }
-    -> Promise c m e resp
+    -> Promise m e Value
 portRequest o =
     Promise <|
         \context ->
@@ -1350,23 +1528,24 @@ portRequest o =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                nextPromise : Msg e -> m -> Promise c m e resp
+                responseDecoder : Decoder ( RequestId, Value )
+                responseDecoder =
+                    JD.map2 Tuple.pair
+                        (JD.field "id" RequestId.decoder)
+                        (JD.field "body" JD.value)
+
+                nextPromise : Msg e -> m -> Promise m e Value
                 nextPromise msg _ =
                     case msg of
-                        PortResponseMsg respMsg ->
-                            case JD.decodeValue (o.response RequestId.decoder) respMsg.response of
-                                Ok ( requestId, resp ) ->
-                                    if requestId == myRequestId then
-                                        succeedPromise resp
-                                            |> setLogs
-                                                [ ResolvePortRequest myRequestId
-                                                ]
+                        PortResponseMsg param ->
+                            if param.requestId == myRequestId then
+                                succeedPromise param.response
+                                    |> setLogs
+                                        [ ResolvePortRequest myRequestId
+                                        ]
 
-                                    else
-                                        justAwaitPromise nextPromise
-
-                                Err _ ->
-                                    justAwaitPromise nextPromise
+                            else
+                                justAwaitPromise nextPromise
 
                         _ ->
                             justAwaitPromise nextPromise
@@ -1378,16 +1557,17 @@ portRequest o =
                         (\_ ->
                             Just
                                 ( myRequestId
-                                , o.receiver
-                                    (\respValue ->
-                                        case JD.decodeValue (o.response RequestId.decoder) respValue of
+                                , o.ports.response
+                                    (\rawResponse ->
+                                        case JD.decodeValue responseDecoder rawResponse of
                                             Err _ ->
                                                 NoOp
 
-                                            Ok ( requestId, _ ) ->
+                                            Ok ( requestId, body ) ->
                                                 if requestId == myRequestId then
                                                     PortResponseMsg
-                                                        { response = respValue
+                                                        { requestId = requestId
+                                                        , response = body
                                                         }
 
                                                 else
@@ -1397,18 +1577,17 @@ portRequest o =
                         )
                             :: context.subs
                 }
-            , cmds = []
-            , requests =
-                [ Request
-                    myRequestId
-                    thisLayerId
-                    (o.request
-                        context.state
-                        { requestId = RequestId.toValue myRequestId }
-                    )
+            , requests = []
+            , realCmds =
+                [ o.ports.request <|
+                    JE.object
+                        [ ( "id", RequestId.toValue myRequestId )
+                        , ( "body", o.requestBody )
+                        ]
                 ]
-            , realCmds = []
-            , logs = []
+            , logs =
+                [ IssuePortRequest myRequestId thisLayerId o.requestBody
+                ]
             , state = AwaitMsg nextPromise
             }
 
@@ -1416,10 +1595,10 @@ portRequest o =
 {-| -}
 customRequest :
     { name : String
-    , request : (a -> Msg e) -> c
+    , request : (a -> Msg e) -> Cmd (Msg e)
     , responseType : ResponseType a
     }
-    -> Promise c m e a
+    -> Promise m e a
 customRequest o =
     Promise <|
         \context ->
@@ -1430,7 +1609,7 @@ customRequest o =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                nextPromise : Msg e -> m -> Promise c m e a
+                nextPromise : Msg e -> m -> Promise m e a
                 nextPromise msg _ =
                     case msg of
                         CustomResponseMsg respMsg ->
@@ -1455,9 +1634,9 @@ customRequest o =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , cmds = []
             , requests =
                 [ Request
+                    o.name
                     myRequestId
                     thisLayerId
                     (o.request
@@ -1478,11 +1657,11 @@ customRequest o =
 {-| -}
 anyRequest :
     { name : String
-    , request : (a -> Msg e) -> c
+    , request : (a -> Msg e) -> Cmd (Msg e)
     , wrap : a -> e
     , unwrap : e -> Maybe a
     }
-    -> Promise c m e a
+    -> Promise m e a
 anyRequest o =
     Promise <|
         \context ->
@@ -1493,7 +1672,7 @@ anyRequest o =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                nextPromise : Msg e -> m -> Promise c m e a
+                nextPromise : Msg e -> m -> Promise m e a
                 nextPromise msg _ =
                     case msg of
                         AnyResponseMsg respMsg ->
@@ -1518,9 +1697,9 @@ anyRequest o =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , cmds = []
             , requests =
                 [ Request
+                    o.name
                     myRequestId
                     thisLayerId
                     (o.request
@@ -1539,7 +1718,7 @@ anyRequest o =
 
 
 {-| -}
-now : Promise c m e Posix
+now : Promise m e Posix
 now =
     Promise <|
         \context ->
@@ -1547,7 +1726,7 @@ now =
                 myRequestId =
                     context.nextRequestId
 
-                nextPromise : Msg e -> m -> Promise c m e Posix
+                nextPromise : Msg e -> m -> Promise m e Posix
                 nextPromise msg _ =
                     case msg of
                         CurrentTimeMsg param ->
@@ -1564,7 +1743,6 @@ now =
                 { context
                     | nextRequestId = RequestId.inc context.nextRequestId
                 }
-            , cmds = []
             , requests = []
             , realCmds =
                 [ Time.now
@@ -1584,7 +1762,7 @@ now =
 
 
 {-| -}
-layerEvent : Promise c m e e
+layerEvent : Promise m e e
 layerEvent =
     Promise <|
         \context ->
@@ -1592,7 +1770,7 @@ layerEvent =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                state : Msg e -> m -> Promise c m e e
+                state : Msg e -> m -> Promise m e e
                 state msg _ =
                     case msg of
                         LayerMsg r ->
@@ -1606,7 +1784,6 @@ layerEvent =
                             justAwaitPromise state
             in
             { newContext = context
-            , cmds = []
             , requests = []
             , realCmds = []
             , logs = []
@@ -1621,8 +1798,8 @@ layerEvent =
 {-| -}
 init :
     m
-    -> Promise c m e Void
-    -> NewState c m e
+    -> Promise m e Void
+    -> NewState m e
 init m prom =
     toModel (initContext m) prom
 
@@ -1637,7 +1814,7 @@ initContext memory =
     }
 
 
-toModel : Context m e -> Promise c m e Void -> NewState c m e
+toModel : Context m e -> Promise m e Void -> NewState m e
 toModel context (Promise prom) =
     let
         eff =
@@ -1646,7 +1823,6 @@ toModel context (Promise prom) =
     case eff.state of
         Resolved _ ->
             { nextModel = endOfModel eff.newContext
-            , cmds = eff.cmds
             , requests = eff.requests
             , realCmds = eff.realCmds
             , logs = eff.logs
@@ -1654,7 +1830,6 @@ toModel context (Promise prom) =
 
         Rejected ->
             { nextModel = endOfModel eff.newContext
-            , cmds = eff.cmds
             , requests = eff.requests
             , realCmds = eff.realCmds
             , logs = eff.logs
@@ -1670,7 +1845,6 @@ toModel context (Promise prom) =
                                 nextContext
                                 (nextProm msg nextContext.state)
                     }
-            , cmds = eff.cmds
             , requests = eff.requests
             , realCmds = eff.realCmds
             , logs = eff.logs
@@ -1678,25 +1852,25 @@ toModel context (Promise prom) =
 
 
 {-| -}
-update : Msg e -> Model c m e -> NewState c m e
+update : Msg e -> Model m e -> NewState m e
 update msg (Model model) =
     model.next msg model.context
 
 
 {-| -}
-elementView : (Layer memory -> Html (Msg event)) -> Model cmd memory event -> Html (Msg event)
+elementView : (Layer memory -> Html (Msg event)) -> Model memory event -> Html (Msg event)
 elementView f model =
     f (Layer LayerId.init (memoryState model))
 
 
 {-| -}
-documentView : (Layer memory -> Document (Msg event)) -> Model cmd memory event -> Document (Msg event)
+documentView : (Layer memory -> Document (Msg event)) -> Model memory event -> Document (Msg event)
 documentView f model =
     f (Layer LayerId.init (memoryState model))
 
 
 {-| -}
-subscriptions : Model cmd memory event -> Sub (Msg event)
+subscriptions : Model memory event -> Sub (Msg event)
 subscriptions (Model model) =
     List.filterMap
         (\f ->
@@ -1722,7 +1896,7 @@ type alias LayerQuery_ m m1 =
 
 
 {-| -}
-runQuery : LayerQuery m m1 -> Model c m e -> List (Layer m1)
+runQuery : LayerQuery m m1 -> Model m e -> List (Layer m1)
 runQuery (LayerQuery query) model =
     layerState model
         |> query.get

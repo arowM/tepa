@@ -3,11 +3,13 @@
     "summary": "Domain specific libraries for elm-procedure-architecture SPA sample app.",
     "version": "1.0.0",
     "exposed-modules": [
+        "App",
         "App.Session",
         "App.ZIndex",
+        "Page.Home",
         "Page.Home.EditAccount",
+        "Page.Login",
         "Page.Login.Login",
-        "Widget.Toast",
-        "Scenario"
+        "Widget.Toast"
     ]
 }

@@ -3,6 +3,7 @@ module Tepa.Navigation exposing
     , replacePath
     , back
     , forward
+    , load
     )
 
 {-| [Browser.Navigation](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation) alternative for TEPA.
@@ -16,6 +17,7 @@ This module helps you manage the browser’s URL yourself.
 @docs replacePath
 @docs back
 @docs forward
+@docs load
 
 -}
 
@@ -36,7 +38,7 @@ Change the URL, but do not trigger a page load.
 This will add a new entry to the browser history.
 
 -}
-pushPath : NavKey -> AbsolutePath -> Promise c m e Void
+pushPath : NavKey -> AbsolutePath -> Promise m e Void
 pushPath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -63,7 +65,7 @@ Change the URL, but do not trigger a page load.
 This _will not_ add a new entry to the browser history.
 
 -}
-replacePath : NavKey -> AbsolutePath -> Promise c m e Void
+replacePath : NavKey -> AbsolutePath -> Promise m e Void
 replacePath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -88,7 +90,7 @@ replacePath navKey path =
 Go back some number of pages. So `back 1` goes back one page, and `back 2` goes back two pages.
 
 -}
-back : NavKey -> Int -> Promise c m e Void
+back : NavKey -> Int -> Promise m e Void
 back navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -113,7 +115,7 @@ back navKey steps =
 Go forward some number of pages. So `forward 1` goes forward one page, and `forward 2` goes forward two pages. If there are no more pages in the future, this will do nothing.
 
 -}
-forward : NavKey -> Int -> Promise c m e Void
+forward : NavKey -> Int -> Promise m e Void
 forward navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -131,3 +133,9 @@ forward navKey steps =
                     ]
             }
         )
+
+
+{-| -}
+load : String -> Promise m e Void
+load url =
+    Tepa.push <| \_ -> Nav.load url

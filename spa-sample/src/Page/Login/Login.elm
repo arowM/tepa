@@ -3,13 +3,14 @@ module Page.Login.Login exposing
     , Login
     , Response(..)
     , GoodResponseBody
-    , response
     , Form
-    , initForm
     , FormError(..)
     , displayFormError
     , fromForm
     , toFormErrors
+    , response
+    , method
+    , endpointUrl
     )
 
 {-| Module about login request.
@@ -25,7 +26,6 @@ module Page.Login.Login exposing
 
 @docs Response
 @docs GoodResponseBody
-@docs response
 
 
 # Form decoding
@@ -33,21 +33,27 @@ module Page.Login.Login exposing
 If you are not familiar with the concept of _form decoding_, see [blog post](https://arow.info/posts/2019/form-decoding/).
 
 @docs Form
-@docs initForm
 @docs FormError
 @docs displayFormError
 @docs fromForm
 @docs toFormErrors
 
+
+# Endpoint specification
+
+@docs response
+@docs method
+@docs endpointUrl
+
 -}
 
-import App.Session exposing (Profile)
+import App.Session as Session exposing (Profile)
 import Form.Decoder as FD
-import Http
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
 import Json.Encode as JE
-import Tepa
+import Tepa exposing (Promise)
+import Tepa.Http as Http
 import Url.Builder as Url
 
 
@@ -69,23 +75,37 @@ type alias Login_ =
 
 {-| Request server for login.
 -}
-request : Login -> (Tepa.HttpResult String -> msg) -> Cmd msg
-request (Login login) toMsg =
-    Http.post
-        { url =
-            Url.absolute
-                [ "api"
-                , "login"
-                ]
-                []
-        , body =
+request : Login -> Promise m e Response
+request (Login login) =
+    Http.request
+        { method = method
+        , headers = []
+        , url = endpointUrl
+        , requestBody =
             Http.jsonBody <|
                 JE.object
                     [ ( "id", JE.string login.id )
                     , ( "pass", JE.string login.pass )
                     ]
-        , expect = Tepa.expectStringResponse toMsg
+        , timeout = Just 5000
         }
+        |> Tepa.map response
+
+
+{-| -}
+method : String
+method =
+    "POST"
+
+
+{-| -}
+endpointUrl : String
+endpointUrl =
+    Url.absolute
+        [ "api"
+        , "login"
+        ]
+        []
 
 
 
@@ -103,21 +123,25 @@ type alias GoodResponseBody =
 -}
 type Response
     = GoodResponse GoodResponseBody
-    | IncorrectIdOrPassword
-    | OtherError
+    | IncorrectIdOrPasswordResponse
+    | TemporaryErrorResponse
+    | FatalErrorResponse
 
 
 {-|
 
     import Dict
-    import Http
+    import Tepa.Http as Http
 
-    response
+    successfulMeta : Http.Metadata
+    successfulMeta =
         { url = "https://example.com/api/login"
         , statusCode = 200
         , statusText = "OK"
         , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
         }
+
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
@@ -126,6 +150,7 @@ type Response
           }
         }
         """
+        |> response
     --> GoodResponse
     -->     { profile =
     -->         { id = "Sakura-chan-ID"
@@ -133,28 +158,38 @@ type Response
     -->         }
     -->     }
 
-    response
-        { url = "https://example.com/api/login"
-        , statusCode = 200
-        , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
-        }
+    -- Accept null "name" value
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
-            "ID": "Sakura-chan-ID",
-            ,name": "Sakura-chan"
+            "id": "Sakura-chan-ID",
+            "name": null
           }
         }
         """
-    --> OtherError
+        |> response
+    --> GoodResponse
+    -->     { profile =
+    -->         { id = "Sakura-chan-ID"
+    -->         , name = Nothing
+    -->         }
+    -->     }
 
-    response
-        { url = "https://example.com/api/login"
-        , statusCode = 200
-        , statusText = "OK"
-        , headers = Dict.singleton "Set-Cookie" "auth_token=authenticated"
+    -- "name" field is required.
+    Http.GoodResponse successfulMeta
+        """
+        {
+          "profile": {
+            "id": "Sakura-chan-ID"
+          }
         }
+        """
+        |> response
+    --> FatalErrorResponse
+
+    -- `FatalErrorResponse` on Invalid JSON payload.
+    Http.GoodResponse successfulMeta
         """
         {
           "profile": {
@@ -162,94 +197,99 @@ type Response
             "name": "Sakura-chan"
           }
         """
-    --> OtherError
+        |> response
+    --> FatalErrorResponse
 
-    response
-        { url = "https://example.com/api/login"
-        , statusCode = 401
-        , statusText = "Unauthorized"
-        , headers = Dict.empty
-        }
+    -- Handles "IncorrectIdOrPassword" error code specially.
+    Http.BadResponse
+        ( { url = "https://example.com/api/login"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
         """
         {
           "code": "IncorrectIdOrPassword"
         }
         """
-    --> IncorrectIdOrPassword
+        |> response
+    --> IncorrectIdOrPasswordResponse
 
-    response
-        { url = "https://example.com/api/login"
-        , statusCode = 401
-        , statusText = "Unauthorized"
-        , headers = Dict.empty
-        }
+    -- `FatalErrorResponse` on other error codes.
+    Http.BadResponse
+        ( { url = "https://example.com/api/login"
+          , statusCode = 401
+          , statusText = "Unauthorized"
+          , headers = Dict.empty
+          }
+        )
         """
         {
           "code": "OtherErrorCode"
         }
         """
-    --> OtherError
+        |> response
+    --> FatalErrorResponse
 
-    response
-        { url = "https://example.com/api/login"
-        , statusCode = 404
-        , statusText = "Not Found"
-        , headers = Dict.empty
-        }
-        """
-        {
-          "code": "ValidErrorCode"
-        }
-        """
-    --> OtherError
+    -- Bad URL error is not a temprary error, so it is `FatalErrorResponse`.
+    Http.BadUrl "foobar"
+        |> response
+    --> FatalErrorResponse
+
+    Http.NetworkError
+        |> response
+    --> TemporaryErrorResponse
+
+    Http.Timeout
+        |> response
+    --> TemporaryErrorResponse
 
 -}
-response : Http.Metadata -> String -> Response
-response meta str =
-    if Tepa.isGoodStatus meta then
-        case JD.decodeString goodStatusDecoder str of
-            Ok body ->
-                GoodResponse body
+response : Http.Response String -> Response
+response rawResponse =
+    case rawResponse of
+        Http.GoodResponse _ rawBody ->
+            let
+                decoder : JD.Decoder Response
+                decoder =
+                    JD.field "profile"
+                        (JD.succeed Session.Profile
+                            |> JDP.required "id" JD.string
+                            |> JDP.required "name" (JD.nullable JD.string)
+                            |> JD.map GoodResponseBody
+                            |> JD.map GoodResponse
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-            Err _ ->
-                OtherError
+        Http.BadResponse _ rawBody ->
+            let
+                decoder =
+                    JD.field "code"
+                        (JD.string
+                            |> JD.andThen
+                                (\code ->
+                                    if code == "IncorrectIdOrPassword" then
+                                        JD.succeed IncorrectIdOrPasswordResponse
 
-    else
-        case ( meta.statusCode, JD.decodeString badStatusDecoder str ) of
-            ( 401, Ok body ) ->
-                case body.code of
-                    "IncorrectIdOrPassword" ->
-                        IncorrectIdOrPassword
+                                    else
+                                        JD.fail "Unknown code"
+                                )
+                        )
+            in
+            JD.decodeString decoder rawBody
+                |> Result.withDefault FatalErrorResponse
 
-                    _ ->
-                        OtherError
+        Http.BadUrl _ ->
+            FatalErrorResponse
 
-            _ ->
-                OtherError
+        Http.NetworkError ->
+            TemporaryErrorResponse
 
-
-type alias BadStatusResponse =
-    { code : String
-    }
-
-
-badStatusDecoder : JD.Decoder BadStatusResponse
-badStatusDecoder =
-    JD.map BadStatusResponse <|
-        JD.field "code" JD.string
-
-
-goodStatusDecoder : JD.Decoder GoodResponseBody
-goodStatusDecoder =
-    JD.succeed GoodResponseBody
-        |> JDP.required "profile" profileDecoder
-
-
-profileDecoder : JD.Decoder Profile
-profileDecoder =
-    JD.succeed Profile
-        |> JDP.required "id" JD.string
-        |> JDP.required "name" (JD.maybe JD.string)
+        Http.Timeout ->
+            TemporaryErrorResponse
 
 
 
@@ -264,21 +304,12 @@ type alias Form =
     }
 
 
-{-| Initial value.
--}
-initForm : Form
-initForm =
-    { id = ""
-    , pass = ""
-    }
-
-
 {-| Form validation errors.
 -}
 type FormError
     = IdRequired
     | PassRequired
-    | IncorrectIdOrPass
+    | IncorrectIdOrPassword
 
 
 {-| Format error to display UI.
@@ -292,7 +323,7 @@ displayFormError error =
         PassRequired ->
             "Password is required."
 
-        IncorrectIdOrPass ->
+        IncorrectIdOrPassword ->
             "Incorrect ID or password."
 
 
