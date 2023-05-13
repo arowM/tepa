@@ -37,7 +37,6 @@ import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Tepa.Scenario.LayerQuery exposing (LayerQuery)
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
 import Url exposing (Url)
@@ -425,7 +424,7 @@ type alias ScenarioSet flags m e =
 
 {-| -}
 type alias ScenarioProps m e =
-    { querySelf : LayerQuery m Memory
+    { querySelf : Layer m -> Maybe (Layer Memory)
     , wrapEvent : Event -> e
     , session : Scenario.Session
     }

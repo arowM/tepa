@@ -140,9 +140,8 @@ import MarkdownAst as MdAst
 import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
-import Tepa exposing (ApplicationProps, Msg)
+import Tepa exposing (ApplicationProps, Layer, Msg)
 import Tepa.AbsolutePath exposing (AbsolutePath)
-import Tepa.Scenario.LayerQuery exposing (LayerQuery)
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
 import Test.Html.Query exposing (Single)
@@ -602,7 +601,6 @@ Suppose your application has a counter:
 
     import Expect
     import MarkdownAst as Markdown
-    import Tepa.Scenario.LayerQuery as LayerQuery
 
     myScenario =
         [ Debug.todo "After some operations..."
@@ -616,17 +614,9 @@ Suppose your application has a counter:
             { layer =
                 pageHomeLayer
             , expectation =
-                \pageHome ->
-                    case pageHome of
-                        [] ->
-                            Expect.fail "Current page is not Home."
-
-                        [ pageHomeMemory ] ->
-                            pageHomeMemory.counter
-                                |> Expect.lessThan 4
-
-                        _ ->
-                            Expect.fail "Invalid LayerQuery"
+                \pageHomeMemory ->
+                    pageHomeMemory.counter
+                        |> Expect.lessThan 4
             }
         , Debug.todo "..."
         ]
@@ -638,11 +628,11 @@ expectMemory :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
-        , expectation : List m1 -> Expectation
+        { layer : Layer m -> Maybe (Layer m1)
+        , expectation : m1 -> Expectation
         }
     -> Scenario flags m e
-expectMemory (Session session) markup o =
+expectMemory (Session session) markup param =
     let
         description =
             "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
@@ -658,19 +648,18 @@ expectMemory (Session session) markup o =
                                     "expectMemory: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 SeqTest.fail description <|
                                     \_ ->
                                         Err (Core.memoryState sessionContext.model)
                                             |> Expect.equal
-                                                (Ok "expectMemory: The query should find some Layer in the current memory.")
+                                                (Ok "expectMemory: No layer found.")
 
-                            layer1s ->
-                                List.map (\(Core.Layer _ m1) -> m1) layer1s
-                                    |> SeqTest.pass
+                            Just (Core.Layer _ m1) ->
+                                SeqTest.pass m1
                                     |> SeqTest.assert description
-                                        o.expectation
+                                        param.expectation
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
@@ -923,11 +912,11 @@ layerEvent :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
+        { layer : Layer m -> Maybe (Layer m1)
         , event : event
         }
     -> Scenario flags m event
-layerEvent (Session session) markup o =
+layerEvent (Session session) markup param =
     let
         description =
             "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
@@ -943,14 +932,14 @@ layerEvent (Session session) markup o =
                                     "layerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 SeqTest.fail description <|
                                     \_ ->
                                         Expect.fail
-                                            "layerEvent: No Layers for the query."
+                                            "layerEvent: No Layer found."
 
-                            (Core.Layer lid _) :: _ ->
+                            Just (Core.Layer lid _) ->
                                 let
                                     res =
                                         update
@@ -959,7 +948,7 @@ layerEvent (Session session) markup o =
                                             }
                                             (Core.LayerMsg
                                                 { layerId = lid
-                                                , event = o.event
+                                                , event = param.event
                                                 }
                                             )
                                             sessionContext
@@ -1013,11 +1002,11 @@ userOperation :
     Session
     -> Markup
     ->
-        { layer : Single (Msg e) -> Single (Msg e)
+        { query : Single (Msg e) -> Single (Msg e)
         , operation : ( String, Value )
         }
     -> Scenario flags m e
-userOperation (Session session) markup o =
+userOperation (Session session) markup param =
     let
         (User user) =
             session.user
@@ -1043,8 +1032,8 @@ userOperation (Session session) markup o =
                                     |> .body
                                     |> Html.div []
                                     |> Test.Html.Query.fromHtml
-                                    |> o.layer
-                                    |> TestEvent.simulate o.operation
+                                    |> param.query
+                                    |> TestEvent.simulate param.operation
                                     |> TestEvent.toResult
                         in
                         case rmsg of
@@ -1126,12 +1115,12 @@ listenerEvent :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
+        { layer : Layer m -> Maybe (Layer m1)
         , name : String
         , event : event
         }
     -> Scenario flags m event
-listenerEvent (Session session) markup o =
+listenerEvent (Session session) markup param =
     let
         description =
             "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
@@ -1147,19 +1136,19 @@ listenerEvent (Session session) markup o =
                                     "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery o.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 SeqTest.pass context
 
-                            (Core.Layer thisLid _) :: _ ->
+                            Just (Core.Layer thisLid _) ->
                                 sessionContext.listeners
                                     |> List.filterMap
                                         (\listener ->
-                                            if listener.layerId == thisLid && listener.uniqueName == o.name then
+                                            if listener.layerId == thisLid && listener.uniqueName == param.name then
                                                 Just <|
                                                     Core.ListenerMsg
                                                         { requestId = listener.requestId
-                                                        , event = o.event
+                                                        , event = param.event
                                                         }
 
                                             else
@@ -1356,7 +1345,7 @@ portResponse :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1 -- first layer
+        { layer : Layer m -> Maybe (Layer m1)
         , name : String
         , response : Value -> Maybe Value
         }
@@ -1377,12 +1366,12 @@ portResponse (Session session) markup param =
                                     "portResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery param.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            (Core.Layer lid_ _) :: _ ->
+                            Just (Core.Layer lid_ _) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
                                         if lid == lid_ then
@@ -1473,7 +1462,7 @@ customResponse :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
+        { layer : Layer m -> Maybe (Layer m1)
         , name : String
         , response : Msg event
         }
@@ -1494,12 +1483,12 @@ customResponse (Session session) markup param =
                                     "customResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery param.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            (Core.Layer lid_ _) :: _ ->
+                            Just (Core.Layer lid_ _) ->
                                 takeLastMatched
                                     (\(Core.Request name _ lid _) ->
                                         if lid == lid_ && name == param.name then
@@ -2586,7 +2575,7 @@ httpResponse :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
+        { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, String )
         }
     -> Scenario flags m e
@@ -2606,12 +2595,12 @@ httpResponse (Session session) markup param =
                                     "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery param.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            (Core.Layer lid_ _) :: _ ->
+                            Just (Core.Layer lid_ _) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
                                         if lid == lid_ then
@@ -2680,7 +2669,7 @@ httpBytesResponse :
     Session
     -> Markup
     ->
-        { layer : LayerQuery m m1
+        { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
         }
     -> Scenario flags m e
@@ -2700,12 +2689,12 @@ httpBytesResponse (Session session) markup param =
                                     "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case Core.runQuery param.layer sessionContext.model of
-                            [] ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            (Core.Layer lid_ _) :: _ ->
+                            Just (Core.Layer lid_ _) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
                                         if lid == lid_ then

@@ -35,7 +35,6 @@ import Tepa.AbsolutePath as AbsolutePath
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Tepa.Scenario.LayerQuery as LayerQuery
 import Url exposing (Url)
 
 
@@ -375,32 +374,30 @@ scenario session =
     { login =
         PageLogin.scenario
             { querySelf =
-                LayerQuery.self
-                    |> LayerQuery.child
-                        (\m ->
+                Tepa.layerMemory
+                    >> (\m ->
                             case m.page of
                                 PageLogin l ->
                                     Just l
 
                                 _ ->
                                     Nothing
-                        )
+                       )
             , wrapEvent = PageLoginEvent
             , session = session
             }
     , home =
         PageHome.scenario
             { querySelf =
-                LayerQuery.self
-                    |> LayerQuery.child
-                        (\m ->
+                Tepa.layerMemory
+                    >> (\m ->
                             case m.page of
                                 PageHome l ->
                                     Just l
 
                                 _ ->
                                     Nothing
-                        )
+                       )
             , wrapEvent = PageHomeEvent
             , session = session
             }
@@ -418,7 +415,7 @@ receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> 
 receiveProfile session toResponse markup =
     Scenario.httpResponse session
         markup
-        { layer = LayerQuery.self
+        { layer = Just
         , response =
             \rawRequest ->
                 if rawRequest.url == FetchProfile.endpointUrl then

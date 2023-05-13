@@ -1,5 +1,5 @@
 module Internal.Core exposing
-    ( Model(..), Model_, memoryState
+    ( Model(..), Model_, memoryState, layerState
     , Msg(..), rootLayerMsg
     , mapMsg
     , NavKey(..)
@@ -13,6 +13,7 @@ module Internal.Core exposing
     , Request(..)
     , portRequest, customRequest, anyRequest
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
+    , HttpRequestBody(..)
     , now
     , layerEvent
     , Layer(..), Pointer(..), isPointedBy
@@ -20,14 +21,11 @@ module Internal.Core exposing
     , none, sequence, concurrent
     , Void, void
     , modify, push, currentState, cancel, lazy, listen
-    , sleep, listenTimeEvery
+    , sleep, listenTimeEvery, listenLayerEvent
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
     , elementView, documentView, subscriptions
-    , LayerQuery(..)
-    , runQuery
-    , HttpRequestBody(..), listenLayerEvent
     )
 
 {-|
@@ -53,10 +51,11 @@ module Internal.Core exposing
 @docs andRacePromise
 @docs andThenPromise
 @docs syncPromise
-@docs liftPromiseMemory, liftPromiseEvent
+@docs liftPromiseEvent
 @docs Request
 @docs portRequest, customRequest, anyRequest
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
+@docs HttpRequestBody
 @docs now
 @docs layerEvent
 @docs Layer, Pointer, isPointedBy
@@ -67,8 +66,8 @@ module Internal.Core exposing
 # Primitive Procedures
 
 @docs Void, void
-@docs modify, push, currentState, return, cancel, lazy, listen
-@docs sleep, listenTimeEvery
+@docs modify, push, currentState, cancel, lazy, listen
+@docs sleep, listenTimeEvery, listenLayerEvent
 
 
 # Helper Procedures
@@ -85,12 +84,6 @@ module Internal.Core exposing
 
 @docs init, update, NewState, Log
 @docs elementView, documentView, subscriptions
-
-
-# LayerQuery
-
-@docs LayerQuery
-@docs runQuery
 
 -}
 
@@ -216,6 +209,7 @@ type Log
     | Forward Int
 
 
+{-| -}
 type alias HttpRequest =
     { method : String
     , headers : List ( String, String )
@@ -1879,24 +1873,3 @@ subscriptions (Model model) =
         model.context.subs
         |> List.map Tuple.second
         |> Sub.batch
-
-
-
--- LayerQuery
-
-
-{-| -}
-type LayerQuery m m1
-    = LayerQuery (LayerQuery_ m m1)
-
-
-type alias LayerQuery_ m m1 =
-    { get : Layer m -> List (Layer m1)
-    }
-
-
-{-| -}
-runQuery : LayerQuery m m1 -> Model m e -> List (Layer m1)
-runQuery (LayerQuery query) model =
-    layerState model
-        |> query.get

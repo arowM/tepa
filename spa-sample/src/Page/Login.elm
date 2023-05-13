@@ -33,7 +33,6 @@ import Tepa.AbsolutePath as AbsolutePath
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
@@ -477,7 +476,7 @@ type alias ScenarioSet flags m e =
 
 
 type alias ScenarioProps m e =
-    { querySelf : LayerQuery m Memory
+    { querySelf : Layer m -> Maybe (Layer Memory)
     , wrapEvent : Event -> e
     , session : Scenario.Session
     }
@@ -497,7 +496,7 @@ scenario props =
         Toast.scenario
             { querySelf =
                 props.querySelf
-                    |> LayerQuery.child .toast
+                    >> Maybe.andThen (Tepa.layerMemory >> .toast)
             , wrapEvent = ToastEvent >> props.wrapEvent
             , session = props.session
             }
@@ -512,7 +511,7 @@ changeLoginId : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Sc
 changeLoginId props { value } markup =
     Scenario.userOperation props.session
         markup
-        { layer =
+        { query =
             Query.find
                 [ localClassSelector "loginForm_input-id"
                 ]
@@ -535,7 +534,7 @@ clickSubmitLogin : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
 clickSubmitLogin props markup =
     Scenario.userOperation props.session
         markup
-        { layer =
+        { query =
             Query.find
                 [ localClassSelector "loginForm_submitLogin"
                 , Selector.disabled False

@@ -60,7 +60,6 @@ import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise, Void)
 import Tepa.Http as Http
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Tepa.Scenario.LayerQuery as LayerQuery exposing (LayerQuery)
 import Tepa.Time
 import Test.Html.Query as HtmlQuery
 import Test.Html.Selector as Selector
@@ -333,7 +332,7 @@ type alias ScenarioSet flags m e =
 
 {-| -}
 type alias ScenarioProps m e =
-    { querySelf : LayerQuery m Memory
+    { querySelf : Layer m -> Maybe (Layer Memory)
     , wrapEvent : Event -> e
     , session : Scenario.Session
     }
@@ -448,18 +447,26 @@ closeByMessage :
     -> Scenario flags m e
 closeByMessage props messageType { message } markup =
     let
+        target : Layer m -> Maybe (Layer ToastItemMemory)
         target =
             props.querySelf
-                |> LayerQuery.children
-                    (\(Memory m) -> m.items)
-                |> LayerQuery.filter
-                    (\m ->
-                        m.messageType
-                            == messageType
-                            && m.content
-                            == message
+                >> Maybe.andThen
+                    (Tepa.layerMemory
+                        >> (\(Memory self) -> self.items)
+                        >> List.filter
+                            (\layer ->
+                                let
+                                    m : ToastItemMemory
+                                    m =
+                                        Tepa.layerMemory layer
+                                in
+                                m.messageType
+                                    == messageType
+                                    && m.content
+                                    == message
+                            )
+                        >> List.head
                     )
-                |> LayerQuery.index 0
     in
     Scenario.sequence
         [ Scenario.layerEvent props.session

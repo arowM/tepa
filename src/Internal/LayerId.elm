@@ -10,9 +10,7 @@ module Internal.LayerId exposing
 @docs LayerId
 @docs init
 @docs inc
-@docs decoder
 @docs toString
-@docs toValue
 
 -}
 
