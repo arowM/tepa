@@ -13,6 +13,7 @@ import App exposing (Event, Memory)
 import Browser
 import DebugToJson
 import Dict
+import Expect
 import Html
 import Html.Attributes as Attributes
 import Html.Events as Events
@@ -168,12 +169,12 @@ introduction1 config =
     , dependency = Scenario.EntryPoint (Time.millisToPosix 1672531200000)
     , content =
         [ userComment sakuraChan "Hi. I'm Sakura-chan, the cutest goat girl in the world."
-        , userComment sakuraChan "Today I'll try a goat management service."
-        , userComment sakuraChan "I'll try to access the URL."
+        , userComment sakuraChan "Today I'm going to try a goat management service."
+        , userComment sakuraChan "I'm trying to access the URL."
         , Scenario.loadApp sakuraChanMainSession
             { content =
                 [ Markdown.StrongEmphasis sakuraChanName
-                , Markdown.PlainText ": Entered the following URL in the address bar."
+                , Markdown.PlainText ": Type the following URL in the address bar."
                 ]
             , detail =
                 [ Markdown.ParagraphBlock
@@ -373,23 +374,32 @@ introduction1 config =
 
           else
             Scenario.none
-        , Scenario.sleep sakuraChanMainSession
-            (Scenario.textContent <| "Wait for 5000 milliseconds.")
+        , Scenario.sleep
+            (Scenario.textContent <| "Passing 5000 milliseconds.")
             5000
+        , let
+            currentTime = 1672531205000
+          in
+          Scenario.expectCurrentTime
+            (Scenario.textContent <| "Current time in POSIX: " ++ String.fromInt currentTime ++ ".")
+            { expectation =
+                Expect.equal
+                    (Time.millisToPosix currentTime)
+            }
         , onSakuraChanMainSession.login.toast.expectErrorMessage
             { message = "Network error, please check your network and try again."
             }
             (Scenario.textContent "A toast pops up: \"Network error, please try again.\"")
         , userComment sakuraChan "Oops!"
-        , Scenario.sleep sakuraChanMainSession
-            (Scenario.textContent <| "Wait for " ++ String.fromInt Toast.toastTimeout ++ " milliseconds.")
+        , Scenario.sleep
+            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastTimeout ++ " milliseconds.")
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
             (Scenario.textContent "The popup begin to disappear.")
-        , Scenario.sleep sakuraChanMainSession
-            (Scenario.textContent <| "Wait for " ++ String.fromInt Toast.toastFadeOutDuration ++ " milliseconds.")
+        , Scenario.sleep
+            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastFadeOutDuration ++ " milliseconds.")
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
             (Scenario.textContent "No toast popups now.")

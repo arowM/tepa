@@ -19,6 +19,7 @@ module Tepa.Scenario exposing
     , comment
     , expectMemory
     , expectAppView
+    , expectCurrentTime
     , loadApp
     , userOperation
     , layerEvent
@@ -84,6 +85,7 @@ module Tepa.Scenario exposing
 
 @docs expectMemory
 @docs expectAppView
+@docs expectCurrentTime
 
 
 ## Event Simulators
@@ -799,6 +801,70 @@ expectAppView (Session session) markup { expectation } =
         }
 
 
+{-| Describe your expectations for the emulated current time of the application.
+
+Suppose you want to check current time after `sleep`.
+
+    import Expect
+    import Tepa.Scenario as Scenario
+    import Time
+
+
+    sample : Section
+    sample =
+        { title = "Sample Scenario"
+        , dependency = Scenario.EntryPoint (Time.millisToPosix 1672531200000)
+        , content =
+            [ userComment sakuraChan "I'm trying to access the Goat SNS."
+            , Scenario.sleep (Scenario.textContent "Passing one minutes.")
+            , userComment sakuraChan "Oops, I've slept a little."
+            , let
+                curr = Time.millisToPosix <| 1672531200000 + 1 * 60 * 1000
+              in
+              Scenario.expectCurrentTime
+                (Scenario.textContent <| "Current time is: " ++ formatPosix curr ++ ".")
+                { expectation =
+                    Expect.equal curr
+                }
+            ]
+
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
+
+-}
+expectCurrentTime :
+    Markup
+    ->
+        { expectation : Posix -> Expectation
+        }
+    -> Scenario flags m event
+expectCurrentTime markup { expectation } =
+    let
+        description =
+            stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                SeqTest.pass (Time.millisToPosix context.currentTime)
+                    |> SeqTest.assert description expectation
+                    |> SeqTest.map (\_ -> context)
+        , markup =
+            \_ ->
+                let
+                    markup_ =
+                        markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
 
 -- -- Event Simulators
 
@@ -1197,55 +1263,52 @@ listenerEvent (Session session) markup param =
 It only affects Promises defined in `Tepa.Time`.
 -}
 sleep :
-    Session
-    -> Markup
+    Markup
     -> Int
     -> Scenario flags m e
-sleep (Session session) markup msec =
+sleep markup msec =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            stringifyInlineItems markup.content
     in
     Scenario
         { test =
             \_ context ->
-                case Dict.get session.uniqueName context.sessions of
-                    Nothing ->
+                let
+                    sessionResults =
+                        Dict.foldl
+                            (\k sessionContext ->
+                                Result.andThen <|
+                                    \acc ->
+                                        advanceClock
+                                            { currentTime = context.currentTime
+                                            }
+                                            msec
+                                            sessionContext
+                                            |> Result.map
+                                                (\nextSessionContext ->
+                                                    Dict.insert k nextSessionContext acc
+                                                )
+                            )
+                            (Ok Dict.empty)
+                            context.sessions
+                in
+                case sessionResults of
+                    Err err ->
                         SeqTest.fail description <|
-                            \_ ->
-                                Expect.fail
-                                    "sleep: The application is not active on the session. Use `loadApp` beforehand."
+                            \_ -> Expect.fail err
 
-                    Just sessionContext ->
-                        let
-                            res =
-                                advanceClock
-                                    { currentTime = context.currentTime
-                                    }
-                                    msec
-                                    sessionContext
-                        in
-                        case res of
-                            Err err ->
-                                SeqTest.fail description <|
-                                    \_ -> Expect.fail err
-
-                            Ok nextSessionContext ->
-                                { context
-                                    | sessions =
-                                        Dict.insert session.uniqueName
-                                            nextSessionContext
-                                            context.sessions
-                                    , currentTime = context.currentTime + msec
-                                }
-                                    |> SeqTest.pass
+                    Ok nextSessions ->
+                        { context
+                            | sessions = nextSessions
+                            , currentTime = context.currentTime + msec
+                        }
+                            |> SeqTest.pass
         , markup =
-            \config ->
+            \_ ->
                 let
                     markup_ =
-                        config.processSleepMarkdown
-                            { uniqueSessionName = session.uniqueName }
-                            markup
+                        markup
                 in
                 if markup_.appear then
                     MdBuilder.appendListItem markup_.content
@@ -2028,7 +2091,6 @@ buildMarkdown o =
       - argument: `href` and `name` for its dependency.
   - processExpectMemoryMarkup: Processor for `expectMemory` markup
   - processExpectAppViewMarkup: Processor for `expectAppView` markup
-  - processSleepMarkdown: Processor for `sleep` markup
   - processLoadAppMarkup: Processor for `loadApp` markup
   - processLayerEventMarkup: Processor for `layerEvent` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
@@ -2050,10 +2112,6 @@ type alias RenderConfig =
         -> Markup
         -> Markup
     , processExpectAppViewMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processSleepMarkdown :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
@@ -2154,7 +2212,6 @@ ja_JP =
             }
     , processExpectMemoryMarkup = prependSessionSystemName
     , processExpectAppViewMarkup = prependSessionSystemName
-    , processSleepMarkdown = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
@@ -2288,7 +2345,6 @@ en_US =
             }
     , processExpectMemoryMarkup = prependSessionSystemName
     , processExpectAppViewMarkup = prependSessionSystemName
-    , processSleepMarkdown = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
