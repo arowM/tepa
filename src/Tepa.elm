@@ -22,8 +22,6 @@ module Tepa exposing
     , succeed
     , currentState, layerEvent
     , portRequest
-    , customRequest
-    , anyRequest
     , withLayerEvent, listenLayerEvent
     , Layer, isPointedBy
     , layerMemory
@@ -101,8 +99,6 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs succeed
 @docs currentState, layerEvent
 @docs portRequest
-@docs customRequest
-@docs anyRequest
 
 
 # Helper Promises
@@ -148,7 +144,6 @@ import Internal.Core as Core
         )
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
-import Tepa.ResponseType exposing (ResponseType)
 import Url exposing (Url)
 
 
@@ -619,29 +614,6 @@ portRequest =
     Core.portRequest
 
 
-{-| -}
-customRequest :
-    { name : String
-    , request : (a -> Msg e) -> Cmd (Msg e)
-    , responseType : ResponseType a
-    }
-    -> Promise m e a
-customRequest =
-    Core.customRequest
-
-
-{-| -}
-anyRequest :
-    { name : String
-    , request : (a -> Msg e) -> Cmd (Msg e)
-    , wrap : a -> e
-    , unwrap : e -> Maybe a
-    }
-    -> Promise m e a
-anyRequest =
-    Core.anyRequest
-
-
 
 -- Layer
 
@@ -920,10 +892,7 @@ update msg model =
             Core.update msg model
     in
     ( newState.nextModel
-    , [ List.map (\(Core.Request _ _ _ c) -> c) newState.requests
-      , newState.realCmds
-      ]
-        |> List.concat
+    , newState.realCmds
         |> Cmd.batch
     )
 
@@ -976,10 +945,7 @@ init memory param =
             Core.init memory procs
     in
     ( newState.nextModel
-    , [ List.map (\(Core.Request _ _ _ c) -> c) newState.requests
-      , newState.realCmds
-      ]
-        |> List.concat
+    , newState.realCmds
         |> Cmd.batch
     )
 

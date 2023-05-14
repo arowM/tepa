@@ -29,7 +29,6 @@ module Tepa.Scenario exposing
     , HttpRequest
     , HttpRequestBody(..)
     , portResponse
-    , customResponse
     , fromJust
     , fromOk
     , RenderConfig
@@ -107,7 +106,6 @@ module Tepa.Scenario exposing
 ## Response Simulators
 
 @docs portResponse
-@docs customResponse
 
 
 # Conditions
@@ -196,7 +194,6 @@ type alias TestContext m e =
 {-| -}
 type alias SessionContext m e =
     { model : Model m e
-    , requests : List (Core.Request e) -- reversed
     , portRequests : List ( ( RequestId, LayerId ), Value ) -- reversed
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
     , timers : List (Timer e)
@@ -1427,115 +1424,6 @@ portResponse (Session session) markup param =
         }
 
 
-{-| Simulate response to the `Tepa.customRequest`.
-
-Suppose your application requests user infomation to the backend server via custom request named "Request for user info":
-
-    import Json.Encode as JE
-
-    myScenario =
-        [ Debug.todo "After request to the backend..."
-        , portResponse sakuraChanMainSession
-            (textContent "Received response.")
-            { layer = "Request for user info"
-            , response =
-                UserInfoResponse <|
-                    Ok
-                        { name = "Sakura-chan"
-                        , age = 3
-                        }
-            }
-        , Debug.todo "..."
-        ]
-
-If no Layers found for the query, it does nothing and just passes the test.
-
--}
-customResponse :
-    Session
-    -> Markup
-    ->
-        { layer : Layer m -> Maybe (Layer m1)
-        , name : String
-        , response : Msg event
-        }
-    -> Scenario flags m event
-customResponse (Session session) markup param =
-    let
-        description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
-    in
-    Scenario
-        { test =
-            \_ context ->
-                case Dict.get session.uniqueName context.sessions of
-                    Nothing ->
-                        SeqTest.fail description <|
-                            \_ ->
-                                Expect.fail
-                                    "customResponse: The application is not active on the session. Use `loadApp` beforehand."
-
-                    Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                -- It is natural to receive responses after the Layer has expired.
-                                SeqTest.pass context
-
-                            Just (Core.Layer lid_ _) ->
-                                takeLastMatched
-                                    (\(Core.Request name _ lid _) ->
-                                        if lid == lid_ && name == param.name then
-                                            Just param.response
-
-                                        else
-                                            Nothing
-                                    )
-                                    sessionContext.requests
-                                    |> Result.fromMaybe "customResponse: No commands found for the response."
-                                    |> Result.andThen
-                                        (\( msg, nextRequests ) ->
-                                            update
-                                                { currentTime = context.currentTime
-                                                }
-                                                msg
-                                                { sessionContext
-                                                    | requests = nextRequests
-                                                }
-                                        )
-                                    |> Result.map
-                                        (\nextSessionContext ->
-                                            SeqTest.pass
-                                                { context
-                                                    | sessions =
-                                                        Dict.insert session.uniqueName
-                                                            nextSessionContext
-                                                            context.sessions
-                                                }
-                                        )
-                                    |> unwrapResult
-                                        (\err ->
-                                            SeqTest.fail description <|
-                                                \_ -> Expect.fail err
-                                        )
-        , markup =
-            \config ->
-                let
-                    markup_ =
-                        config.processCustomResponseMarkup
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
-        }
-
-
 
 -- Conditions
 
@@ -1681,7 +1569,6 @@ toTest o =
                                                 }
                                                 newState.logs
                                                 { model = newState.nextModel
-                                                , requests = newState.requests
                                                 , portRequests = []
                                                 , httpRequests = []
                                                 , timers = []
@@ -1736,7 +1623,6 @@ update config msg context =
             Core.update msg context.model
     in
     { model = newState.nextModel
-    , requests = newState.requests ++ context.requests
     , portRequests = context.portRequests
     , httpRequests = context.httpRequests
     , timers = context.timers
@@ -1881,27 +1767,10 @@ applyLog config log context =
                             context.httpRequests
                 }
 
-        Core.ResolveRequest rid ->
-            Ok
-                { context
-                    | requests =
-                        List.filter
-                            (\(Core.Request _ rid_ _ _) ->
-                                rid_ /= rid
-                            )
-                            context.requests
-                }
-
         Core.LayerExpired lid ->
             Ok
                 { context
-                    | requests =
-                        List.filter
-                            (\(Core.Request _ _ lid_ _) ->
-                                lid_ /= lid
-                            )
-                            context.requests
-                    , portRequests =
+                    | portRequests =
                         List.filter
                             (\( ( _, lid_ ), _ ) -> lid_ /= lid)
                             context.portRequests
@@ -2165,7 +2034,6 @@ buildMarkdown o =
   - processUserOperationMarkup: Processor for `userOperation` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
-  - processCustomResponseMarkup: Processor for `customResponse` markup
 
 -}
 type alias RenderConfig =
@@ -2209,11 +2077,6 @@ type alias RenderConfig =
         -> Markup
         -> Markup
     , processPortResponseMarkup :
-        { uniqueSessionName : String
-        }
-        -> Markup
-        -> Markup
-    , processCustomResponseMarkup :
         { uniqueSessionName : String
         }
         -> Markup
@@ -2297,7 +2160,6 @@ ja_JP =
     , processUserOperationMarkup = prependSessionAndUserName
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
-    , processCustomResponseMarkup = prependSessionSystemName
     }
 
 
@@ -2432,7 +2294,6 @@ en_US =
     , processUserOperationMarkup = prependSessionAndUserName
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
-    , processCustomResponseMarkup = prependSessionSystemName
     }
 
 

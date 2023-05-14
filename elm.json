@@ -9,7 +9,6 @@
         "Tepa.AbsolutePath",
         "Tepa.Http",
         "Tepa.Navigation",
-        "Tepa.ResponseType",
         "Tepa.Scenario",
         "Tepa.Time"
     ],
