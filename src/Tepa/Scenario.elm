@@ -183,7 +183,6 @@ type alias ListBlock =
 type alias TestConfig flags m e =
     { view : m -> Document (Msg e)
     , init : flags -> Url -> Result String (SessionContext m e)
-    , onUrlChange : AbsolutePath -> Msg e
     }
 
 
@@ -923,7 +922,7 @@ layerEvent (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -943,8 +942,7 @@ layerEvent (Session session) markup param =
                                 let
                                     res =
                                         update
-                                            { onUrlChange = config.onUrlChange
-                                            , currentTime = context.currentTime
+                                            { currentTime = context.currentTime
                                             }
                                             (Core.LayerMsg
                                                 { layerId = lid
@@ -1049,8 +1047,7 @@ userOperation (Session session) markup param =
                                         [ msg
                                         ]
                                             |> applyMsgsTo
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 sessionContext
                                 in
@@ -1127,7 +1124,7 @@ listenerEvent (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -1158,8 +1155,7 @@ listenerEvent (Session session) markup param =
                                     |> Maybe.map
                                         (\msg ->
                                             update
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 msg
                                                 sessionContext
@@ -1215,7 +1211,7 @@ sleep (Session session) markup msec =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -1227,8 +1223,7 @@ sleep (Session session) markup msec =
                         let
                             res =
                                 advanceClock
-                                    { onUrlChange = config.onUrlChange
-                                    , currentTime = context.currentTime
+                                    { currentTime = context.currentTime
                                     }
                                     msec
                                     sessionContext
@@ -1267,8 +1262,7 @@ sleep (Session session) markup msec =
 
 
 advanceClock :
-    { onUrlChange : AbsolutePath -> Msg e
-    , currentTime : Int
+    { currentTime : Int
     }
     -> Int
     -> SessionContext m e
@@ -1357,7 +1351,7 @@ portResponse (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -1392,8 +1386,7 @@ portResponse (Session session) markup param =
                                     |> Result.andThen
                                         (\( msg, nextPortRequests ) ->
                                             update
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 msg
                                                 { sessionContext
@@ -1474,7 +1467,7 @@ customResponse (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -1502,8 +1495,7 @@ customResponse (Session session) markup param =
                                     |> Result.andThen
                                         (\( msg, nextRequests ) ->
                                             update
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 msg
                                                 { sessionContext
@@ -1622,14 +1614,6 @@ toTest :
     }
     -> Test
 toTest o =
-    let
-        onUrlChange path =
-            Core.LayerMsg
-                { layerId = LayerId.init
-                , event =
-                    o.props.onUrlChange (testUrl path)
-                }
-    in
     List.foldl
         (\sec acc ->
             let
@@ -1671,12 +1655,29 @@ toTest o =
                                     , init =
                                         \flags url ->
                                             let
+                                                procs =
+                                                    Tepa.syncAll
+                                                        [ Core.listenMsg <|
+                                                            \msg ->
+                                                                case msg of
+                                                                    Core.UrlRequest req ->
+                                                                        [ o.props.onUrlRequest flags req Core.SimKey
+                                                                        ]
+
+                                                                    Core.UrlChange newUrl ->
+                                                                        [ o.props.onUrlChange flags newUrl Core.SimKey
+                                                                        ]
+
+                                                                    _ ->
+                                                                        []
+                                                        , o.props.procedure flags url Core.SimKey
+                                                        ]
+
                                                 newState =
-                                                    Core.init o.props.init (o.props.procedure flags url Core.SimKey)
+                                                    Core.init o.props.init procs
                                             in
                                             applyLogs
-                                                { onUrlChange = onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 newState.logs
                                                 { model = newState.nextModel
@@ -1688,7 +1689,6 @@ toTest o =
                                                 , history =
                                                     History.init <| AbsolutePath.fromUrl url
                                                 }
-                                    , onUrlChange = onUrlChange
                                     }
                                     context
                                     |> SeqTest.describe sec.title
@@ -1703,9 +1703,13 @@ toTest o =
         |> SeqTest.run "Scenario tests"
 
 
+onUrlChange : AbsolutePath -> Msg e
+onUrlChange path =
+    Core.UrlChange (testUrl path)
+
+
 applyMsgsTo :
-    { onUrlChange : AbsolutePath -> Msg e
-    , currentTime : Int
+    { currentTime : Int
     }
     -> SessionContext m e
     -> List (Msg e)
@@ -1721,8 +1725,7 @@ applyMsgsTo config context =
 
 
 update :
-    { onUrlChange : AbsolutePath -> Msg e
-    , currentTime : Int
+    { currentTime : Int
     }
     -> Msg e
     -> SessionContext m e
@@ -1744,8 +1747,7 @@ update config msg context =
 
 
 applyLogs :
-    { onUrlChange : AbsolutePath -> Msg e
-    , currentTime : Int
+    { currentTime : Int
     }
     -> List Core.Log
     -> SessionContext m e
@@ -1762,8 +1764,7 @@ applyLogs config logs context =
 
 
 applyLog :
-    { onUrlChange : AbsolutePath -> Msg e
-    , currentTime : Int
+    { currentTime : Int
     }
     -> Core.Log
     -> SessionContext m e
@@ -1924,14 +1925,14 @@ applyLog config log context =
 
         Core.PushPath path ->
             update config
-                (config.onUrlChange path)
+                (onUrlChange path)
                 { context
                     | history = History.pushPath path context.history
                 }
 
         Core.ReplacePath path ->
             update config
-                (config.onUrlChange path)
+                (onUrlChange path)
                 { context
                     | history = History.replacePath path context.history
                 }
@@ -1944,7 +1945,7 @@ applyLog config log context =
 
                 Just newHistory ->
                     update config
-                        (config.onUrlChange <| History.current newHistory)
+                        (onUrlChange <| History.current newHistory)
                         { context
                             | history = newHistory
                         }
@@ -1957,7 +1958,7 @@ applyLog config log context =
 
                 Just newHistory ->
                     update config
-                        (config.onUrlChange <| History.current newHistory)
+                        (onUrlChange <| History.current newHistory)
                         { context
                             | history = newHistory
                         }
@@ -2586,7 +2587,7 @@ httpResponse (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -2621,8 +2622,7 @@ httpResponse (Session session) markup param =
                                     |> Result.andThen
                                         (\( msg, nextHttpRequests ) ->
                                             update
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 msg
                                                 { sessionContext
@@ -2680,7 +2680,7 @@ httpBytesResponse (Session session) markup param =
     in
     Scenario
         { test =
-            \config context ->
+            \_ context ->
                 case Dict.get session.uniqueName context.sessions of
                     Nothing ->
                         SeqTest.fail description <|
@@ -2715,8 +2715,7 @@ httpBytesResponse (Session session) markup param =
                                     |> Result.andThen
                                         (\( msg, nextHttpRequests ) ->
                                             update
-                                                { onUrlChange = config.onUrlChange
-                                                , currentTime = context.currentTime
+                                                { currentTime = context.currentTime
                                                 }
                                                 msg
                                                 { sessionContext

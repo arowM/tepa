@@ -54,8 +54,8 @@ props =
     { init = init
     , procedure = procedure
     , view = view
-    , onUrlRequest = LinkClicked
-    , onUrlChange = UrlChanged
+    , onUrlRequest = onUrlRequest
+    , onUrlChange = onUrlChange
     }
 
 
@@ -141,9 +141,7 @@ pageNotFoundView =
 
 {-| -}
 type Event
-    = LinkClicked Browser.UrlRequest
-    | UrlChanged Url
-    | PageLoginEvent PageLogin.Event
+    = PageLoginEvent PageLogin.Event
     | PageHomeEvent PageHome.Event
 
 
@@ -167,55 +165,43 @@ type alias Pointer m =
 {-| -}
 procedure : Value -> Url -> NavKey -> Promise Void
 procedure _ url key =
-    Tepa.syncAll
-        -- Monitor app Events.
-        [ Tepa.listenLayerEvent (appEventHandler key)
-
-        -- Process initial procedures on loading app.
-        , pageProcedure url key Nothing
-        ]
+    pageProcedure url key Nothing
 
 
-appEventHandler : NavKey -> Event -> List (Promise Void)
-appEventHandler key event =
-    case event of
-        UrlChanged newUrl ->
-            [ Tepa.bind Tepa.currentState <|
-                \state ->
-                    case state.page of
-                        PageLoading ->
-                            [ Tepa.lazy <|
-                                \_ -> pageProcedure newUrl key Nothing
-                            ]
-
-                        PageNotFound param ->
-                            [ Tepa.lazy <|
-                                \_ -> pageProcedure newUrl key param.msession
-                            ]
-
-                        PageLogin layer ->
-                            [ Tepa.lazy <|
-                                \_ -> pageProcedure newUrl key (Tepa.layerMemory layer).msession
-                            ]
-
-                        PageHome layer ->
-                            [ Tepa.lazy <|
-                                \_ -> pageProcedure newUrl key (Just (Tepa.layerMemory layer).session)
-                            ]
-            ]
-
-        LinkClicked urlRequest ->
-            case urlRequest of
-                Browser.Internal url ->
-                    [ Nav.pushPath key (AbsolutePath.fromUrl url)
+onUrlChange : flags -> Url -> NavKey -> Promise Void
+onUrlChange _ newUrl key =
+    Tepa.bind Tepa.currentState <|
+        \state ->
+            case state.page of
+                PageLoading ->
+                    [ Tepa.lazy <|
+                        \_ -> pageProcedure newUrl key Nothing
                     ]
 
-                Browser.External href ->
-                    [ Nav.load href
+                PageNotFound param ->
+                    [ Tepa.lazy <|
+                        \_ -> pageProcedure newUrl key param.msession
                     ]
 
-        _ ->
-            []
+                PageLogin layer ->
+                    [ Tepa.lazy <|
+                        \_ -> pageProcedure newUrl key (Tepa.layerMemory layer).msession
+                    ]
+
+                PageHome layer ->
+                    [ Tepa.lazy <|
+                        \_ -> pageProcedure newUrl key (Just (Tepa.layerMemory layer).session)
+                    ]
+
+
+onUrlRequest : flags -> Browser.UrlRequest -> NavKey -> Promise Void
+onUrlRequest _ urlRequest key =
+    case urlRequest of
+        Browser.Internal url ->
+            Nav.pushPath key (AbsolutePath.fromUrl url)
+
+        Browser.External href ->
+            Nav.load href
 
 
 

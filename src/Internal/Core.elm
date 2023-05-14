@@ -1,6 +1,6 @@
 module Internal.Core exposing
     ( Model(..), Model_, memoryState, layerState
-    , Msg(..), rootLayerMsg
+    , Msg(..)
     , mapMsg
     , NavKey(..)
     , Promise
@@ -21,11 +21,11 @@ module Internal.Core exposing
     , none, sequence, concurrent
     , Void, void
     , modify, push, currentState, cancel, lazy, listen
-    , sleep, listenTimeEvery, listenLayerEvent
+    , sleep, listenTimeEvery, listenLayerEvent, listenMsg
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
-    , elementView, documentView, subscriptions
+    , documentView, subscriptions
     )
 
 {-|
@@ -67,7 +67,7 @@ module Internal.Core exposing
 
 @docs Void, void
 @docs modify, push, currentState, cancel, lazy, listen
-@docs sleep, listenTimeEvery, listenLayerEvent
+@docs sleep, listenTimeEvery, listenLayerEvent, listenMsg
 
 
 # Helper Procedures
@@ -104,6 +104,7 @@ import Mixin exposing (Mixin)
 import Process
 import Task
 import Time exposing (Posix)
+import Url exposing (Url)
 
 
 
@@ -268,17 +269,9 @@ type Msg event
         { requestId : RequestId
         , timestamp : Posix
         }
+    | UrlChange Url
+    | UrlRequest Browser.UrlRequest
     | NoOp
-
-
-{-| Issue Event on application root layer.
--}
-rootLayerMsg : e -> Msg e
-rootLayerMsg e =
-    LayerMsg
-        { layerId = LayerId.init
-        , event = e
-        }
 
 
 {-| -}
@@ -348,6 +341,12 @@ mapMsg f msg1 =
                 { requestId = r.requestId
                 , timestamp = r.timestamp
                 }
+
+        UrlChange url ->
+            UrlChange url
+
+        UrlRequest req ->
+            UrlRequest req
 
         NoOp ->
             NoOp
@@ -440,6 +439,12 @@ unwrapMsg f msg1 =
                 { requestId = r.requestId
                 , timestamp = r.timestamp
                 }
+
+        UrlChange url ->
+            UrlChange url
+
+        UrlRequest req ->
+            UrlRequest req
 
         NoOp ->
             NoOp
@@ -1183,6 +1188,30 @@ listen { name, subscription, handler } =
 
 
 {-| -}
+listenMsg :
+    (Msg e -> List (Promise m e Void))
+    -> Promise m e Void
+listenMsg handler =
+    Promise <|
+        \context ->
+            let
+                awaitForever : Msg e -> m -> Promise m e Void
+                awaitForever msg _ =
+                    concurrent
+                        [ justAwaitPromise awaitForever
+                        , handler msg
+                            |> sequence
+                        ]
+            in
+            { newContext = context
+            , requests = []
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg awaitForever
+            }
+
+
+{-| -}
 listenLayerEvent :
     (e -> List (Promise m e Void))
     -> Promise m e Void
@@ -1849,12 +1878,6 @@ toModel context (Promise prom) =
 update : Msg e -> Model m e -> NewState m e
 update msg (Model model) =
     model.next msg model.context
-
-
-{-| -}
-elementView : (Layer memory -> Html (Msg event)) -> Model memory event -> Html (Msg event)
-elementView f model =
-    f (Layer LayerId.init (memoryState model))
 
 
 {-| -}

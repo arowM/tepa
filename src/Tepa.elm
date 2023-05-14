@@ -1,5 +1,10 @@
 module Tepa exposing
-    ( Promise
+    ( application
+    , ApplicationProps
+    , NavKey
+    , Program
+    , Document
+    , Promise
     , map
     , liftEvent, onLayer
     , Pointer
@@ -27,16 +32,7 @@ module Tepa exposing
     , newListItemLayer, putNewListItemLayer
     , newLayer, putNewLayer
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
-    , element
-    , document
-    , application
-    , ApplicationProps
-    , NavKey
-    , Program
-    , Document
     , update
-    , elementView
-    , documentView
     , subscriptions
     , init
     , Msg
@@ -48,6 +44,19 @@ module Tepa exposing
     )
 
 {-|
+
+
+# Application Entry points
+
+[Browser](https://package.elm-lang.org/packages/elm/browser/latest/Browser) alternatives to build your apps.
+
+The [low level API](#connect-to-tea-app) is also available for more advanced use cases, which enables you to introduce TEPA partially into your existing TEA app.
+
+@docs application
+@docs ApplicationProps
+@docs NavKey
+@docs Program
+@docs Document
 
 
 # Promise
@@ -112,26 +121,9 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
 
 
-# Browser alternatives
-
-[Browser](https://package.elm-lang.org/packages/elm/browser/latest/Browser) alternatives.
-
-The [low level API](#connect-to-tea-app) is also available for more advanced use cases, which enables you to introduce TEPA partially into your existing TEA app.
-
-@docs element
-@docs document
-@docs application
-@docs ApplicationProps
-@docs NavKey
-@docs Program
-@docs Document
-
-
 # Connect to TEA app
 
 @docs update
-@docs elementView
-@docs documentView
 @docs subscriptions
 @docs init
 @docs Msg
@@ -857,73 +849,30 @@ eventMixin =
 -- Browser alternatives
 
 
-{-| Procedure version of [Browser.element](https://package.elm-lang.org/packages/elm/browser/latest/Browser#element).
--}
-element :
-    { init : memory
-    , procedure : flags -> Promise memory event Void
-    , view : Layer memory -> Html (Msg event)
-    }
-    -> Program flags memory event
-element option =
-    Browser.element
-        { init =
-            \flags ->
-                init option.init (option.procedure flags)
-        , view = elementView option.view
-        , update = update
-        , subscriptions = subscriptions
-        }
-
-
-{-| Procedure version of [Browser.document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#document).
--}
-document :
-    { init : memory
-    , procedure : flags -> Promise memory event Void
-    , view : Layer memory -> Document (Msg event)
-    }
-    -> Program flags memory event
-document option =
-    Browser.document
-        { init =
-            \flags ->
-                init option.init (option.procedure flags)
-        , view = documentView option.view
-        , update = update
-        , subscriptions = subscriptions
-        }
-
-
 {-| Procedure version of [Browser.application](https://package.elm-lang.org/packages/elm/browser/latest/Browser#application).
-
-The `onUrlRequest` and `onUrlChange` Events are published to the application root Layer.
-
 -}
 application :
     ApplicationProps flags memory event
     -> Program flags memory event
 application props =
-    let
-        option =
-            { init = props.init
-            , procedure =
-                \flags url key ->
-                    props.procedure flags url key
-            , view = props.view
-            , onUrlRequest = props.onUrlRequest
-            , onUrlChange = props.onUrlChange
-            }
-    in
     Browser.application
         { init =
             \flags url key ->
-                init option.init (option.procedure flags url (Core.RealKey key))
-        , view = documentView option.view
+                init props.init
+                    { procedure =
+                        props.procedure flags url (Core.RealKey key)
+                    , onUrlChange =
+                        \newUrl ->
+                            props.onUrlChange flags newUrl (Core.RealKey key)
+                    , onUrlRequest =
+                        \req ->
+                            props.onUrlRequest flags req (Core.RealKey key)
+                    }
+        , view = documentView props.view
         , update = update
         , subscriptions = subscriptions
-        , onUrlRequest = onUrlRequest option.onUrlRequest
-        , onUrlChange = onUrlChange option.onUrlChange
+        , onUrlRequest = onUrlRequest
+        , onUrlChange = onUrlChange
         }
 
 
@@ -932,8 +881,8 @@ type alias ApplicationProps flags memory event =
     { init : memory
     , procedure : flags -> Url -> NavKey -> Promise memory event Void
     , view : Layer memory -> Document (Msg event)
-    , onUrlRequest : Browser.UrlRequest -> event
-    , onUrlChange : Url -> event
+    , onUrlRequest : flags -> Browser.UrlRequest -> NavKey -> Promise memory event Void
+    , onUrlChange : flags -> Url -> NavKey -> Promise memory event Void
     }
 
 
@@ -979,13 +928,6 @@ update msg model =
     )
 
 
-{-| Construct the TEA element view function.
--}
-elementView : (Layer memory -> Html (Msg event)) -> Model memory event -> Html (Msg event)
-elementView =
-    Core.elementView
-
-
 {-| Just like `Procedure.documentView`.
 -}
 documentView : (Layer memory -> Document (Msg event)) -> Model memory event -> Document (Msg event)
@@ -1004,10 +946,32 @@ subscriptions =
 -}
 init :
     memory
-    -> Promise memory event Void
+    ->
+        { procedure : Promise memory event Void
+        , onUrlChange : Url -> Promise memory event Void
+        , onUrlRequest : Browser.UrlRequest -> Promise memory event Void
+        }
     -> ( Model memory event, Cmd (Msg event) )
-init memory procs =
+init memory param =
     let
+        procs =
+            syncAll
+                [ Core.listenMsg <|
+                    \msg ->
+                        case msg of
+                            Core.UrlRequest req ->
+                                [ param.onUrlRequest req
+                                ]
+
+                            Core.UrlChange url ->
+                                [ param.onUrlChange url
+                                ]
+
+                            _ ->
+                                []
+                , param.procedure
+                ]
+
         newState =
             Core.init memory procs
     in
@@ -1038,17 +1002,15 @@ type alias Model m e =
     Core.Model m e
 
 
-{-| Construct a TEA `onUrlChange` property value.
-The Event you provided as an argument can be received on the root Layer.
+{-| TEA `onUrlChange` property value.
 -}
-onUrlChange : (Url -> event) -> Url -> Msg event
-onUrlChange f =
-    Core.rootLayerMsg << f
+onUrlChange : Url -> Msg event
+onUrlChange =
+    Core.UrlChange
 
 
-{-| Construct a TEA `onUrlRequest` property value.
-The Event you provided as an argument can be received on the root Layer.
+{-| TEA `onUrlRequest` property value.
 -}
-onUrlRequest : (Browser.UrlRequest -> event) -> Browser.UrlRequest -> Msg event
-onUrlRequest f =
-    Core.rootLayerMsg << f
+onUrlRequest : Browser.UrlRequest -> Msg event
+onUrlRequest =
+    Core.UrlRequest
