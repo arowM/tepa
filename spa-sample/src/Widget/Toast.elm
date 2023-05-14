@@ -6,7 +6,6 @@ module Widget.Toast exposing
     , Closed
     , pushWarning
     , pushError
-    , pushHttpRequestError
     , scenario
     , ScenarioSet
     , ScenarioProps
@@ -32,11 +31,6 @@ module Widget.Toast exposing
 @docs pushError
 
 
-# Utilities
-
-@docs pushHttpRequestError
-
-
 # Scenario
 
 @docs scenario
@@ -58,9 +52,9 @@ import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise, Void)
-import Tepa.Http as Http
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Time
+import Test.Html.Event as HtmlEvent
 import Test.Html.Query as HtmlQuery
 import Test.Html.Selector as Selector
 
@@ -140,6 +134,7 @@ type Closed
 
 
 {-| Show warning message.
+This promise blocks subsequent processes untill the item is closed.
 -}
 pushWarning : String -> Promise Memory Event Closed
 pushWarning =
@@ -147,6 +142,7 @@ pushWarning =
 
 
 {-| Show error message.
+This promise blocks subsequent processes untill the item is closed.
 -}
 pushError : String -> Promise Memory Event Closed
 pushError =
@@ -218,34 +214,6 @@ toastItemProcedure =
             (\m -> { m | isHidden = True })
         , Tepa.Time.sleep toastFadeOutDuration
         ]
-
-
-
--- Utilities
-
-
-{-| Helper function to show HTTP request errors.
--}
-pushHttpRequestError :
-    Http.Response a
-    -> Promise Memory Event Closed
-pushHttpRequestError resp =
-    case resp of
-        Http.Timeout ->
-            pushError """Network error, please try again."""
-
-        Http.NetworkError ->
-            pushError """Network error, please try again."""
-
-        Http.BadUrl _ ->
-            pushError """Internal error, please contact our support team."""
-
-        Http.BadResponse _ _ ->
-            pushError """Internal error, please contact our support team."""
-
-        Http.GoodResponse _ _ ->
-            Tepa.none
-                |> Tepa.map (\_ -> Closed)
 
 
 
@@ -383,7 +351,7 @@ expectMessage props messageType { message } markup =
                     |> HtmlQuery.keep
                         (Selector.all
                             [ localClassSelector "toast_item_body"
-                            , Selector.text message
+                            , Selector.exactText message
                             ]
                         )
                     |> HtmlQuery.count (Expect.greaterThan 0)
@@ -412,7 +380,7 @@ expectDisappearingMessage props messageType { message } markup =
                     |> HtmlQuery.keep
                         (Selector.all
                             [ localClassSelector "toast_item_body"
-                            , Selector.text message
+                            , Selector.exactText message
                             ]
                         )
                     |> HtmlQuery.count (Expect.greaterThan 0)
@@ -446,35 +414,27 @@ closeByMessage :
     -> Scenario.Markup
     -> Scenario flags m e
 closeByMessage props messageType { message } markup =
-    let
-        target : Layer m -> Maybe (Layer ToastItemMemory)
-        target =
-            props.querySelf
-                >> Maybe.andThen
-                    (Tepa.layerMemory
-                        >> (\(Memory self) -> self.items)
-                        >> List.filter
-                            (\layer ->
-                                let
-                                    m : ToastItemMemory
-                                    m =
-                                        Tepa.layerMemory layer
-                                in
-                                m.messageType
-                                    == messageType
-                                    && m.content
-                                    == message
-                            )
-                        >> List.head
-                    )
-    in
-    Scenario.sequence
-        [ Scenario.layerEvent props.session
-            markup
-            { layer = target
-            , event = props.wrapEvent CloseToastItem
-            }
-        ]
+    Scenario.userOperation props.session
+        markup
+        { query =
+            HtmlQuery.find
+                [ localClassSelector "toast_item"
+                , localClassSelector <|
+                    "toast_item-"
+                        ++ messageTypeCode messageType
+                , Selector.attribute
+                    (Attributes.attribute "aria-hidden" "false")
+                , Selector.containing
+                    [ localClassSelector "toast_item_body"
+                    , Selector.exactText message
+                    ]
+                ]
+                >> HtmlQuery.children
+                    [ localClassSelector "toast_item_close"
+                    ]
+                >> HtmlQuery.first
+        , operation = HtmlEvent.click
+        }
 
 
 

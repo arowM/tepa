@@ -442,7 +442,8 @@ runToastPromise pointer prom =
 
 {-| -}
 type alias ScenarioSet flags m e =
-    { changeLoginId :
+    { layer : Layer m -> Maybe (Layer Memory)
+    , changeLoginId :
         { value : String
         }
         -> Scenario.Markup
@@ -467,6 +468,8 @@ type alias ScenarioSet flags m e =
         }
         -> Scenario.Markup
         -> Scenario flags m e
+    , expectRequestLogin :
+        Value -> Scenario.Markup -> Scenario flags m e
     , toast : Toast.ScenarioSet flags m e
     , loginEndpoint :
         { method : String
@@ -485,18 +488,20 @@ type alias ScenarioProps m e =
 {-| -}
 scenario : ScenarioProps m e -> ScenarioSet flags m e
 scenario props =
-    { changeLoginId = changeLoginId props
+    { layer = props.querySelf
+    , changeLoginId = changeLoginId props
     , changeLoginPass = changeLoginPass props
     , clickSubmitLogin = clickSubmitLogin props
     , receiveLoginResp = receiveLoginResp props
     , expectAvailable = expectAvailable props
+    , expectRequestLogin = expectRequestLogin props
     , expectLoginFormShowNoErrors = expectLoginFormShowNoErrors props
     , expectLoginFormShowError = expectLoginFormShowError props
     , toast =
         Toast.scenario
             { querySelf =
                 props.querySelf
-                    >> Maybe.andThen (Tepa.layerMemory >> .toast)
+                    |> Scenario.childLayer .toast
             , wrapEvent = ToastEvent >> props.wrapEvent
             , session = props.session
             }
@@ -565,6 +570,27 @@ receiveLoginResp props toResponse markup =
 
                 else
                     Nothing
+        }
+
+
+expectRequestLogin : ScenarioProps m e -> Value -> Scenario.Markup -> Scenario flags m e
+expectRequestLogin props requestBody markup =
+    Scenario.expectHttpRequest props.session
+        markup
+        { layer =
+            props.querySelf
+        , expectation =
+            List.filter
+                (\request ->
+                    request.method
+                        == Login.method
+                        && request.url
+                        == Login.endpointUrl
+                        && request.requestBody
+                        == Scenario.JsonHttpRequestBody requestBody
+                )
+                >> List.length
+                >> Expect.greaterThan 0
         }
 
 

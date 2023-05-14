@@ -153,6 +153,8 @@ type alias Section =
 sections : MarkupConfig -> List Section
 sections config =
     [ introduction1 config
+    , introduction1_sub1 config
+    , introduction1_1 config
     , pageHomeCase1 config
     , pageHomeCase2 config
     ]
@@ -368,6 +370,26 @@ introduction1 config =
             (Scenario.textContent <| "Entered login password: \"" ++ value ++ "\"")
         , onSakuraChanMainSession.login.clickSubmitLogin
             (Scenario.textContent "Clicked login button.")
+        , let
+            requestBody =
+                JE.object
+                    [ ( "id", JE.string "guest" )
+                    , ( "pass", JE.string "guestPass" )
+                    ]
+          in
+          onSakuraChanMainSession.login.expectRequestLogin
+            requestBody
+            { content =
+                [ Markdown.PlainText "The client sends a login request to the backend with a timeout of 5000 milliseconds."
+                ]
+            , detail =
+                [ Markdown.CodeBlock <|
+                    ppr
+                        onSakuraChanMainSession.login.loginEndpoint
+                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
+                ]
+            , appear = config.dev
+            }
         , if config.dev then
             Scenario.systemComment sakuraChanMainSession <|
                 "The client requests the user profile from the server with a timeout of 5000 milliseconds."
@@ -387,12 +409,51 @@ introduction1 config =
                 Expect.equal
                     (Time.millisToPosix currentTime)
             }
+        , Scenario.expectHttpRequest
+            sakuraChanMainSession
+            (Scenario.textContent <| "The login request timed out.")
+            { layer = onSakuraChanMainSession.login.layer
+            , expectation =
+                List.length
+                    >> Expect.equal 0
+            }
         , onSakuraChanMainSession.login.toast.expectErrorMessage
             { message = "Network error, please check your network and try again."
             }
             (Scenario.textContent "A toast pops up: \"Network error, please try again.\"")
         , userComment sakuraChan "Oops!"
+        ]
+    }
+
+
+introduction1_sub1 : MarkupConfig -> Section
+introduction1_sub1 config =
+    { title = "Introduction Scenario #1 (Sub Episode #1)"
+    , dependency = Scenario.RunAfter (introduction1 config).title
+    , content =
+        [ onSakuraChanMainSession.login.toast.closeErrorsByMessage
+            { message = "Network error, please check your network and try again."
+            }
+            (Scenario.textContent "Click close button on the popup.")
+        , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
+            { message = "Network error, please check your network and try again."
+            }
+            (Scenario.textContent "The popup begin to disappear.")
         , Scenario.sleep
+            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastFadeOutDuration ++ " milliseconds.")
+            Toast.toastFadeOutDuration
+        , onSakuraChanMainSession.login.toast.expectNoMessages
+            (Scenario.textContent "No toast popups now.")
+        ]
+    }
+
+
+introduction1_1 : MarkupConfig -> Section
+introduction1_1 config =
+    { title = "Introduction Scenario #1-1"
+    , dependency = Scenario.RunAfter (introduction1 config).title
+    , content =
+        [ Scenario.sleep
             (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastTimeout ++ " milliseconds.")
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
@@ -484,7 +545,7 @@ introduction1 config =
 pageHomeCase1 : MarkupConfig -> Section
 pageHomeCase1 config =
     { title = "Home page #1"
-    , dependency = Scenario.RunAfter (introduction1 config).title
+    , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
         [ onSakuraChanMainSession.home.expectAvailable
             (Scenario.textContent "TODO")
@@ -495,7 +556,7 @@ pageHomeCase1 config =
 pageHomeCase2 : MarkupConfig -> Section
 pageHomeCase2 config =
     { title = "Home page #2"
-    , dependency = Scenario.RunAfter (introduction1 config).title
+    , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
         [ onSakuraChanMainSession.home.expectAvailable
             (Scenario.textContent "TODO2")

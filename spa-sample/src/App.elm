@@ -360,30 +360,32 @@ scenario session =
     { login =
         PageLogin.scenario
             { querySelf =
-                Tepa.layerMemory
-                    >> (\m ->
+                Scenario.appLayer
+                    |> Scenario.childLayer
+                        (\m ->
                             case m.page of
                                 PageLogin l ->
                                     Just l
 
                                 _ ->
                                     Nothing
-                       )
+                        )
             , wrapEvent = PageLoginEvent
             , session = session
             }
     , home =
         PageHome.scenario
             { querySelf =
-                Tepa.layerMemory
-                    >> (\m ->
+                Scenario.appLayer
+                    |> Scenario.childLayer
+                        (\m ->
                             case m.page of
                                 PageHome l ->
                                     Just l
 
                                 _ ->
                                     Nothing
-                       )
+                        )
             , wrapEvent = PageHomeEvent
             , session = session
             }

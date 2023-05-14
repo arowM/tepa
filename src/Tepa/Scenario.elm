@@ -20,6 +20,10 @@ module Tepa.Scenario exposing
     , expectMemory
     , expectAppView
     , expectCurrentTime
+    , expectHttpRequest
+    , expectPortRequest
+    , appLayer
+    , childLayer
     , loadApp
     , userOperation
     , layerEvent
@@ -86,6 +90,14 @@ module Tepa.Scenario exposing
 @docs expectMemory
 @docs expectAppView
 @docs expectCurrentTime
+@docs expectHttpRequest
+@docs expectPortRequest
+
+
+## Helper functions to specify Layer
+
+@docs appLayer
+@docs childLayer
 
 
 ## Event Simulators
@@ -105,7 +117,7 @@ module Tepa.Scenario exposing
 @docs HttpRequestBody
 
 
-## Response Simulators
+## Port response Simulators
 
 @docs portResponse
 
@@ -849,10 +861,10 @@ expectCurrentTime markup { expectation } =
                     |> SeqTest.assert description expectation
                     |> SeqTest.map (\_ -> context)
         , markup =
-            \_ ->
+            \config ->
                 let
                     markup_ =
-                        markup
+                        config.processExpectCurrentTime markup
                 in
                 if markup_.appear then
                     MdBuilder.appendListItem markup_.content
@@ -863,6 +875,186 @@ expectCurrentTime markup { expectation } =
                 else
                     Ok
         }
+
+
+{-| Describe your expectations for the unresolved HTTP requests at the time.
+
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
+
+-}
+expectHttpRequest :
+    Session
+    -> Markup
+    ->
+        { layer : Layer m -> Maybe (Layer m1)
+        , expectation : List HttpRequest -> Expectation
+        }
+    -> Scenario flags m event
+expectHttpRequest (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "expectHttpRequest: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Err (Core.memoryState sessionContext.model)
+                                            |> Expect.equal
+                                                (Ok "expectHttpRequest: No layer found.")
+
+                            Just (Core.Layer lid1 _) ->
+                                List.filterMap
+                                    (\( ( _, lid ), req ) ->
+                                        if lid == lid1 then
+                                            Just <| fromCoreHttpRequest req
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.httpRequests
+                                    |> SeqTest.pass
+                                    |> SeqTest.assert description
+                                        param.expectation
+                                    |> SeqTest.map (\_ -> context)
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processExpectHttpRequestMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+{-| Describe your expectations for the unresolved Port requests at the time.
+
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
+
+-}
+expectPortRequest :
+    Session
+    -> Markup
+    ->
+        { layer : Layer m -> Maybe (Layer m1)
+        , expectation : List Value -> Expectation
+        }
+    -> Scenario flags m event
+expectPortRequest (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "expectHttpRequest: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Err (Core.memoryState sessionContext.model)
+                                            |> Expect.equal
+                                                (Ok "expectHttpRequest: No layer found.")
+
+                            Just (Core.Layer lid1 _) ->
+                                List.filterMap
+                                    (\( ( _, lid ), val ) ->
+                                        if lid == lid1 then
+                                            Just val
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.portRequests
+                                    |> SeqTest.pass
+                                    |> SeqTest.assert description
+                                        param.expectation
+                                    |> SeqTest.map (\_ -> context)
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processExpectPortRequestMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+
+-- -- Helper functions to specify Layer
+
+
+{-| Specifies the application root layer, which is just an alias for `Just`.
+-}
+appLayer : Layer m -> Maybe (Layer m)
+appLayer =
+    Just
+
+
+{-| Helper function to specify child layer.
+
+    type alias Parent =
+        { child : Maybe (Layer Child)
+        }
+
+    myParentLayer : m -> Maybe (Layer Parent)
+    myParentLayer =
+        Debug.todo "parent Layer"
+
+    myChildLayer : m -> Maybe (Layer Child)
+    myChildLayer =
+        myParentLayer
+            |> childLayer .child
+
+-}
+childLayer :
+    (m1 -> Maybe (Layer m2))
+    -> (Layer m -> Maybe (Layer m1))
+    -> Layer m
+    -> Maybe (Layer m2)
+childLayer f parent =
+    parent
+        >> Maybe.andThen
+            (\l1 ->
+                f <| Tepa.layerMemory l1
+            )
 
 
 
@@ -1244,7 +1436,7 @@ listenerEvent (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processLayerEventMarkup
+                        config.processListenerEventMarkup
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -1305,10 +1497,10 @@ sleep markup msec =
                         }
                             |> SeqTest.pass
         , markup =
-            \_ ->
+            \config ->
                 let
                     markup_ =
-                        markup
+                        config.processSleepMarkup markup
                 in
                 if markup_.appear then
                     MdBuilder.appendListItem markup_.content
@@ -2091,9 +2283,14 @@ buildMarkdown o =
       - argument: `href` and `name` for its dependency.
   - processExpectMemoryMarkup: Processor for `expectMemory` markup
   - processExpectAppViewMarkup: Processor for `expectAppView` markup
+  - processExpectCurrentTime: Processor for `expectCurrentTime` markup
+  - processExpectHttpRequestMarkup: Processor for `expectHttpRequest` markup
+  - processExpectPortRequestMarkup: Processor for `expectPortRequest` markup
   - processLoadAppMarkup: Processor for `loadApp` markup
-  - processLayerEventMarkup: Processor for `layerEvent` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
+  - processLayerEventMarkup: Processor for `layerEvent` markup
+  - processListenerEventMarkup: Processor for `listenerEvent` markup
+  - processSleepMarkup: Processor for `sleep` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
 
@@ -2115,11 +2312,18 @@ type alias RenderConfig =
         { uniqueSessionName : String }
         -> Markup
         -> Markup
-    , processLoadAppMarkup :
+    , processExpectCurrentTime :
+        Markup
+        -> Markup
+    , processExpectHttpRequestMarkup :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
-    , processLayerEventMarkup :
+    , processExpectPortRequestMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processLoadAppMarkup :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
@@ -2128,6 +2332,17 @@ type alias RenderConfig =
         , userName : String
         }
         -> Markup
+        -> Markup
+    , processLayerEventMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processListenerEventMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
+    , processSleepMarkup :
+        Markup
         -> Markup
     , processHttpResponseMarkup :
         { uniqueSessionName : String
@@ -2212,9 +2427,14 @@ ja_JP =
             }
     , processExpectMemoryMarkup = prependSessionSystemName
     , processExpectAppViewMarkup = prependSessionSystemName
+    , processExpectCurrentTime = identity
+    , processExpectHttpRequestMarkup = prependSessionName
+    , processExpectPortRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
-    , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
+    , processLayerEventMarkup = prependSessionSystemName
+    , processListenerEventMarkup = prependSessionSystemName
+    , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
     }
@@ -2345,9 +2565,14 @@ en_US =
             }
     , processExpectMemoryMarkup = prependSessionSystemName
     , processExpectAppViewMarkup = prependSessionSystemName
+    , processExpectCurrentTime = identity
+    , processExpectHttpRequestMarkup = prependSessionName
+    , processExpectPortRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
-    , processLayerEventMarkup = prependSessionSystemName
     , processUserOperationMarkup = prependSessionAndUserName
+    , processLayerEventMarkup = prependSessionSystemName
+    , processListenerEventMarkup = prependSessionSystemName
+    , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
     }

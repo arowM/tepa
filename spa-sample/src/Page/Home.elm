@@ -400,7 +400,8 @@ runToastPromise pointer prom =
 
 {-| -}
 type alias ScenarioSet flags m e =
-    { changeEditAccountFormAccountId :
+    { layer : Layer m -> Maybe (Layer Memory)
+    , changeEditAccountFormAccountId :
         { value : String
         }
         -> Scenario.Markup
@@ -433,7 +434,8 @@ type alias ScenarioProps m e =
 {-| -}
 scenario : ScenarioProps m e -> ScenarioSet flags m e
 scenario props =
-    { changeEditAccountFormAccountId = changeEditAccountFormAccountId props
+    { layer = props.querySelf
+    , changeEditAccountFormAccountId = changeEditAccountFormAccountId props
     , clickSubmitEditAccount = clickSubmitEditAccount props
     , receiveEditAccountResp = receiveEditAccountResp props
     , expectAvailable = expectAvailable props
