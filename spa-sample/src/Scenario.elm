@@ -378,7 +378,8 @@ introduction1 config =
             (Scenario.textContent <| "Passing 5000 milliseconds.")
             5000
         , let
-            currentTime = 1672531205000
+            currentTime =
+                1672531205000
           in
           Scenario.expectCurrentTime
             (Scenario.textContent <| "Current time in POSIX: " ++ String.fromInt currentTime ++ ".")
