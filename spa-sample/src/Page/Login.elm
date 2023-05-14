@@ -129,46 +129,23 @@ loginFormView memory =
                     []
                 , Login.toFormErrors memory.form
                 ]
+
+        invalidOn : Login.FormError -> Mixin msg
+        invalidOn err =
+            Mixin.boolAttribute "aria-invalid"
+                (memory.showError
+                    && List.member err errors
+                )
     in
     Html.div
         [ localClass "loginForm"
         , Mixin.boolAttribute "aria-invalid"
             (memory.showError && not (List.isEmpty errors))
         ]
-        [ Html.node "label"
-            [ localClass "loginForm_label-id"
+        [ Html.div
+            [ localClass "loginForm_title"
             ]
-            [ Html.text "ID:"
-            , Html.node "input"
-                [ Mixin.attribute "type" "text"
-                , Mixin.attribute "value" memory.form.id
-                , Mixin.disabled memory.isBusy
-                , Events.onChange ChangeLoginId
-                    |> Tepa.eventMixin
-                , localClass "loginForm_input-id"
-                ]
-                []
-            ]
-        , Html.node "label"
-            [ localClass "loginForm_label-password"
-            ]
-            [ Html.text "Password:"
-            , Html.node "input"
-                [ Mixin.attribute "type" "password"
-                , Mixin.attribute "value" memory.form.pass
-                , Mixin.disabled memory.isBusy
-                , Events.onChange ChangeLoginPass
-                    |> Tepa.eventMixin
-                ]
-                []
-            ]
-        , Html.node "button"
-            [ localClass "loginForm_submitLogin"
-            , Events.onClick ClickSubmitLogin
-                |> Tepa.eventMixin
-            , Mixin.disabled memory.isBusy
-            ]
-            [ Html.text "Login"
+            [ Html.text "Goat Manager 🐐"
             ]
         , Html.div
             [ localClass "loginForm_notes"
@@ -176,7 +153,7 @@ loginFormView memory =
             [ Html.div
                 [ localClass "loginForm_notes_head"
                 ]
-                [ Html.text "For guests:"
+                [ Html.text "For guests"
                 ]
             , Html.div
                 [ localClass "loginForm_notes_text"
@@ -188,6 +165,44 @@ loginFormView memory =
                 ]
                 [ Html.text "Password: guestPass"
                 ]
+            ]
+        , Html.node "label"
+            [ localClass "loginForm_id"
+            , invalidOn Login.IdRequired
+            ]
+            [ Html.span
+                [ localClass "loginForm_id_label"
+                ]
+                [ Html.text "ID"
+                ]
+            , Html.node "input"
+                [ Mixin.attribute "type" "text"
+                , Mixin.attribute "value" memory.form.id
+                , Mixin.disabled memory.isBusy
+                , Events.onChange ChangeLoginId
+                    |> Tepa.eventMixin
+                , localClass "loginForm_id_input"
+                ]
+                []
+            ]
+        , Html.node "label"
+            [ localClass "loginForm_password"
+            , invalidOn Login.PassRequired
+            ]
+            [ Html.span
+                [ localClass "loginForm_password_label"
+                ]
+                [ Html.text "Password"
+                ]
+            , Html.node "input"
+                [ Mixin.attribute "type" "password"
+                , Mixin.attribute "value" memory.form.pass
+                , Mixin.disabled memory.isBusy
+                , Events.onChange ChangeLoginPass
+                    |> Tepa.eventMixin
+                , localClass "loginForm_password_input"
+                ]
+                []
             ]
         , if memory.showError && List.length errors > 0 then
             Html.div
@@ -206,6 +221,15 @@ loginFormView memory =
 
           else
             Html.text ""
+        , Html.node "button"
+            [ localClass "loginForm_loginButton"
+            , Events.onClick ClickSubmitLogin
+                |> Tepa.eventMixin
+            , Mixin.boolAttribute "aria-busy" memory.isBusy
+            , Mixin.disabled (memory.showError && not (List.isEmpty errors))
+            ]
+            [ Html.text "Login"
+            ]
         ]
 
 
@@ -518,7 +542,7 @@ changeLoginId props { value } markup =
         markup
         { query =
             Query.find
-                [ localClassSelector "loginForm_input-id"
+                [ localClassSelector "loginForm_id_input"
                 ]
         , operation = HtmlEvent.change value
         }
@@ -526,12 +550,13 @@ changeLoginId props { value } markup =
 
 changeLoginPass : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Scenario flags m e
 changeLoginPass props { value } markup =
-    Scenario.layerEvent props.session
+    Scenario.userOperation props.session
         markup
-        { layer = props.querySelf
-        , event =
-            ChangeLoginPass value
-                |> props.wrapEvent
+        { query =
+            Query.find
+                [ localClassSelector "loginForm_password_input"
+                ]
+        , operation = HtmlEvent.change value
         }
 
 
@@ -541,7 +566,7 @@ clickSubmitLogin props markup =
         markup
         { query =
             Query.find
-                [ localClassSelector "loginForm_submitLogin"
+                [ localClassSelector "loginForm_loginButton"
                 , Selector.disabled False
                 ]
         , operation =

@@ -74,7 +74,7 @@ toastTimeout =
 -}
 toastFadeOutDuration : Int
 toastFadeOutDuration =
-    250
+    350
 
 
 

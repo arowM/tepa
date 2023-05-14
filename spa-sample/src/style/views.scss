@@ -1,0 +1,177 @@
+$color-error: #ef5a5a;
+$color-text-error: #c71616;
+$color-text-sub: #666;
+$color-button-bg: #e5ffcc;
+$color-button-bg-hover: #d0ffa4;
+$color-button-bg-disabled: #b9cfa4;
+$color-note-bg: #f5ffa4;
+$gap-form: 1.2rem;
+$gap-form-field: 0.2rem;
+$gap-page: 1.4rem;
+$size-border-radius: 0.4rem;
+$gap-inner-button: 0.8em;
+$gap-inner-input: 0.4em;
+
+.widget_toast-- {
+  &toast {
+    position: absolute;
+    z-index: var(--zindex);
+    right: 0;
+    top: 0;
+
+    &_item {
+      transition: opacity var(--disappearing-duration) ease-out 0s;
+      opacity: 1;
+      padding: 0.5em;
+      margin: 1em;
+
+      &[aria-hidden="true"] {
+        opacity: 0;
+      }
+
+      &-error {
+        background-color: #faa;
+      }
+      &-warning {
+        background-color: #ffa;
+      }
+
+      &_body {
+        padding: 0.5em;
+        display: inline-block;
+      }
+
+      &_close {
+        padding: 0.5em;
+        display: inline-block;
+        cursor: pointer;
+      }
+    }
+  }
+}
+
+.page_login-- {
+  &page {
+    padding: $gap-page;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    bottom: 0;
+    top: 0;
+    right: 0;
+    left: 0;
+  }
+
+  &loginForm {
+    flex-grow: 1;
+    flex-basis: 50em;
+    display: flex;
+    flex-direction: column;
+    gap: $gap-form;
+    padding: $gap-form;
+    max-width: 30em;
+    box-shadow: 0px 5px 15px 0px rgba(0, 0, 0, 0.35);
+
+    &_title {
+      text-align: center;
+      font-size: 1.25em;
+      font-weight: bold;
+    }
+
+    &_id {
+      display: flex;
+      flex-direction: column;
+      gap: $gap-form-field;
+      $field: &;
+
+      &_label {
+        font-weight: bold;
+      }
+
+      &_input {
+        flex-grow: 1;
+        font-size: 1.1em;
+        border-radius: $size-border-radius;
+        border: solid 2px currentcolor;
+        padding: $gap-inner-input;
+      }
+
+      &[aria-invalid="true"] > #{$field}_input {
+        border: solid 2px $color-text-error;
+      }
+    }
+
+    &_password {
+      display: flex;
+      flex-direction: column;
+      gap: $gap-form-field;
+      $field: &;
+
+      &_label {
+        font-weight: bold;
+      }
+
+      &_input {
+        flex-grow: 1;
+        font-size: 1.1em;
+        border-radius: $size-border-radius;
+        border: solid 2px currentcolor;
+        padding: $gap-inner-input;
+      }
+
+      &[aria-invalid="true"] > #{$field}_input {
+        border: solid 2px $color-text-error;
+      }
+    }
+
+    &_loginButton {
+      align-self: center;
+      padding: $gap-inner-button;
+      min-width: 8em;
+      text-align: center;
+      border-radius: $size-border-radius;
+      border: solid 2px currentcolor;
+      cursor: pointer;
+      background-color: $color-button-bg;
+
+      &:hover {
+        background-color: $color-button-bg-hover;
+      }
+
+      &:disabled, &[aria-busy="true"] {
+        background-color: $color-button-bg-disabled;
+        border-color: transparent;
+        cursor: default;
+      }
+    }
+
+    &_errorField {
+      display: flex;
+      flex-direction: column;
+      gap: $gap-form-field;
+      &_error {
+        color: $color-error;
+      }
+    }
+
+    &_notes {
+      position: absolute;
+      top: $gap-page;
+      right: $gap-page;
+      display: flex;
+      flex-direction: column;
+      gap: $gap-form-field;
+      background-color: $color-note-bg;
+      align-self: flex-end;
+      padding: $gap-form;
+      box-shadow: 0 0.6em 0.6em -0.5em rgba(0, 0, 0, 0.3);
+
+      &_head {
+        font-size: 0.9em;
+        color: $color-text-sub;
+        text-align: center;
+      }
+    }
+  }
+}
