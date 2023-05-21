@@ -9,11 +9,12 @@ module Tepa exposing
     , liftEvent, onLayer
     , Pointer
     , orFaster
-    , andThen
+    , andThen, bindAndThen
     , sync
     , Void, void
-    , sequence, andThenSequence, bind, none, cancel
+    , sequence, andThenSequence, none, cancel
     , syncAll
+    , bind, bind2, bind3
     , modify, listen, lazy
     , when
     , unless
@@ -72,7 +73,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 # Composition
 
 @docs orFaster
-@docs andThen
+@docs andThen, bindAndThen
 @docs sync
 
 
@@ -81,8 +82,9 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 Promises that returns `Void` are called as a _Procedure_.
 
 @docs Void, void
-@docs sequence, andThenSequence, bind, none, cancel
+@docs sequence, andThenSequence, none, cancel
 @docs syncAll
+@docs bind, bind2, bind3
 @docs modify, listen, lazy
 
 
@@ -246,6 +248,20 @@ andThen =
     Core.andThenPromise
 
 
+{-| Flipped version of `andThen`.
+
+You can use `bindAndThen` to bind some Promise result to a variable:
+
+    bindAndThen somePromise <|
+        \result ->
+            anotherPromise result
+
+-}
+bindAndThen : Promise m e a -> (a -> Promise m e b) -> Promise m e b
+bindAndThen p f =
+    andThen f p
+
+
 {-| Run another Promise concurrently to get both results.
 
     type alias Response =
@@ -265,8 +281,8 @@ andThen =
     batched : Promise Memory Event Response
     batched =
         succeed Response
-            (sync request1)
-            (sync request2)
+            |> sync request1
+            |> sync request2
 
 -}
 sync : Promise m e a -> Promise m e (a -> b) -> Promise m e b
@@ -311,18 +327,46 @@ andThenSequence f =
 
 You can use `bind` to bind some Promise result to a variable:
 
-    [ bind
-        somePromise
-      <|
+    bind somePromise <|
         \result ->
-            [ yourSequence dependsOn result
+            [ yourProcedure result
             ]
-    ]
 
 -}
 bind : Promise m e a -> (a -> List (Promise m e Void)) -> Promise m e Void
 bind promise f =
     andThenSequence f promise
+
+
+{-| Run two Promises in parallel, and bind the results to variables when both are complete.
+-}
+bind2 : Promise m e a -> Promise m e b -> (a -> b -> List (Promise m e Void)) -> Promise m e Void
+bind2 p1 p2 f =
+    succeed Tuple.pair
+        |> sync p1
+        |> sync p2
+        |> andThenSequence
+            (\( a, b ) -> f a b)
+
+
+{-| Run three Promises in parallel, and bind the results to variables when all are complete.
+
+If you need to bind more Promises, use `sync`.
+
+-}
+bind3 :
+    Promise m e a
+    -> Promise m e b
+    -> Promise m e c
+    -> (a -> b -> c -> List (Promise m e Void))
+    -> Promise m e Void
+bind3 p1 p2 p3 f =
+    succeed (\a b c -> ( a, b, c ))
+        |> sync p1
+        |> sync p2
+        |> sync p3
+        |> andThenSequence
+            (\( a, b, c ) -> f a b c)
 
 
 {-| Procedure that does nothing.
