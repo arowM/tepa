@@ -154,12 +154,11 @@ import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Layer, Msg)
 import Tepa.AbsolutePath exposing (AbsolutePath)
+import Tepa.Time as Time exposing (Posix, Zone)
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
 import Test.Html.Query exposing (Single)
 import Test.Sequence as SeqTest
-import Time exposing (Posix)
-import TimeZone
 import Url exposing (Url)
 
 
@@ -202,6 +201,7 @@ type alias TestConfig flags m e =
 type alias TestContext m e =
     { sessions : Dict String (SessionContext m e)
     , currentTime : Int -- in milliseconds
+    , zone : Zone
     }
 
 
@@ -308,6 +308,10 @@ testUrl (AbsolutePath.AbsolutePath path) =
 You may want to branch out in the middle of your scenario.
 In such case, you can declare common section, and refer to the title in `dependency` parameter:
 
+    import TimeZone
+
+
+    -- justinmimbs/timezone-data
     myTest : Test
     myTest =
         toTest
@@ -326,7 +330,10 @@ In such case, you can declare common section, and refer to the title in `depende
             [ Debug.todo "Common scenarios"
             , Debug.todo "..."
             ]
-        , dependency = EntryPoint (Time.millisToPosix 1672531200000)
+        , dependency =
+            EntryPoint
+                (TimeZone.asia__tokyo ())
+                (Time.millisToPosix 1672531200000)
         }
 
     caseA : Section Flags Command Memory Event
@@ -361,12 +368,12 @@ type alias Section flags memory event =
 
 {-| Dependency of a Section.
 
-  - `EntryPoint time`: Indecates that the Section does not have dependencies, and start at specified `time`.
-  - `RunAfter sectionTitle`: Indecates that the Section is after another Section specified with the `sectionTitle`.
+  - `EntryPoint zone time`: Indicates that the Section has no dependencies and starts at the specified `time` in `zone`.
+  - `RunAfter sectionTitle`: Indicates that the Section is after another Section specified by the `sectionTitle`.
 
 -}
 type Dependency
-    = EntryPoint Posix
+    = EntryPoint Zone Posix
     | RunAfter String
 
 
@@ -820,12 +827,16 @@ Suppose you want to check current time after `sleep`.
     import Expect
     import Tepa.Scenario as Scenario
     import Time
+    import TimeZone -- justinmimbs/timezone-data
 
 
     sample : Section
     sample =
         { title = "Sample Scenario"
-        , dependency = Scenario.EntryPoint (Time.millisToPosix 1672531200000)
+        , dependency =
+            Scenario.EntryPoint
+                (TimeZone.asia__tokyo ())
+                (Time.millisToPosix 1672531200000)
         , content =
             [ userComment sakuraChan "I'm trying to access the Goat SNS."
             , Scenario.sleep (Scenario.textContent "Passing one minutes.")
@@ -1198,6 +1209,7 @@ layerEvent (Session session) markup param =
                                     res =
                                         update
                                             { currentTime = context.currentTime
+                                            , zone = context.zone
                                             }
                                             (Core.LayerMsg
                                                 { layerId = lid
@@ -1303,6 +1315,7 @@ userOperation (Session session) markup param =
                                         ]
                                             |> applyMsgsTo
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 sessionContext
                                 in
@@ -1411,6 +1424,7 @@ listenerEvent (Session session) markup param =
                                         (\msg ->
                                             update
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 msg
                                                 sessionContext
@@ -1452,7 +1466,9 @@ listenerEvent (Session session) markup param =
 
 
 {-| Wait for given micro seconds.
-It only affects Promises defined in `Tepa.Time`.
+
+It only affects Promises defined in `Tepa.Time`, so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA.
+
 -}
 sleep :
     Markup
@@ -1474,6 +1490,7 @@ sleep markup msec =
                                     \acc ->
                                         advanceClock
                                             { currentTime = context.currentTime
+                                            , zone = context.zone
                                             }
                                             msec
                                             sessionContext
@@ -1515,6 +1532,7 @@ sleep markup msec =
 
 advanceClock :
     { currentTime : Int
+    , zone : Zone
     }
     -> Int
     -> SessionContext m e
@@ -1639,6 +1657,7 @@ portResponse (Session session) markup param =
                                         (\( msg, nextPortRequests ) ->
                                             update
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 msg
                                                 { sessionContext
@@ -1766,10 +1785,11 @@ toTest o =
             SeqTest.andThen
                 (\cache ->
                     (case sec.dependency of
-                        EntryPoint initialTime ->
+                        EntryPoint zone initialTime ->
                             SeqTest.pass
                                 { sessions = Dict.empty
                                 , currentTime = Time.posixToMillis initialTime
+                                , zone = zone
                                 }
 
                         RunAfter title ->
@@ -1821,6 +1841,7 @@ toTest o =
                                             in
                                             applyLogs
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 newState.logs
                                                 { model = newState.nextModel
@@ -1852,6 +1873,7 @@ onUrlChange path =
 
 applyMsgsTo :
     { currentTime : Int
+    , zone : Zone
     }
     -> SessionContext m e
     -> List (Msg e)
@@ -1868,6 +1890,7 @@ applyMsgsTo config context =
 
 update :
     { currentTime : Int
+    , zone : Zone
     }
     -> Msg e
     -> SessionContext m e
@@ -1889,6 +1912,7 @@ update config msg context =
 
 applyLogs :
     { currentTime : Int
+    , zone : Zone
     }
     -> List Core.Log
     -> SessionContext m e
@@ -1906,6 +1930,7 @@ applyLogs config logs context =
 
 applyLog :
     { currentTime : Int
+    , zone : Zone
     }
     -> Core.Log
     -> SessionContext m e
@@ -1951,6 +1976,15 @@ applyLog config log context =
                 (Core.CurrentTimeMsg
                     { requestId = rid
                     , timestamp = Time.millisToPosix config.currentTime
+                    }
+                )
+                context
+
+        Core.RequestCurrentZone rid ->
+            update config
+                (Core.CurrentZoneMsg
+                    { requestId = rid
+                    , zone = config.zone
                     }
                 )
                 context
@@ -2219,10 +2253,10 @@ buildMarkdown o =
                                 |> MdBuilder.editBody
                                 |> MdBuilder.appendUnorderedList
                                 |> (case sec.dependency of
-                                        EntryPoint initialTime ->
+                                        EntryPoint zone initialTime ->
                                             let
                                                 item =
-                                                    o.config.entryPointFirstListItem initialTime
+                                                    o.config.entryPointFirstListItem zone initialTime
                                             in
                                             MdBuilder.appendListItem item.content
                                                 >> MdBuilder.appendBlocks item.detail
@@ -2278,7 +2312,7 @@ buildMarkdown o =
 {-| Configuration for rendering scenario.
 
   - entryPointFirstListItem: First item on the list for an `EntryPoint` scenario.
-      - argument: The time when the scenario starts
+      - argument: The time when the scenario starts and the time zone
   - dependentScenarioFirstListItem: First item on the list for a `RunAfter` scenario.
       - argument: `href` and `name` for its dependency.
   - processExpectMemoryMarkup: Processor for `expectMemory` markup
@@ -2297,7 +2331,8 @@ buildMarkdown o =
 -}
 type alias RenderConfig =
     { entryPointFirstListItem :
-        Posix
+        Zone
+        -> Posix
         -> Markup
     , dependentScenarioFirstListItem :
         { href : String
@@ -2362,11 +2397,8 @@ type alias RenderConfig =
 ja_JP : RenderConfig
 ja_JP =
     { entryPointFirstListItem =
-        \posix ->
+        \zone posix ->
             let
-                zone =
-                    TimeZone.asia__tokyo ()
-
                 year =
                     Time.toYear zone posix
 
@@ -2502,11 +2534,8 @@ prependSessionAndUserName { uniqueSessionName, userName } markup =
 en_US : RenderConfig
 en_US =
     { entryPointFirstListItem =
-        \posix ->
+        \zone posix ->
             let
-                zone =
-                    TimeZone.asia__tokyo ()
-
                 year =
                     Time.toYear zone posix
 
@@ -2765,6 +2794,7 @@ httpResponse (Session session) markup param =
                                         (\( msg, nextHttpRequests ) ->
                                             update
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 msg
                                                 { sessionContext
@@ -2858,6 +2888,7 @@ httpBytesResponse (Session session) markup param =
                                         (\( msg, nextHttpRequests ) ->
                                             update
                                                 { currentTime = context.currentTime
+                                                , zone = context.zone
                                                 }
                                                 msg
                                                 { sessionContext

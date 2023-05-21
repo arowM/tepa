@@ -21,8 +21,9 @@ import Json.Encode as JE exposing (Value)
 import MarkdownAst as Markdown
 import Tepa.AbsolutePath exposing (absolutePath)
 import Tepa.Scenario as Scenario exposing (userComment)
+import Tepa.Time as Time
 import Test exposing (Test)
-import Time
+import TimeZone
 import Widget.Toast as Toast
 
 
@@ -168,7 +169,10 @@ pathPrefix =
 introduction1 : MarkupConfig -> Section
 introduction1 config =
     { title = "Introduction Scenario #1"
-    , dependency = Scenario.EntryPoint (Time.millisToPosix 1672531200000)
+    , dependency =
+        Scenario.EntryPoint
+            (TimeZone.asia__tokyo ())
+            (Time.millisToPosix 1672531200000)
     , content =
         [ userComment sakuraChan "Hi. I'm Sakura-chan, the cutest goat girl in the world."
         , userComment sakuraChan "Today I'm going to try a goat management service."

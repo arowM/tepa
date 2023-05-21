@@ -13,7 +13,7 @@ module Internal.Core exposing
     , portRequest
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
-    , now
+    , now, here
     , layerEvent
     , Layer(..), Pointer(..), isPointedBy
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -54,7 +54,7 @@ module Internal.Core exposing
 @docs portRequest
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
-@docs now
+@docs now, here
 @docs layerEvent
 @docs Layer, Pointer, isPointedBy
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -187,6 +187,7 @@ type Log
     = SetTimer RequestId LayerId Int
     | StartTimeEvery RequestId LayerId Int
     | RequestCurrentTime RequestId
+    | RequestCurrentZone RequestId
     | IssueHttpRequest RequestId LayerId HttpRequest
     | IssuePortRequest RequestId LayerId Value
     | AddListener RequestId LayerId String
@@ -235,6 +236,10 @@ type Msg event
     | CurrentTimeMsg
         { requestId : RequestId
         , timestamp : Posix
+        }
+    | CurrentZoneMsg
+        { requestId : RequestId
+        , zone : Time.Zone
         }
     | ListenerMsg
         { requestId : RequestId
@@ -293,6 +298,12 @@ mapMsg f msg1 =
             CurrentTimeMsg
                 { requestId = r.requestId
                 , timestamp = r.timestamp
+                }
+
+        CurrentZoneMsg r ->
+            CurrentZoneMsg
+                { requestId = r.requestId
+                , zone = r.zone
                 }
 
         ViewStubMsg r ->
@@ -369,6 +380,12 @@ unwrapMsg f msg1 =
             CurrentTimeMsg
                 { requestId = r.requestId
                 , timestamp = r.timestamp
+                }
+
+        CurrentZoneMsg r ->
+            CurrentZoneMsg
+                { requestId = r.requestId
+                , zone = r.zone
                 }
 
         ViewStubMsg r ->
@@ -1583,6 +1600,49 @@ now =
                 ]
             , logs =
                 [ RequestCurrentTime myRequestId
+                ]
+            , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+here : Promise m e Time.Zone
+here =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                nextPromise : Msg e -> m -> Promise m e Time.Zone
+                nextPromise msg _ =
+                    case msg of
+                        CurrentZoneMsg param ->
+                            if param.requestId == myRequestId then
+                                succeedPromise param.zone
+
+                            else
+                                justAwaitPromise nextPromise
+
+                        _ ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , realCmds =
+                [ Time.here
+                    |> Task.perform
+                        (\zone ->
+                            CurrentZoneMsg
+                                { requestId = myRequestId
+                                , zone = zone
+                                }
+                        )
+                ]
+            , logs =
+                [ RequestCurrentZone myRequestId
                 ]
             , state = AwaitMsg nextPromise
             }
