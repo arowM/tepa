@@ -73,12 +73,12 @@ type Event
 view : Layer Memory -> Html (Msg Event)
 view =
     Tepa.layerView <|
-        \memory ->
+        \state ->
             Html.div
                 [ localClass "page"
                 ]
-                [ loginFormView memory.loginForm
-                , case memory.toast of
+                [ loginFormView state.loginForm
+                , case state.toast of
                     Nothing ->
                         Html.text ""
 
@@ -117,30 +117,30 @@ initLoginForm =
 
 
 loginFormView : LoginFormMemory -> Html (Msg Event)
-loginFormView memory =
+loginFormView state =
     let
         errors =
             List.concat
-                [ if memory.incorrectIdOrPass then
+                [ if state.incorrectIdOrPass then
                     [ Login.IncorrectIdOrPassword
                     ]
 
                   else
                     []
-                , Login.toFormErrors memory.form
+                , Login.toFormErrors state.form
                 ]
 
         invalidOn : Login.FormError -> Mixin msg
         invalidOn err =
             Mixin.boolAttribute "aria-invalid"
-                (memory.showError
+                (state.showError
                     && List.member err errors
                 )
     in
     Html.div
         [ localClass "loginForm"
         , Mixin.boolAttribute "aria-invalid"
-            (memory.showError && not (List.isEmpty errors))
+            (state.showError && not (List.isEmpty errors))
         ]
         [ Html.div
             [ localClass "loginForm_title"
@@ -177,8 +177,8 @@ loginFormView memory =
                 ]
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
-                , Mixin.attribute "value" memory.form.id
-                , Mixin.disabled memory.isBusy
+                , Mixin.attribute "value" state.form.id
+                , Mixin.disabled state.isBusy
                 , Events.onChange ChangeLoginId
                     |> Tepa.eventMixin
                 , localClass "loginForm_id_input"
@@ -196,15 +196,15 @@ loginFormView memory =
                 ]
             , Html.node "input"
                 [ Mixin.attribute "type" "password"
-                , Mixin.attribute "value" memory.form.pass
-                , Mixin.disabled memory.isBusy
+                , Mixin.attribute "value" state.form.pass
+                , Mixin.disabled state.isBusy
                 , Events.onChange ChangeLoginPass
                     |> Tepa.eventMixin
                 , localClass "loginForm_password_input"
                 ]
                 []
             ]
-        , if memory.showError && List.length errors > 0 then
+        , if state.showError && List.length errors > 0 then
             Html.div
                 [ localClass "loginForm_errorField"
                 ]
@@ -225,8 +225,8 @@ loginFormView memory =
             [ localClass "loginForm_loginButton"
             , Events.onClick ClickSubmitLogin
                 |> Tepa.eventMixin
-            , Mixin.boolAttribute "aria-busy" memory.isBusy
-            , Mixin.disabled (memory.showError && not (List.isEmpty errors))
+            , Mixin.boolAttribute "aria-busy" state.isBusy
+            , Mixin.disabled (state.showError && not (List.isEmpty errors))
             ]
             [ Html.text "Login"
             ]

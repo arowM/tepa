@@ -1,6 +1,7 @@
 module Page.Home exposing
     ( Event
     , Memory
+    , ClockMemory
     , Promise
     , ScenarioProps
     , ScenarioSet
@@ -14,6 +15,7 @@ module Page.Home exposing
 
 @docs Event
 @docs Memory
+@docs ClockMemory
 @docs Promise
 @docs ScenarioProps
 @docs ScenarioSet
@@ -37,6 +39,7 @@ import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
+import Tepa.Time as Time exposing (Posix)
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
 import Url exposing (Url)
@@ -48,6 +51,7 @@ type alias Memory =
     { session : Session
     , toast : Maybe (Layer Toast.Memory)
     , editAccountForm : EditAccountFormMemory
+    , clock : Maybe (Layer ClockMemory)
     }
 
 
@@ -57,6 +61,13 @@ init session =
     { session = session
     , toast = Nothing
     , editAccountForm = initEditAccountForm session
+    , clock = Nothing
+    }
+
+
+{-| -}
+type alias ClockMemory =
+    { currentTime : Posix
     }
 
 
@@ -75,11 +86,32 @@ type Event
 view : Layer Memory -> Html (Msg Event)
 view =
     Tepa.layerView <|
-        \memory ->
+        \state ->
             Html.div
                 [ localClass "page"
                 ]
-                [ editAccountFormView memory.editAccountForm
+                [ Html.div
+                    [ localClass "greeting"
+                    ]
+                    [ Html.span
+                        [ localClass "greeting_text"
+                        ]
+                        [ Html.text "Hi, "
+                        ]
+                    , Html.span
+                        [ localClass "greeting_name"
+                        ]
+                        [ state.session.profile.name
+                            |> Maybe.withDefault "(Unknown)"
+                            |> Html.text
+                        ]
+                    , Html.span
+                        [ localClass "greeting_text"
+                        ]
+                        [ Html.text "!"
+                        ]
+                    ]
+                , editAccountFormView state.editAccountForm
                 , Html.div
                     [ localClass "dashboard_links"
                     ]
@@ -93,7 +125,7 @@ view =
                         [ Html.text "Users"
                         ]
                     ]
-                , case memory.toast of
+                , case state.toast of
                     Nothing ->
                         Html.text ""
 
@@ -129,15 +161,15 @@ initEditAccountForm session =
 
 
 editAccountFormView : EditAccountFormMemory -> Html (Msg Event)
-editAccountFormView memory =
+editAccountFormView state =
     let
         errors =
-            EditAccount.toFormErrors memory.form
+            EditAccount.toFormErrors state.form
     in
     Html.div
         [ localClass "editAccountForm"
         , Mixin.boolAttribute "aria-invalid"
-            (memory.showError && not (List.isEmpty errors))
+            (state.showError && not (List.isEmpty errors))
         ]
         [ Html.node "label"
             [ localClass "editAccountForm_label-id"
@@ -145,8 +177,8 @@ editAccountFormView memory =
             [ Html.text "New name:"
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
-                , Mixin.attribute "value" memory.form.name
-                , Mixin.disabled memory.isBusy
+                , Mixin.attribute "value" state.form.name
+                , Mixin.disabled state.isBusy
                 , Events.onChange ChangeEditAccountFormAccountId
                     |> Tepa.eventMixin
                 ]
@@ -157,14 +189,14 @@ editAccountFormView memory =
             ]
             [ Html.node "button"
                 [ localClass "editAccountForm_buttonGroup_button-submit"
-                , Mixin.disabled memory.isBusy
+                , Mixin.disabled state.isBusy
                 , Events.onClick ClickSubmitEditAccount
                     |> Tepa.eventMixin
                 ]
                 [ Html.text "Save"
                 ]
             ]
-        , if memory.showError && List.length errors > 0 then
+        , if state.showError && List.length errors > 0 then
             Html.div
                 [ localClass "editAccountForm_errorField"
                 ]
@@ -201,6 +233,7 @@ type alias Bucket =
     { key : NavKey
     , requestPath : AbsolutePath
     , toastPointer : Pointer Toast.Memory
+    , clockPointer : Pointer ClockMemory
     }
 
 
@@ -211,25 +244,50 @@ type alias Bucket =
 {-| -}
 procedure : NavKey -> Url -> Promise Void
 procedure key url =
-    -- Initialize Widget
-    Tepa.putMaybeLayer
-        { get = .toast
-        , set = \toast m -> { m | toast = toast }
-        , init = Toast.init
-        }
+    Tepa.bind2
+        -- Initialize Toast Widget
+        (Tepa.maybeLayer
+            { get = .toast
+            , set = \toast m -> { m | toast = toast }
+            , init = Toast.init
+            }
+        )
+        -- Initialize Clock
+        (Tepa.bindAndThen Time.now <|
+            \now ->
+                Tepa.maybeLayer
+                    { get = .clock
+                    , set = \clock m -> { m | clock = clock }
+                    , init =
+                        { currentTime = now
+                        }
+                    }
+        )
     <|
-        \toastPointer ->
+        \toastPointer clockPointer ->
             let
                 bucket =
                     { key = key
                     , requestPath = AbsolutePath.fromUrl url
                     , toastPointer = toastPointer
+                    , clockPointer = clockPointer
                     }
             in
             -- Main Procedures
             [ Tepa.syncAll
-                [ editAccountFormProcedure bucket
+                [ clockProcedure bucket
+                , editAccountFormProcedure bucket
                 ]
+            ]
+
+
+clockProcedure : Bucket -> Promise Void
+clockProcedure bucket =
+    Time.every 500 <|
+        \time ->
+            [ Tepa.onLayer bucket.clockPointer <|
+                Tepa.modify <|
+                    \m -> { m | currentTime = time }
             ]
 
 
