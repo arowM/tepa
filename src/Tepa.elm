@@ -4,6 +4,7 @@ module Tepa exposing
     , NavKey
     , Program
     , Document
+    , UrlRequest(..)
     , Promise
     , map
     , liftEvent, onLayer
@@ -56,6 +57,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 @docs NavKey
 @docs Program
 @docs Document
+@docs UrlRequest
 
 
 # Promise
@@ -137,6 +139,7 @@ Promises that returns `Void` are called as a _Procedure_.
 
 -}
 
+import AppUrl exposing (AppUrl)
 import Browser
 import Html exposing (Attribute, Html)
 import Internal.Core as Core
@@ -876,7 +879,7 @@ application props =
             \flags url key ->
                 init props.init
                     { procedure =
-                        props.procedure flags url (Core.RealKey key)
+                        props.procedure flags (AppUrl.fromUrl url) (Core.RealKey key)
                     , onUrlChange =
                         \newUrl ->
                             props.onUrlChange flags newUrl (Core.RealKey key)
@@ -895,10 +898,10 @@ application props =
 {-| -}
 type alias ApplicationProps flags memory event =
     { init : memory
-    , procedure : flags -> Url -> NavKey -> Promise memory event Void
+    , procedure : flags -> AppUrl -> NavKey -> Promise memory event Void
     , view : Layer memory -> Document (Msg event)
-    , onUrlRequest : flags -> Browser.UrlRequest -> NavKey -> Promise memory event Void
-    , onUrlChange : flags -> Url -> NavKey -> Promise memory event Void
+    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory event Void
+    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory event Void
     }
 
 
@@ -921,6 +924,30 @@ type alias Program flags memory event =
 -}
 type alias Document a =
     Browser.Document a
+
+
+{-| TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest).
+
+All links in an [`application`](#application) create a `UrlRequest`. So
+when you click `<a href="/home">Home</a>`, it does not just navigate! It
+notifies `onUrlRequest` that the user wants to change the URL.
+
+Refer to the `Browser.UrlRequest` documentation for more detailed notes.
+
+-}
+type UrlRequest
+    = InternalPath AppUrl
+    | ExternalPage String
+
+
+fromBrowserUrlRequest : Browser.UrlRequest -> UrlRequest
+fromBrowserUrlRequest req =
+    case req of
+        Browser.Internal url ->
+            InternalPath <| AppUrl.fromUrl url
+
+        Browser.External url ->
+            ExternalPage url
 
 
 
@@ -961,8 +988,8 @@ init :
     memory
     ->
         { procedure : Promise memory event Void
-        , onUrlChange : Url -> Promise memory event Void
-        , onUrlRequest : Browser.UrlRequest -> Promise memory event Void
+        , onUrlChange : AppUrl -> Promise memory event Void
+        , onUrlRequest : UrlRequest -> Promise memory event Void
         }
     -> ( Model memory event, Cmd (Msg event) )
 init memory param =
@@ -973,7 +1000,7 @@ init memory param =
                     \msg ->
                         case msg of
                             Core.UrlRequest req ->
-                                [ param.onUrlRequest req
+                                [ param.onUrlRequest (fromBrowserUrlRequest req)
                                 ]
 
                             Core.UrlChange url ->
@@ -1015,8 +1042,9 @@ type alias Model m e =
 {-| TEA `onUrlChange` property value.
 -}
 onUrlChange : Url -> Msg event
-onUrlChange =
-    Core.UrlChange
+onUrlChange url =
+    AppUrl.fromUrl url
+        |> Core.UrlChange
 
 
 {-| TEA `onUrlRequest` property value.

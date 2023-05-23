@@ -9,7 +9,7 @@ module Tepa.Time exposing
 
 TEPA version of [Time module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep).
 
-You should not use the `Time` module with TEPA because the functions that the `Time` module exposes cannot recognize the emulated time lapse during Scenario testing.
+You should not use the `Time` module with TEPA because the functions that the module exposes cannot recognize the emulated time lapse during Scenario testing.
 
 
 # Time

@@ -20,8 +20,10 @@ module Page.Login exposing
 
 -}
 
-import App.Route as Route
+import App.Path as Path
 import App.Session exposing (Session)
+import AppUrl exposing (AppUrl)
+import Dict
 import Expect
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
@@ -29,7 +31,6 @@ import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
 import Tepa exposing (Layer, Msg, NavKey, Void)
-import Tepa.AbsolutePath as AbsolutePath
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -247,7 +248,7 @@ type alias Pointer m =
 
 type alias Bucket =
     { key : NavKey
-    , props : Route.LoginProps
+    , requestPath : AppUrl
     , toastPointer : Pointer Toast.Memory
     }
 
@@ -257,8 +258,8 @@ type alias Bucket =
 
 
 {-| -}
-procedure : Route.LoginProps -> NavKey -> Promise Void
-procedure props key =
+procedure : NavKey -> AppUrl -> Promise Void
+procedure key url =
     -- Initialize Widget
     Tepa.putMaybeLayer
         { get = .toast
@@ -270,7 +271,7 @@ procedure props key =
             let
                 bucket =
                     { key = key
-                    , props = props
+                    , requestPath = url
                     , toastPointer = toastPointer
                     }
             in
@@ -428,9 +429,17 @@ submitLoginProcedure bucket =
                                                         }
                                                 }
                                         , Nav.pushPath bucket.key
-                                            (bucket.props.backUrl
-                                                |> Maybe.map AbsolutePath.fromUrl
-                                                |> Maybe.withDefault (Route.toAbsolutePath Route.Home)
+                                            (bucket.requestPath.queryParameters
+                                                |> Dict.get "back"
+                                                |> Maybe.andThen List.head
+                                                |> Maybe.andThen Path.toAppUrl
+                                                |> Maybe.withDefault
+                                                    { path =
+                                                        [ Path.prefix
+                                                        ]
+                                                    , queryParameters = Dict.empty
+                                                    , fragment = Nothing
+                                                    }
                                             )
                                         ]
                         ]

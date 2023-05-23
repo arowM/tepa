@@ -4,6 +4,8 @@
     "version": "1.0.0",
     "exposed-modules": [
         "App",
+        "App.FetchProfile",
+        "App.Path",
         "App.Session",
         "App.ZIndex",
         "Page.Home",

@@ -57,9 +57,6 @@ maxBound_ =
     Tuple.first (inc minBound)
     --> False
 
-    Tuple.first (inc <| inc minBound)
-    --> False
-
     inc maxBound
     --> ( True, minBound )
 

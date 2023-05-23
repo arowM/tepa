@@ -136,13 +136,13 @@ module Tepa.Scenario exposing
 
 -}
 
+import AppUrl exposing (AppUrl)
 import Browser exposing (Document)
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
 import File exposing (File)
 import Http
-import Internal.AbsolutePath as AbsolutePath
 import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
 import Internal.LayerId as LayerId exposing (LayerId)
@@ -153,13 +153,11 @@ import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Layer, Msg)
-import Tepa.AbsolutePath exposing (AbsolutePath)
 import Tepa.Time as Time exposing (Posix, Zone)
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
 import Test.Html.Query exposing (Single)
 import Test.Sequence as SeqTest
-import Url exposing (Url)
 
 
 
@@ -193,7 +191,7 @@ type alias ListBlock =
 
 type alias TestConfig flags m e =
     { view : m -> Document (Msg e)
-    , init : flags -> Url -> Result String (SessionContext m e)
+    , init : flags -> AppUrl -> SessionUpdateResult m e
     }
 
 
@@ -282,17 +280,6 @@ mappend (Scenario s1) (Scenario s2) =
             \config ->
                 s1.markup config >> Result.andThen (s2.markup config)
         }
-
-
-testUrl : AbsolutePath -> Url
-testUrl (AbsolutePath.AbsolutePath path) =
-    { protocol = Url.Https
-    , host = "example.com"
-    , port_ = Nothing
-    , path = path.path
-    , query = path.query
-    , fragment = path.fragment
-    }
 
 
 
@@ -1074,9 +1061,10 @@ childLayer f parent =
 
 {-| Load the app. You can also reload the app by calling `loadApp`.
 
+    import AppUrl exposing (AppUrl)
+    import Dict
     import Json.Encode as JE
     import MarkdownAst as Markdown
-    import Tepa.AbsolutePath exposing (absolutePath)
 
     myScenario =
         [ userComment sakuraChan
@@ -1085,7 +1073,11 @@ childLayer f parent =
             "I'll open the home page..."
         , loadApp sakuraChanMainSession
             (textContent "Load the home page.")
-            { path = absolutePath [] [] Nothing
+            { path =
+                { path = []
+                , query = Dict.empty
+                , fragment = Nothing
+                }
             , flags =
                 JE.object []
             }
@@ -1095,7 +1087,11 @@ childLayer f parent =
             "Oops, I accidentally hit the F5 button..."
         , loadApp sakuraChanMainSession
             (textContent "Reload the page.")
-            { path = absolutePath [] [] Nothing
+            { path =
+                { path = []
+                , query = Dict.empty
+                , fragment = Nothing
+                }
             , flags =
                 JE.object []
             }
@@ -1107,7 +1103,7 @@ loadApp :
     Session
     -> Markup
     ->
-        { path : AbsolutePath
+        { path : AppUrl
         , flags : flags
         }
     -> Scenario flags m e
@@ -1119,19 +1115,27 @@ loadApp (Session session) markup o =
     Scenario
         { test =
             \config context ->
-                case config.init o.flags (testUrl o.path) of
-                    Err err ->
+                case config.init o.flags o.path of
+                    SessionExpired ->
+                        SeqTest.pass
+                            { context
+                                | sessions =
+                                    Dict.remove session.uniqueName
+                                        context.sessions
+                            }
+
+                    SessionUpdateFailed err ->
                         SeqTest.fail description <|
                             \_ -> Expect.fail err
 
-                    Ok sessionContext ->
-                        { context
-                            | sessions =
-                                Dict.insert session.uniqueName
-                                    sessionContext
-                                    context.sessions
-                        }
-                            |> SeqTest.pass
+                    SessionUpdated sessionContext ->
+                        SeqTest.pass
+                            { context
+                                | sessions =
+                                    Dict.insert session.uniqueName
+                                        sessionContext
+                                        context.sessions
+                            }
         , markup =
             \config ->
                 let
@@ -1219,18 +1223,26 @@ layerEvent (Session session) markup param =
                                             sessionContext
                                 in
                                 case res of
-                                    Err err ->
+                                    SessionExpired ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.remove session.uniqueName
+                                                        context.sessions
+                                            }
+
+                                    SessionUpdateFailed err ->
                                         SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
-                                    Ok nextSessionContext ->
-                                        { context
-                                            | sessions =
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context.sessions
-                                        }
-                                            |> SeqTest.pass
+                                    SessionUpdated nextSessionContext ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.insert session.uniqueName
+                                                        nextSessionContext
+                                                        context.sessions
+                                            }
         , markup =
             \config ->
                 let
@@ -1320,18 +1332,26 @@ userOperation (Session session) markup param =
                                                 sessionContext
                                 in
                                 case res of
-                                    Err err ->
+                                    SessionExpired ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.remove session.uniqueName
+                                                        context.sessions
+                                            }
+
+                                    SessionUpdateFailed err ->
                                         SeqTest.fail description <|
                                             \_ -> Expect.fail err
 
-                                    Ok nextSessionContext ->
-                                        { context
-                                            | sessions =
-                                                Dict.insert session.uniqueName
-                                                    nextSessionContext
-                                                    context.sessions
-                                        }
-                                            |> SeqTest.pass
+                                    SessionUpdated nextSessionContext ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.insert session.uniqueName
+                                                        nextSessionContext
+                                                        context.sessions
+                                            }
         , markup =
             \config ->
                 let
@@ -1422,27 +1442,36 @@ listenerEvent (Session session) markup param =
                                     |> List.head
                                     |> Maybe.map
                                         (\msg ->
-                                            update
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
-                                                msg
-                                                sessionContext
-                                                |> Result.map
-                                                    (\nextSessionContext ->
-                                                        SeqTest.pass
-                                                            { context
-                                                                | sessions =
-                                                                    Dict.insert session.uniqueName
-                                                                        nextSessionContext
-                                                                        context.sessions
-                                                            }
-                                                    )
-                                                |> unwrapResult
-                                                    (\err ->
-                                                        SeqTest.fail description <|
-                                                            \_ -> Expect.fail err
-                                                    )
+                                            let
+                                                resUpdate =
+                                                    update
+                                                        { currentTime = context.currentTime
+                                                        , zone = context.zone
+                                                        }
+                                                        msg
+                                                        sessionContext
+                                            in
+                                            case resUpdate of
+                                                SessionExpired ->
+                                                    SeqTest.pass
+                                                        { context
+                                                            | sessions =
+                                                                Dict.remove session.uniqueName
+                                                                    context.sessions
+                                                        }
+
+                                                SessionUpdateFailed err ->
+                                                    SeqTest.fail description <|
+                                                        \_ -> Expect.fail err
+
+                                                SessionUpdated nextSessionContext ->
+                                                    SeqTest.pass
+                                                        { context
+                                                            | sessions =
+                                                                Dict.insert session.uniqueName
+                                                                    nextSessionContext
+                                                                    context.sessions
+                                                        }
                                         )
                                     |> Maybe.withDefault
                                         (SeqTest.pass context)
@@ -1488,16 +1517,24 @@ sleep markup msec =
                             (\k sessionContext ->
                                 Result.andThen <|
                                     \acc ->
-                                        advanceClock
-                                            { currentTime = context.currentTime
-                                            , zone = context.zone
-                                            }
-                                            msec
-                                            sessionContext
-                                            |> Result.map
-                                                (\nextSessionContext ->
-                                                    Dict.insert k nextSessionContext acc
-                                                )
+                                        let
+                                            updateResult =
+                                                advanceClock
+                                                    { currentTime = context.currentTime
+                                                    , zone = context.zone
+                                                    }
+                                                    msec
+                                                    sessionContext
+                                        in
+                                        case updateResult of
+                                            SessionExpired ->
+                                                Ok <| Dict.remove k acc
+
+                                            SessionUpdateFailed err ->
+                                                Err err
+
+                                            SessionUpdated nextSessionContext ->
+                                                Ok <| Dict.insert k nextSessionContext acc
                             )
                             (Ok Dict.empty)
                             context.sessions
@@ -1508,11 +1545,11 @@ sleep markup msec =
                             \_ -> Expect.fail err
 
                     Ok nextSessions ->
-                        { context
-                            | sessions = nextSessions
-                            , currentTime = context.currentTime + msec
-                        }
-                            |> SeqTest.pass
+                        SeqTest.pass
+                            { context
+                                | sessions = nextSessions
+                                , currentTime = context.currentTime + msec
+                            }
         , markup =
             \config ->
                 let
@@ -1536,11 +1573,11 @@ advanceClock :
     }
     -> Int
     -> SessionContext m e
-    -> Result String (SessionContext m e)
+    -> SessionUpdateResult m e
 advanceClock config msec context =
     case context.timers of
         [] ->
-            Ok context
+            SessionUpdated context
 
         timer :: timers ->
             if timer.runAfter <= msec then
@@ -1568,11 +1605,11 @@ advanceClock config msec context =
                 update newConfig
                     (timer.msg <| Time.millisToPosix currentTime)
                     { context | timers = newTimers }
-                    |> Result.andThen
+                    |> sessionUpdateAndThen
                         (advanceClock newConfig (msec - timer.runAfter))
 
             else
-                Ok
+                SessionUpdated
                     { context
                         | timers =
                             List.map
@@ -1655,24 +1692,39 @@ portResponse (Session session) markup param =
                                     |> Result.fromMaybe "portResponse: No commands found for the response."
                                     |> Result.andThen
                                         (\( msg, nextPortRequests ) ->
-                                            update
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
-                                                msg
-                                                { sessionContext
-                                                    | portRequests = nextPortRequests
-                                                }
-                                        )
-                                    |> Result.map
-                                        (\nextSessionContext ->
-                                            SeqTest.pass
-                                                { context
-                                                    | sessions =
-                                                        Dict.insert session.uniqueName
-                                                            nextSessionContext
-                                                            context.sessions
-                                                }
+                                            let
+                                                updateResult =
+                                                    update
+                                                        { currentTime = context.currentTime
+                                                        , zone = context.zone
+                                                        }
+                                                        msg
+                                                        { sessionContext
+                                                            | portRequests = nextPortRequests
+                                                        }
+                                            in
+                                            case updateResult of
+                                                SessionExpired ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.remove session.uniqueName
+                                                                        context.sessions
+                                                            }
+
+                                                SessionUpdateFailed err ->
+                                                    Err err
+
+                                                SessionUpdated nextSessionContext ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.insert session.uniqueName
+                                                                        nextSessionContext
+                                                                        context.sessions
+                                                            }
                                         )
                                     |> unwrapResult
                                         (\err ->
@@ -1824,7 +1876,7 @@ toTest o =
                                                             \msg ->
                                                                 case msg of
                                                                     Core.UrlRequest req ->
-                                                                        [ o.props.onUrlRequest flags req Core.SimKey
+                                                                        [ o.props.onUrlRequest flags (fromBrowserUrlRequest req) Core.SimKey
                                                                         ]
 
                                                                     Core.UrlChange newUrl ->
@@ -1850,7 +1902,7 @@ toTest o =
                                                 , timers = []
                                                 , listeners = []
                                                 , history =
-                                                    History.init <| AbsolutePath.fromUrl url
+                                                    History.init url
                                                 }
                                     }
                                     context
@@ -1866,9 +1918,38 @@ toTest o =
         |> SeqTest.run "Scenario tests"
 
 
-onUrlChange : AbsolutePath -> Msg e
+fromBrowserUrlRequest : Browser.UrlRequest -> Tepa.UrlRequest
+fromBrowserUrlRequest req =
+    case req of
+        Browser.Internal url ->
+            Tepa.InternalPath <| AppUrl.fromUrl url
+
+        Browser.External url ->
+            Tepa.ExternalPage url
+
+
+onUrlChange : AppUrl -> Msg e
 onUrlChange path =
-    Core.UrlChange (testUrl path)
+    Core.UrlChange path
+
+
+type SessionUpdateResult m e
+    = SessionExpired
+    | SessionUpdateFailed String
+    | SessionUpdated (SessionContext m e)
+
+
+sessionUpdateAndThen :
+    (SessionContext m e -> SessionUpdateResult m e)
+    -> SessionUpdateResult m e
+    -> SessionUpdateResult m e
+sessionUpdateAndThen f res =
+    case res of
+        SessionUpdated context ->
+            f context
+
+        _ ->
+            res
 
 
 applyMsgsTo :
@@ -1877,15 +1958,15 @@ applyMsgsTo :
     }
     -> SessionContext m e
     -> List (Msg e)
-    -> Result String (SessionContext m e)
+    -> SessionUpdateResult m e
 applyMsgsTo config context =
     List.foldl
         (\msg acc ->
-            Result.andThen
+            sessionUpdateAndThen
                 (update config msg)
                 acc
         )
-        (Ok context)
+        (SessionUpdated context)
 
 
 update :
@@ -1894,7 +1975,7 @@ update :
     }
     -> Msg e
     -> SessionContext m e
-    -> Result String (SessionContext m e)
+    -> SessionUpdateResult m e
 update config msg context =
     let
         newState =
@@ -1916,15 +1997,15 @@ applyLogs :
     }
     -> List Core.Log
     -> SessionContext m e
-    -> Result String (SessionContext m e)
+    -> SessionUpdateResult m e
 applyLogs config logs context =
     List.foldl
         (\log acc ->
-            Result.andThen
+            sessionUpdateAndThen
                 (applyLog config log)
                 acc
         )
-        (Ok context)
+        (SessionUpdated context)
         logs
 
 
@@ -1934,11 +2015,11 @@ applyLog :
     }
     -> Core.Log
     -> SessionContext m e
-    -> Result String (SessionContext m e)
+    -> SessionUpdateResult m e
 applyLog config log context =
     case log of
         Core.SetTimer rid lid msec ->
-            Ok
+            SessionUpdated
                 { context
                     | timers =
                         putTimer
@@ -1954,7 +2035,7 @@ applyLog config log context =
                 }
 
         Core.StartTimeEvery rid lid msec ->
-            Ok
+            SessionUpdated
                 { context
                     | timers =
                         putTimer
@@ -1990,14 +2071,14 @@ applyLog config log context =
                 context
 
         Core.IssuePortRequest rid lid req ->
-            Ok
+            SessionUpdated
                 { context
                     | portRequests =
                         ( ( rid, lid ), req ) :: context.portRequests
                 }
 
         Core.IssueHttpRequest rid lid req ->
-            Ok
+            SessionUpdated
                 { context
                     | httpRequests =
                         ( ( rid, lid ), req ) :: context.httpRequests
@@ -2022,7 +2103,7 @@ applyLog config log context =
                 }
 
         Core.AddListener rid lid name ->
-            Ok
+            SessionUpdated
                 { context
                     | listeners =
                         { uniqueName = name
@@ -2035,7 +2116,7 @@ applyLog config log context =
                 }
 
         Core.ResolvePortRequest rid ->
-            Ok
+            SessionUpdated
                 { context
                     | portRequests =
                         List.filter
@@ -2046,7 +2127,7 @@ applyLog config log context =
                 }
 
         Core.ResolveHttpRequest rid ->
-            Ok
+            SessionUpdated
                 { context
                     | httpRequests =
                         List.filter
@@ -2057,7 +2138,7 @@ applyLog config log context =
                 }
 
         Core.LayerExpired lid ->
-            Ok
+            SessionUpdated
                 { context
                     | portRequests =
                         List.filter
@@ -2085,21 +2166,20 @@ applyLog config log context =
             update config
                 (onUrlChange path)
                 { context
-                    | history = History.pushPath path context.history
+                    | history = History.push path context.history
                 }
 
         Core.ReplacePath path ->
             update config
                 (onUrlChange path)
-                { context
-                    | history = History.replacePath path context.history
-                }
+                -- replacePath does not effect browser history
+                context
 
         Core.Back steps ->
             case History.back steps context.history of
                 Nothing ->
-                    Err
-                        "back: Scenario test does not support navigation to pages outside of the application."
+                    SessionUpdateFailed
+                        "back: No previous pages."
 
                 Just newHistory ->
                     update config
@@ -2111,8 +2191,8 @@ applyLog config log context =
         Core.Forward steps ->
             case History.forward steps context.history of
                 Nothing ->
-                    Err
-                        "forward: Scenario test does not support navigation to pages outside of the application."
+                    SessionUpdateFailed
+                        "forward: No next pages."
 
                 Just newHistory ->
                     update config
@@ -2120,6 +2200,12 @@ applyLog config log context =
                         { context
                             | history = newHistory
                         }
+
+        Core.LoadUrl ->
+            SessionExpired
+
+        Core.Reload ->
+            SessionExpired
 
 
 putTimer : Timer e -> List (Timer e) -> List (Timer e)
@@ -2792,24 +2878,39 @@ httpResponse (Session session) markup param =
                                     |> Result.fromMaybe "httpResponse: No requests found for the response."
                                     |> Result.andThen
                                         (\( msg, nextHttpRequests ) ->
-                                            update
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
-                                                msg
-                                                { sessionContext
-                                                    | httpRequests = nextHttpRequests
-                                                }
-                                        )
-                                    |> Result.map
-                                        (\nextSessionContext ->
-                                            SeqTest.pass
-                                                { context
-                                                    | sessions =
-                                                        Dict.insert session.uniqueName
-                                                            nextSessionContext
-                                                            context.sessions
-                                                }
+                                            let
+                                                updateResult =
+                                                    update
+                                                        { currentTime = context.currentTime
+                                                        , zone = context.zone
+                                                        }
+                                                        msg
+                                                        { sessionContext
+                                                            | httpRequests = nextHttpRequests
+                                                        }
+                                            in
+                                            case updateResult of
+                                                SessionExpired ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.remove session.uniqueName
+                                                                        context.sessions
+                                                            }
+
+                                                SessionUpdateFailed err ->
+                                                    Err err
+
+                                                SessionUpdated nextSessionContext ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.insert session.uniqueName
+                                                                        nextSessionContext
+                                                                        context.sessions
+                                                            }
                                         )
                                     |> unwrapResult
                                         (\err ->
@@ -2886,24 +2987,38 @@ httpBytesResponse (Session session) markup param =
                                     |> Result.fromMaybe "httpResponse: No requests found for the response."
                                     |> Result.andThen
                                         (\( msg, nextHttpRequests ) ->
-                                            update
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
-                                                msg
-                                                { sessionContext
-                                                    | httpRequests = nextHttpRequests
-                                                }
-                                        )
-                                    |> Result.map
-                                        (\nextSessionContext ->
-                                            SeqTest.pass
-                                                { context
-                                                    | sessions =
-                                                        Dict.insert session.uniqueName
-                                                            nextSessionContext
-                                                            context.sessions
-                                                }
+                                            let
+                                                updateResult =
+                                                    update
+                                                        { currentTime = context.currentTime
+                                                        , zone = context.zone
+                                                        }
+                                                        msg
+                                                        { sessionContext
+                                                            | httpRequests = nextHttpRequests
+                                                        }
+                                            in
+                                            case updateResult of
+                                                SessionExpired ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.remove session.uniqueName context.sessions
+                                                            }
+
+                                                SessionUpdateFailed err ->
+                                                    Err err
+
+                                                SessionUpdated nextSessionContext ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.insert session.uniqueName
+                                                                        nextSessionContext
+                                                                        context.sessions
+                                                            }
                                         )
                                     |> unwrapResult
                                         (\err ->

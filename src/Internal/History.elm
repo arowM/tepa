@@ -2,99 +2,104 @@ module Internal.History exposing
     ( History
     , init
     , current
-    , pushPath
-    , replacePath
+    , push
     , back
     , forward
     )
 
-{-| Emulator for browser history.
+{-| Emulate browser history.
 
 @docs History
 @docs init
 @docs current
-@docs pushPath
-@docs replacePath
+@docs push
 @docs back
 @docs forward
 
 -}
 
-import Internal.AbsolutePath exposing (AbsolutePath)
+import AppUrl exposing (AppUrl)
 
 
-{-|
+{-| Emulator for browser history.
+It only handles internal URLs.
 
-    import Internal.AbsolutePath exposing (AbsolutePath(..))
+    import Dict
 
     entry : History
     entry =
-        init <|
-            AbsolutePath
-                { path = "/"
-                , query = Nothing
-                , fragment = Nothing
-                }
+        init
+            { path = []
+            , queryParameters = Dict.empty
+            , fragment = Nothing
+            }
+
 
     sample1 : Maybe History
     sample1 =
         entry
-            |> replacePath
-                ( AbsolutePath
-                    { path = "/"
-                    , query = Nothing
-                    , fragment = Just "foo"
-                    }
-                )
-            |> pushPath
-                ( AbsolutePath
-                    { path = "/users"
-                    , query = Nothing
-                    , fragment = Nothing
-                    }
-                )
+            |> push
+                { path = []
+                , queryParameters = Dict.empty
+                , fragment = Just "foo"
+                }
+            |> push
+                { path = [ "users" ]
+                , queryParameters = Dict.empty
+                , fragment = Nothing
+                }
             |> back 1
             |> Maybe.andThen (forward 1)
             |> Maybe.map
-                (replacePath <|
-                    AbsolutePath
-                        { path = "/users"
-                        , query = Nothing
-                        , fragment = Just "user-3"
-                        }
+                (push
+                    { path = [ "users" ]
+                    , queryParameters = Dict.empty
+                    , fragment = Just "user-3"
+                    }
                 )
             |> Maybe.map
-                (pushPath <|
-                    AbsolutePath
-                        { path = "/user/3"
-                        , query = Just "from=users"
-                        , fragment = Nothing
-                        }
+                (push
+                    { path = [ "user", "3" ]
+                    , queryParameters =
+                        Dict.fromList
+                            [ ( "from", ["users"] )
+                            ]
+                    , fragment = Nothing
+                    }
                 )
 
 
     sample1
         |> Maybe.andThen (back 1)
         |> Maybe.map current
-    --> Just <| AbsolutePath
-    -->     { path = "/users", query = Nothing, fragment = Just "user-3" }
+    --> Just
+    -->     { path = [ "users" ]
+    -->     , queryParameters = Dict.empty
+    -->     , fragment = Just "user-3"
+    -->     }
 
     sample1
         |> Maybe.andThen (back 1)
         |> Maybe.andThen (back 1)
         |> Maybe.map current
-    --> Just <| AbsolutePath
-    -->     { path = "/", query = Nothing, fragment = Just "foo" }
+    --> Just
+    -->     { path = [ "users" ]
+    -->     , queryParameters = Dict.empty
+    -->     , fragment = Nothing
+    -->     }
 
     sample1
         |> Maybe.andThen (back 2)
         |> Maybe.andThen (forward 1)
         |> Maybe.map current
-    --> Just <| AbsolutePath
-    -->     { path = "/users", query = Nothing, fragment = Just "user-3" }
+    --> Just
+    -->     { path = [ "users" ]
+    -->     , queryParameters = Dict.empty
+    -->     , fragment = Just "user-3"
+    -->     }
 
     sample1
-        |> Maybe.andThen (back 3)
+        |> Maybe.andThen (back 5)
         |> Maybe.andThen (forward 1)
         |> Maybe.map current
     --> Nothing
@@ -110,9 +115,9 @@ type History
 
 
 type alias History_ =
-    { prev : List AbsolutePath -- reversed
-    , curr : AbsolutePath
-    , succ : List AbsolutePath
+    { prev : List AppUrl -- reversed
+    , curr : AppUrl
+    , succ : List AppUrl
     }
 
 
@@ -155,9 +160,10 @@ back n (History history) =
                         }
 
 
-{-| -}
-pushPath : AbsolutePath -> History -> History
-pushPath path (History history) =
+{-| Push new path into browser History.
+-}
+push : AppUrl -> History -> History
+push path (History history) =
     History
         { prev = history.curr :: history.prev
         , curr = path
@@ -166,16 +172,7 @@ pushPath path (History history) =
 
 
 {-| -}
-replacePath : AbsolutePath -> History -> History
-replacePath path (History history) =
-    History
-        { history
-            | curr = path
-        }
-
-
-{-| -}
-init : AbsolutePath -> History
+init : AppUrl -> History
 init path =
     History
         { prev = []
@@ -184,7 +181,8 @@ init path =
         }
 
 
-{-| -}
-current : History -> AbsolutePath
+{-| Returns current path.
+-}
+current : History -> AppUrl
 current (History history) =
     history.curr

@@ -19,7 +19,6 @@ import Html.Attributes as Attributes
 import Html.Events as Events
 import Json.Encode as JE exposing (Value)
 import MarkdownAst as Markdown
-import Tepa.AbsolutePath exposing (absolutePath)
 import Tepa.Scenario as Scenario exposing (userComment)
 import Tepa.Time as Time
 import Test exposing (Test)
@@ -189,7 +188,11 @@ introduction1 config =
                 ]
             , appear = True
             }
-            { path = absolutePath [ pathPrefix ] [] Nothing
+            { path =
+                { path = [ pathPrefix ]
+                , queryParameters = Dict.empty
+                , fragment = Nothing
+                }
             , flags = JE.object []
             }
         , if config.dev then

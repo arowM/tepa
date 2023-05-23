@@ -23,19 +23,18 @@ module App exposing
 -}
 
 import App.FetchProfile as FetchProfile
-import App.Route as Route
+import App.Path as Path
 import App.Session exposing (Session)
-import Browser exposing (Document)
+import AppUrl exposing (AppUrl)
+import Dict
 import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
-import Tepa exposing (Layer, Msg, NavKey, Void)
-import Tepa.AbsolutePath as AbsolutePath
+import Tepa exposing (Document, Layer, Msg, NavKey, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Url exposing (Url)
 
 
 
@@ -163,12 +162,12 @@ type alias Pointer m =
 
 
 {-| -}
-procedure : Value -> Url -> NavKey -> Promise Void
+procedure : Value -> AppUrl -> NavKey -> Promise Void
 procedure _ url key =
     pageProcedure url key Nothing
 
 
-onUrlChange : flags -> Url -> NavKey -> Promise Void
+onUrlChange : flags -> AppUrl -> NavKey -> Promise Void
 onUrlChange _ newUrl key =
     Tepa.bind Tepa.currentState <|
         \state ->
@@ -194,13 +193,13 @@ onUrlChange _ newUrl key =
                     ]
 
 
-onUrlRequest : flags -> Browser.UrlRequest -> NavKey -> Promise Void
+onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Void
 onUrlRequest _ urlRequest key =
     case urlRequest of
-        Browser.Internal url ->
-            Nav.pushPath key (AbsolutePath.fromUrl url)
+        Tepa.InternalPath url ->
+            Nav.pushPath key url
 
-        Browser.External href ->
+        Tepa.ExternalPage href ->
             Nav.load href
 
 
@@ -209,24 +208,45 @@ onUrlRequest _ urlRequest key =
 
 
 pageProcedure :
-    Url
+    AppUrl
     -> NavKey
     -> Maybe Session
     -> Promise Void
 pageProcedure url key msession =
-    case ( Route.fromUrl url, msession ) of
-        ( Route.NotFound, _ ) ->
-            Tepa.modify <|
-                \m ->
-                    { m
-                        | page =
-                            PageNotFound
-                                { msession = msession
-                                }
-                    }
+    let
+        requireSession : Promise Session
+        requireSession =
+            case msession of
+                Just session ->
+                    Tepa.succeed session
 
-        -- Users can access login page without sessions.
-        ( Route.Login login, _ ) ->
+                Nothing ->
+                    -- Check if the user is already logged in.
+                    Tepa.bindAndThen FetchProfile.request <|
+                        \response ->
+                            case response of
+                                FetchProfile.GoodResponse resp ->
+                                    Tepa.succeed resp
+
+                                _ ->
+                                    Nav.redirectPath key
+                                        { path =
+                                            [ Path.prefix
+                                            , "login"
+                                            ]
+                                        , queryParameters =
+                                            Dict.fromList
+                                                [ ( "back"
+                                                  , [ AppUrl.toString url
+                                                    ]
+                                                  )
+                                                ]
+                                        , fragment = Nothing
+                                        }
+    in
+    case Path.body url of
+        Just [ "login" ] ->
+            -- Users can access login page without sessions.
             Tepa.putVariantLayer
                 { get = .page
                 , set = \v m -> { m | page = v }
@@ -243,56 +263,43 @@ pageProcedure url key msession =
                 }
             <|
                 \pointer ->
-                    [ PageLogin.procedure login key
+                    [ PageLogin.procedure key url
                         |> runPageLoginPromise pointer
                     ]
 
-        ( _, Nothing ) ->
-            -- Check if the user has already logged in.
-            Tepa.bind FetchProfile.request <|
-                \response ->
-                    case response of
-                        FetchProfile.GoodResponse resp ->
-                            [ Tepa.lazy <|
-                                \_ ->
-                                    pageProcedure url
-                                        key
-                                        (Just
-                                            { profile = resp.profile
-                                            }
-                                        )
+        Just [] ->
+            Tepa.bind requireSession <|
+                \session ->
+                    [ Tepa.putVariantLayer
+                        { get = .page
+                        , set = \a m -> { m | page = a }
+                        , wrap = PageHome
+                        , unwrap =
+                            \m ->
+                                case m of
+                                    PageHome a ->
+                                        Just a
+
+                                    _ ->
+                                        Nothing
+                        , init = PageHome.init session
+                        }
+                      <|
+                        \pointer ->
+                            [ PageHome.procedure key url
+                                |> runPageHomePromise pointer
                             ]
-
-                        _ ->
-                            [ Nav.pushPath key
-                                (Route.Login { backUrl = Just url }
-                                    |> Route.toAbsolutePath
-                                )
-                            ]
-
-        ( Route.Home, Just session ) ->
-            Tepa.putVariantLayer
-                { get = .page
-                , set = \a m -> { m | page = a }
-                , wrap = PageHome
-                , unwrap =
-                    \m ->
-                        case m of
-                            PageHome a ->
-                                Just a
-
-                            _ ->
-                                Nothing
-                , init = PageHome.init session
-                }
-            <|
-                \pointer ->
-                    [ PageHome.procedure key url
-                        |> runPageHomePromise pointer
                     ]
 
         _ ->
-            Tepa.none
+            Tepa.modify <|
+                \m ->
+                    { m
+                        | page =
+                            PageNotFound
+                                { msession = msession
+                                }
+                    }
 
 
 runPageLoginPromise :

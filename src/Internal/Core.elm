@@ -21,6 +21,7 @@ module Internal.Core exposing
     , Void, void
     , modify, push, currentState, cancel, lazy, listen
     , sleep, listenTimeEvery, listenLayerEvent, listenMsg
+    , load, reload
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
@@ -66,6 +67,7 @@ module Internal.Core exposing
 @docs Void, void
 @docs modify, push, currentState, cancel, lazy, listen
 @docs sleep, listenTimeEvery, listenLayerEvent, listenMsg
+@docs load, reload
 
 
 # Helper Procedures
@@ -85,6 +87,7 @@ module Internal.Core exposing
 
 -}
 
+import AppUrl exposing (AppUrl)
 import Browser exposing (Document)
 import Browser.Navigation as Nav
 import Bytes exposing (Bytes)
@@ -92,7 +95,6 @@ import File exposing (File)
 import Html exposing (Attribute, Html)
 import Html.Attributes as Attributes
 import Http
-import Internal.AbsolutePath exposing (AbsolutePath(..))
 import Internal.LayerId as LayerId exposing (LayerId)
 import Internal.RequestId as RequestId exposing (RequestId)
 import Json.Decode as JD exposing (Decoder)
@@ -101,7 +103,6 @@ import Mixin exposing (Mixin)
 import Process
 import Task
 import Time exposing (Posix)
-import Url exposing (Url)
 
 
 
@@ -194,10 +195,12 @@ type Log
     | ResolvePortRequest RequestId
     | ResolveHttpRequest RequestId
     | LayerExpired LayerId
-    | PushPath AbsolutePath
-    | ReplacePath AbsolutePath
+    | PushPath AppUrl
+    | ReplacePath AppUrl
     | Back Int
     | Forward Int
+    | LoadUrl
+    | Reload
 
 
 {-| -}
@@ -255,7 +258,7 @@ type Msg event
         { requestId : RequestId
         , timestamp : Posix
         }
-    | UrlChange Url
+    | UrlChange AppUrl
     | UrlRequest Browser.UrlRequest
     | NoOp
 
@@ -563,8 +566,21 @@ syncPromise (Promise promA) (Promise promF) =
                             \msg m ->
                                 syncPromise (nextPromA msg m) (nextPromF msg m)
 
+                    -- Wait all promises to be completed even if one of them is canceled.
+                    ( Rejected, AwaitMsg nextPromA ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                nextPromA msg m
+                                    |> andThenPromise (\_ -> cancel)
+
                     ( Rejected, _ ) ->
                         Rejected
+
+                    ( AwaitMsg nextPromF, Rejected ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                nextPromF msg m
+                                    |> andThenPromise (\_ -> cancel)
 
                     ( _, Rejected ) ->
                         Rejected
@@ -903,7 +919,7 @@ push f =
 
 {-| Cancel all the subsequent Procedures.
 -}
-cancel : Promise m e Void
+cancel : Promise m e any
 cancel =
     primitivePromise Rejected
 
@@ -1237,6 +1253,42 @@ sleep msec =
                 [ SetTimer myRequestId thisLayerId msec
                 ]
             , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+load : String -> Promise m e Void
+load url =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds =
+                [ Nav.load url
+                ]
+            , logs =
+                [ LoadUrl
+                ]
+            , state = Rejected
+            }
+
+
+{-| -}
+reload : Bool -> Promise m e Void
+reload force =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds =
+                [ if force then
+                    Nav.reloadAndSkipCache
+
+                  else
+                    Nav.reload
+                ]
+            , logs =
+                [ Reload
+                ]
+            , state = Rejected
             }
 
 

@@ -41,7 +41,6 @@ config =
     , NoMissingTypeExpose.rule
         |> Rule.ignoreErrorsForFiles
             [ "src/Tepa.elm"
-            , "src/Tepa/Scenario/LayerQuery.elm"
             ]
     , NoUnused.CustomTypeConstructorArgs.rule
     , NoUnused.CustomTypeConstructors.rule []

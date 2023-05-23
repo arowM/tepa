@@ -26,8 +26,10 @@ module Page.Home exposing
 
 -}
 
-import App.Route as Route
+import App.Path as Path
 import App.Session exposing (Session)
+import AppUrl exposing (AppUrl)
+import Dict
 import Expect
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
@@ -35,14 +37,12 @@ import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
 import Tepa exposing (Layer, Msg, NavKey, Void)
-import Tepa.AbsolutePath as AbsolutePath exposing (AbsolutePath)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Time as Time exposing (Posix)
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
-import Url exposing (Url)
 import Widget.Toast as Toast
 
 
@@ -118,8 +118,14 @@ view =
                     [ Html.a
                         [ localClass "dashboard_links_linkButton-users"
                         , Mixin.attribute "href"
-                            (Route.toAbsolutePath Route.Users
-                                |> AbsolutePath.toString
+                            (AppUrl.toString
+                                { path =
+                                    [ Path.prefix
+                                    , "users"
+                                    ]
+                                , queryParameters = Dict.empty
+                                , fragment = Nothing
+                                }
                             )
                         ]
                         [ Html.text "Users"
@@ -231,7 +237,7 @@ type alias Pointer m =
 
 type alias Bucket =
     { key : NavKey
-    , requestPath : AbsolutePath
+    , requestPath : AppUrl
     , toastPointer : Pointer Toast.Memory
     , clockPointer : Pointer ClockMemory
     }
@@ -242,7 +248,7 @@ type alias Bucket =
 
 
 {-| -}
-procedure : NavKey -> Url -> Promise Void
+procedure : NavKey -> AppUrl -> Promise Void
 procedure key url =
     Tepa.bind2
         -- Initialize Toast Widget
@@ -268,7 +274,7 @@ procedure key url =
             let
                 bucket =
                     { key = key
-                    , requestPath = AbsolutePath.fromUrl url
+                    , requestPath = url
                     , toastPointer = toastPointer
                     , clockPointer = clockPointer
                     }

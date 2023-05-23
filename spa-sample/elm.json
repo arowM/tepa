@@ -25,7 +25,8 @@
             "elm/url": "1.0.0",
             "elm-explorations/test": "2.1.1",
             "f0i/debug-to-json": "1.0.6",
-            "justinmimbs/timezone-data": "9.0.0"
+            "justinmimbs/timezone-data": "9.0.0",
+            "lydell/elm-app-url": "1.0.3"
         },
         "indirect": {
             "elm/parser": "1.1.0",
