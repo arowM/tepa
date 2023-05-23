@@ -36,7 +36,7 @@ import Mixin exposing (Mixin)
 import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
-import Tepa exposing (Layer, Msg, NavKey, Void)
+import Tepa exposing (Layer, NavKey, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -68,6 +68,7 @@ init session =
 {-| -}
 type alias ClockMemory =
     { currentTime : Posix
+    , zone : Time.Zone
     }
 
 
@@ -82,63 +83,149 @@ type Event
 -- View
 
 
-{-| -}
-view : Layer Memory -> Html (Msg Event)
-view =
-    Tepa.layerView <|
-        \state ->
-            Html.div
-                [ localClass "page"
-                ]
-                [ Html.div
-                    [ localClass "greeting"
-                    ]
-                    [ Html.span
-                        [ localClass "greeting_text"
-                        ]
-                        [ Html.text "Hi, "
-                        ]
-                    , Html.span
-                        [ localClass "greeting_name"
-                        ]
-                        [ state.session.profile.name
-                            |> Maybe.withDefault "(Unknown)"
-                            |> Html.text
-                        ]
-                    , Html.span
-                        [ localClass "greeting_text"
-                        ]
-                        [ Html.text "!"
-                        ]
-                    ]
-                , editAccountFormView state.editAccountForm
-                , Html.div
-                    [ localClass "dashboard_links"
-                    ]
-                    [ Html.a
-                        [ localClass "dashboard_links_linkButton-users"
-                        , Mixin.attribute "href"
-                            (AppUrl.toString
-                                { path =
-                                    [ Path.prefix
-                                    , "users"
-                                    ]
-                                , queryParameters = Dict.empty
-                                , fragment = Nothing
-                                }
-                            )
-                        ]
-                        [ Html.text "Users"
-                        ]
-                    ]
-                , case state.toast of
-                    Nothing ->
-                        Html.text ""
+type alias Msg =
+    Tepa.Msg Event
 
-                    Just toast ->
-                        Toast.view toast
-                            |> Html.map (Tepa.mapMsg ToastEvent)
+
+{-| -}
+view : Layer Memory -> Html Msg
+view layer =
+    let
+        state =
+            Tepa.layerMemory layer
+    in
+    Html.div
+        [ localClass "page"
+        ]
+        [ case state.clock of
+            Nothing ->
+                Html.text ""
+
+            Just clock ->
+                clockView clock
+        , Html.div
+            [ localClass "greeting"
+            ]
+            [ Html.span
+                [ localClass "greeting_text"
                 ]
+                [ Html.text "Hi, "
+                ]
+            , Html.span
+                [ localClass "greeting_name"
+                ]
+                [ state.session.profile.name
+                    |> Maybe.withDefault "(Unknown)"
+                    |> Html.text
+                ]
+            , Html.span
+                [ localClass "greeting_text"
+                ]
+                [ Html.text "!"
+                ]
+            ]
+        , editAccountFormView state.editAccountForm
+        , Html.div
+            [ localClass "dashboard_links"
+            ]
+            [ Html.a
+                [ localClass "dashboard_links_linkButton-users"
+                , Mixin.attribute "href"
+                    (AppUrl.toString
+                        { path =
+                            [ Path.prefix
+                            , "users"
+                            ]
+                        , queryParameters = Dict.empty
+                        , fragment = Nothing
+                        }
+                    )
+                ]
+                [ Html.text "Users"
+                ]
+            ]
+        , case state.toast of
+            Nothing ->
+                Html.text ""
+
+            Just toast ->
+                Toast.view toast
+                    |> Html.map (Tepa.mapMsg ToastEvent)
+        ]
+
+
+clockView : Layer ClockMemory -> Html Msg
+clockView layer =
+    let
+        state =
+            Tepa.layerMemory layer
+    in
+    Html.div
+        [ localClass "clock"
+        ]
+        [ Html.text <| formatTime state.zone state.currentTime
+        ]
+
+
+formatTime : Time.Zone -> Posix -> String
+formatTime zone time =
+    String.concat
+        [ Time.toYear zone time
+            |> String.fromInt
+        , "-"
+        , case Time.toMonth zone time of
+            Time.Jan ->
+                "01"
+
+            Time.Feb ->
+                "02"
+
+            Time.Mar ->
+                "03"
+
+            Time.Apr ->
+                "04"
+
+            Time.May ->
+                "05"
+
+            Time.Jun ->
+                "06"
+
+            Time.Jul ->
+                "07"
+
+            Time.Aug ->
+                "08"
+
+            Time.Sep ->
+                "09"
+
+            Time.Oct ->
+                "10"
+
+            Time.Nov ->
+                "11"
+
+            Time.Dec ->
+                "12"
+        , "-"
+        , Time.toDay zone time
+            |> String.fromInt
+            |> String.padLeft 2 '0'
+        , " "
+        , Time.toHour zone time
+            |> String.fromInt
+            |> String.padLeft 2 '0'
+        , ":"
+        , Time.toMinute zone time
+            |> String.fromInt
+            |> String.padLeft 2 '0'
+        , ":"
+        , Time.toSecond zone time
+            |> String.fromInt
+            |> String.padLeft 2 '0'
+        ]
 
 
 
@@ -166,7 +253,7 @@ initEditAccountForm session =
     }
 
 
-editAccountFormView : EditAccountFormMemory -> Html (Msg Event)
+editAccountFormView : EditAccountFormMemory -> Html Msg
 editAccountFormView state =
     let
         errors =
@@ -259,15 +346,20 @@ procedure key url =
             }
         )
         -- Initialize Clock
-        (Tepa.bindAndThen Time.now <|
-            \now ->
-                Tepa.maybeLayer
-                    { get = .clock
-                    , set = \clock m -> { m | clock = clock }
-                    , init =
-                        { currentTime = now
+        (Tepa.succeed Tuple.pair
+            |> Tepa.sync Time.now
+            |> Tepa.sync Time.here
+            |> Tepa.andThen
+                (\( now, zone ) ->
+                    Tepa.maybeLayer
+                        { get = .clock
+                        , set = \clock m -> { m | clock = clock }
+                        , init =
+                            { currentTime = now
+                            , zone = zone
+                            }
                         }
-                    }
+                )
         )
     <|
         \toastPointer clockPointer ->
@@ -480,6 +572,16 @@ type alias ScenarioSet flags m e =
         Scenario.Markup -> Scenario flags m e
     , expectEditAccountFormShowNoErrors :
         Scenario.Markup -> Scenario flags m e
+    , expectGreetingMessage :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags m e
+    , expectClockMessage :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags m e
     , editAccountEndpoint :
         { method : String
         , url : String
@@ -504,6 +606,8 @@ scenario props =
     , receiveEditAccountResp = receiveEditAccountResp props
     , expectAvailable = expectAvailable props
     , expectEditAccountFormShowNoErrors = expectEditAccountFormShowNoErrors props
+    , expectGreetingMessage = expectGreetingMessage props
+    , expectClockMessage = expectClockMessage props
     , editAccountEndpoint =
         { method = EditAccount.method
         , url = EditAccount.endpointUrl
@@ -576,6 +680,52 @@ expectEditAccountFormShowNoErrors props markup =
                         [ localClassSelector "editAccountForm_errorField_error"
                         ]
                     |> Query.count (Expect.equal 0)
+        }
+
+
+expectGreetingMessage :
+    ScenarioProps m e
+    ->
+        { value : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags m e
+expectGreetingMessage props { value } markup =
+    Scenario.expectAppView props.session
+        markup
+        { expectation =
+            \{ body } ->
+                Query.fromHtml (Html.div [] body)
+                    |> Query.find
+                        [ localClassSelector "greeting"
+                        ]
+                    |> Query.findAll
+                        [ localClassSelector "greeting_name"
+                        , Selector.exactText value
+                        ]
+                    |> Query.count (Expect.equal 1)
+        }
+
+
+expectClockMessage :
+    ScenarioProps m e
+    ->
+        { value : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags m e
+expectClockMessage props { value } markup =
+    Scenario.expectAppView props.session
+        markup
+        { expectation =
+            \{ body } ->
+                Query.fromHtml (Html.div [] body)
+                    |> Query.find
+                        [ localClassSelector "clock"
+                        ]
+                    |> Query.has
+                        [ Selector.exactText value
+                        ]
         }
 
 

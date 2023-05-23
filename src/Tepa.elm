@@ -40,7 +40,7 @@ module Tepa exposing
     , Model
     , onUrlChange
     , onUrlRequest
-    , push
+    , unsafePush
     )
 
 {-|
@@ -135,7 +135,7 @@ Promises that returns `Void` are called as a _Procedure_.
 
 # Lower level functions
 
-@docs push
+@docs unsafePush
 
 -}
 
@@ -341,7 +341,7 @@ bind promise f =
     andThenSequence f promise
 
 
-{-| Run two Promises in parallel, and bind the results to variables when both are complete.
+{-| Run two Promises concurrently, and bind the results to variables when both are complete.
 -}
 bind2 : Promise m e a -> Promise m e b -> (a -> b -> List (Promise m e Void)) -> Promise m e Void
 bind2 p1 p2 f =
@@ -352,7 +352,7 @@ bind2 p1 p2 f =
             (\( a, b ) -> f a b)
 
 
-{-| Run three Promises in parallel, and bind the results to variables when all are complete.
+{-| Run three Promises concurrently, and bind the results to variables when all are complete.
 
 If you need to bind more Promises, use `sync`.
 
@@ -405,15 +405,23 @@ modify =
 
 {-| Lower level function to push Commands.
 
-For detailed documentation and testing, do use this. We recommend using special functions like `Tepa.Http.Request`.
+For detailed documentation and testing, do not use this. We recommend using special functions like `Tepa.Http.Request`.
+
+If you think you need to use this function, please check the following points:
+
+1.  check to see if there is an alternative function for TEPA that does what you want to do
+2.  if not, report it in an issue on GitHub.
+3.  if you still want to use it, use it at your own risk and do not ask any questions or bother the TEPA developers.
 
 -}
-push : (m -> Cmd (Msg e)) -> Promise m e Void
-push =
+unsafePush : (m -> Cmd (Msg e)) -> Promise m e Void
+unsafePush =
     Core.push
 
 
 {-| Construct a Promise that start Subscription and listen to its Events till the Layer expires.
+
+TODO Browser.Events
 
 Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
 

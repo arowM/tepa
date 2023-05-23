@@ -97,7 +97,7 @@ endpointUrl : String
 endpointUrl =
     Url.absolute
         [ "api"
-        , "edit-profile-name"
+        , "edit-account"
         ]
         []
 
@@ -129,7 +129,7 @@ type Response
 
     successfulMeta : Http.Metadata
     successfulMeta =
-        { url = "https://example.com/api/edit-profile-name"
+        { url = "https://example.com/api/edit-account"
         , statusCode = 200
         , statusText = "OK"
         , headers = Dict.singleton "Set-Cookie" "sessionId=38afes7a8"
@@ -184,7 +184,7 @@ type Response
 
     -- Handles "LoginRequired" error code specially.
     Http.BadResponse
-        ( { url = "https://example.com/api/edit-profile-name"
+        ( { url = "https://example.com/api/edit-account"
           , statusCode = 401
           , statusText = "Unauthorized"
           , headers = Dict.empty
@@ -200,7 +200,7 @@ type Response
 
     -- `FatalErrorResponse` on other error codes.
     Http.BadResponse
-        ( { url = "https://example.com/api/edit-profile-name"
+        ( { url = "https://example.com/api/edit-account"
           , statusCode = 401
           , statusText = "Unauthorized"
           , headers = Dict.empty

@@ -130,19 +130,26 @@ sakuraChanMainSession =
         }
 
 
+sakuraChanSecondSession : Scenario.Session
+sakuraChanSecondSession =
+    Scenario.defineSession
+        { uniqueName = "Sakura-chan's second session"
+        , user = sakuraChan
+        }
 
--- sakuraChanSecondSession : Scenario.Session
--- sakuraChanSecondSession =
---     Scenario.defineSession
---         { uniqueName = "Sakura-chan's second session"
---         , user = sakuraChan
---         }
+
+
 -- # Scenarios
 
 
 onSakuraChanMainSession : App.ScenarioSet flags
 onSakuraChanMainSession =
     App.scenario sakuraChanMainSession
+
+
+onSakuraChanSecondSession : App.ScenarioSet flags
+onSakuraChanSecondSession =
+    App.scenario sakuraChanSecondSession
 
 
 type alias Section =
@@ -172,6 +179,8 @@ introduction1 config =
         Scenario.EntryPoint
             (TimeZone.asia__tokyo ())
             (Time.millisToPosix 1672531200000)
+
+    -- 2023-01-01 09:00:00 in Asia_Tokyo
     , content =
         [ userComment sakuraChan "Hi. I'm Sakura-chan, the cutest goat girl in the world."
         , userComment sakuraChan "Today I'm going to try a goat management service."
@@ -374,9 +383,9 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Entered login password: \"" ++ value ++ "\"")
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field")
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked login button.")
+            (Scenario.textContent "Click login button.")
         , let
             requestBody =
                 JE.object
@@ -498,8 +507,8 @@ introduction1_1 config =
                 """
                 {
                     "profile": {
-                        "id": "Sakura-chan-ID",
-                        "name": "Sakura-chan"
+                        "id": "guest",
+                        "name": "Guest"
                     }
                 }
                 """
@@ -544,6 +553,14 @@ introduction1_1 config =
             }
         , onSakuraChanMainSession.home.expectAvailable
             (Scenario.textContent "Redirect to home page.")
+        , let
+            value =
+                "2023-01-01 09:00:15"
+          in
+          onSakuraChanMainSession.home.expectClockMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The clock says \"" ++ value ++ "\"")
         , userComment sakuraChan "Yes!"
         ]
     }
@@ -554,8 +571,180 @@ pageHomeCase1 config =
     { title = "Home page #1"
     , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
-        [ onSakuraChanMainSession.home.expectAvailable
-            (Scenario.textContent "TODO")
+        [ let
+            value =
+                "Guest"
+          in
+          onSakuraChanMainSession.home.expectGreetingMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+        , userComment sakuraChan "I'm Sakura-chan! Not \"Guest\"! 💢🐐"
+        , let
+            value =
+                "Sakura-chan"
+          in
+          onSakuraChanMainSession.home.changeEditAccountFormAccountId
+            { value = value
+            }
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the name input field.")
+        , onSakuraChanMainSession.home.clickSubmitEditAccount
+            (Scenario.textContent "Click save button.")
+        , let
+            requestBody =
+                JE.object
+                    [ ( "name", JE.string "Sakura-chan" )
+                    ]
+
+            responseMeta =
+                { url = "https://example.com/api/edit-account"
+                , statusCode = 200
+                , statusText = "OK"
+                , headers =
+                    Dict.fromList
+                        [ ( "Set-Cookie"
+                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          )
+                        ]
+                }
+
+            responseBody =
+                """
+                {
+                    "profile": {
+                        "name": "Sakura-chan"
+                    }
+                }
+                """
+          in
+          onSakuraChanMainSession.home.receiveEditAccountResp
+            (\body ->
+                if body == requestBody then
+                    Just ( responseMeta, responseBody )
+
+                else
+                    Nothing
+            )
+            { content =
+                [ Markdown.PlainText "The backend responds to the edit account request."
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanMainSession.home.editAccountEndpoint
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
+                ]
+            , appear = config.dev
+            }
+        , let
+            value =
+                "Sakura-chan"
+          in
+          onSakuraChanMainSession.home.expectGreetingMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+        , Scenario.loadApp sakuraChanSecondSession
+            { content =
+                [ Markdown.StrongEmphasis sakuraChanName
+                , Markdown.PlainText ": Open new tab, and type the following URL in the address bar."
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.InlineCode "https://example.com/"
+                    ]
+                ]
+            , appear = True
+            }
+            { path =
+                { path = [ pathPrefix ]
+                , queryParameters = Dict.empty
+                , fragment = Nothing
+                }
+            , flags = JE.object []
+            }
+        , let
+            responseMeta =
+                { url = "https://example.com/api/profile"
+                , statusCode = 200
+                , statusText = "OK"
+                , headers =
+                    Dict.fromList
+                        [ ( "Set-Cookie"
+                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          )
+                        ]
+                }
+
+            responseBody =
+                """
+                {
+                  "profile": {
+                    "id": "guest",
+                    "name": "Sakura-chan"
+                  }
+                }
+                """
+          in
+          onSakuraChanSecondSession.app.receiveProfile
+            (\_ ->
+                Just ( responseMeta, responseBody )
+            )
+            { content =
+                [ Markdown.PlainText "The backend responds to the profile request."
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanSecondSession.app.fetchProfileEndpoint
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
+                ]
+            , appear = config.dev
+            }
+        , let
+            value =
+                "Sakura-chan"
+          in
+          onSakuraChanSecondSession.home.expectGreetingMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The greeting message says \"Hi " ++ value ++ "!\"")
         ]
     }
 

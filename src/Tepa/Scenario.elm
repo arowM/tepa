@@ -17,6 +17,7 @@ module Tepa.Scenario exposing
     , userComment
     , systemComment
     , comment
+    , todo
     , expectMemory
     , expectAppView
     , expectCurrentTime
@@ -83,6 +84,11 @@ module Tepa.Scenario exposing
 @docs userComment
 @docs systemComment
 @docs comment
+
+
+## Stubs
+
+@docs todo
 
 
 ## Expectations
@@ -489,6 +495,38 @@ comment markup =
             \_ ->
                 MdBuilder.appendListItem markup.content
                     >> MdBuilder.appendBlocks markup.detail
+                    >> MdBuilder.break
+                    >> Ok
+        }
+
+
+{-| Generates documentation, but the test always fails.
+
+You can create a scenario first with `todo` and later replace that `todo` with an actual test, which is the scenario driven development.
+
+-}
+todo : Session -> Markup -> Scenario flags m e
+todo (Session session) markup =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ _ ->
+                SeqTest.fail description <|
+                    \_ ->
+                        Expect.fail "todo"
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processTodo
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                MdBuilder.appendListItem markup_.content
+                    >> MdBuilder.appendBlocks markup_.detail
                     >> MdBuilder.break
                     >> Ok
         }
@@ -2413,6 +2451,7 @@ buildMarkdown o =
   - processSleepMarkup: Processor for `sleep` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
+  - processTodo: Processor for `todo` markup
 
 -}
 type alias RenderConfig =
@@ -2471,6 +2510,11 @@ type alias RenderConfig =
         -> Markup
         -> Markup
     , processPortResponseMarkup :
+        { uniqueSessionName : String
+        }
+        -> Markup
+        -> Markup
+    , processTodo :
         { uniqueSessionName : String
         }
         -> Markup
@@ -2555,6 +2599,7 @@ ja_JP =
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
+    , processTodo = prependSessionSystemName
     }
 
 
@@ -2690,6 +2735,7 @@ en_US =
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
+    , processTodo = prependSessionSystemName
     }
 
 
