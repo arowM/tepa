@@ -49,19 +49,9 @@ import Widget.Toast as Toast
 {-| -}
 type alias Memory =
     { session : Session
-    , toast : Maybe (Layer Toast.Memory)
+    , toast : Toast.Memory
+    , clock : ClockMemory
     , editAccountForm : EditAccountFormMemory
-    , clock : Maybe (Layer ClockMemory)
-    }
-
-
-{-| -}
-init : Session -> Memory
-init session =
-    { session = session
-    , toast = Nothing
-    , editAccountForm = initEditAccountForm session
-    , clock = Nothing
     }
 
 
@@ -70,6 +60,25 @@ type alias ClockMemory =
     { currentTime : Posix
     , zone : Time.Zone
     }
+
+
+{-| -}
+init : Session -> Tepa.Promise m e Memory
+init session =
+    Tepa.succeed
+        (\toast now zone ->
+            { session = session
+            , toast = toast
+            , clock =
+                { currentTime = now
+                , zone = zone
+                }
+            , editAccountForm = initEditAccountForm session
+            }
+        )
+        |> Tepa.sync Toast.init
+        |> Tepa.sync Time.now
+        |> Tepa.sync Time.here
 
 
 {-| -}
@@ -89,77 +98,61 @@ type alias Msg =
 
 {-| -}
 view : Layer Memory -> Html Msg
-view layer =
-    let
-        state =
-            Tepa.layerMemory layer
-    in
-    Html.div
-        [ localClass "page"
-        ]
-        [ case state.clock of
-            Nothing ->
-                Html.text ""
-
-            Just clock ->
-                clockView clock
-        , Html.div
-            [ localClass "greeting"
-            ]
-            [ Html.span
-                [ localClass "greeting_text"
+view =
+    Tepa.layerView <|
+        \state ->
+            Html.div
+                [ localClass "page"
                 ]
-                [ Html.text "Hi, "
-                ]
-            , Html.span
-                [ localClass "greeting_name"
-                ]
-                [ state.session.profile.name
-                    |> Maybe.withDefault "(Unknown)"
-                    |> Html.text
-                ]
-            , Html.span
-                [ localClass "greeting_text"
-                ]
-                [ Html.text "!"
-                ]
-            ]
-        , editAccountFormView state.editAccountForm
-        , Html.div
-            [ localClass "dashboard_links"
-            ]
-            [ Html.a
-                [ localClass "dashboard_links_linkButton-users"
-                , Mixin.attribute "href"
-                    (AppUrl.toString
-                        { path =
-                            [ Path.prefix
-                            , "users"
-                            ]
-                        , queryParameters = Dict.empty
-                        , fragment = Nothing
-                        }
-                    )
-                ]
-                [ Html.text "Users"
-                ]
-            ]
-        , case state.toast of
-            Nothing ->
-                Html.text ""
-
-            Just toast ->
-                Toast.view toast
+                [ clockView state.clock
+                , Html.div
+                    [ localClass "greeting"
+                    ]
+                    [ Html.span
+                        [ localClass "greeting_text"
+                        ]
+                        [ Html.text "Hi, "
+                        ]
+                    , Html.span
+                        [ localClass "greeting_name"
+                        ]
+                        [ state.session.profile.name
+                            |> Maybe.withDefault "(Unknown)"
+                            |> Html.text
+                        ]
+                    , Html.span
+                        [ localClass "greeting_text"
+                        ]
+                        [ Html.text "!"
+                        ]
+                    ]
+                , editAccountFormView state.editAccountForm
+                , Html.div
+                    [ localClass "dashboard_links"
+                    ]
+                    [ Html.a
+                        [ localClass "dashboard_links_linkButton-users"
+                        , Mixin.attribute "href"
+                            (AppUrl.toString
+                                { path =
+                                    [ Path.prefix
+                                    , "users"
+                                    ]
+                                , queryParameters = Dict.empty
+                                , fragment = Nothing
+                                }
+                            )
+                        ]
+                        [ Html.text "Users"
+                        ]
+                    ]
+                , Toast.view state.toast
                     |> Html.map (Tepa.mapMsg ToastEvent)
-        ]
+                ]
 
 
-clockView : Layer ClockMemory -> Html Msg
-clockView layer =
-    let
-        state =
-            Tepa.layerMemory layer
-    in
+clockView : ClockMemory -> Html Msg
+clockView state =
     Html.div
         [ localClass "clock"
         ]
@@ -318,15 +311,9 @@ type alias Promise a =
     Tepa.Promise Memory Event a
 
 
-type alias Pointer m =
-    Tepa.Pointer Memory m
-
-
 type alias Bucket =
     { key : NavKey
     , requestPath : AppUrl
-    , toastPointer : Pointer Toast.Memory
-    , clockPointer : Pointer ClockMemory
     }
 
 
@@ -337,55 +324,31 @@ type alias Bucket =
 {-| -}
 procedure : NavKey -> AppUrl -> Promise Void
 procedure key url =
-    Tepa.bind2
-        -- Initialize Toast Widget
-        (Tepa.maybeLayer
-            { get = .toast
-            , set = \toast m -> { m | toast = toast }
-            , init = Toast.init
+    let
+        bucket =
+            { key = key
+            , requestPath = url
             }
-        )
-        -- Initialize Clock
-        (Tepa.succeed Tuple.pair
-            |> Tepa.sync Time.now
-            |> Tepa.sync Time.here
-            |> Tepa.andThen
-                (\( now, zone ) ->
-                    Tepa.maybeLayer
-                        { get = .clock
-                        , set = \clock m -> { m | clock = clock }
-                        , init =
-                            { currentTime = now
-                            , zone = zone
-                            }
-                        }
-                )
-        )
-    <|
-        \toastPointer clockPointer ->
-            let
-                bucket =
-                    { key = key
-                    , requestPath = url
-                    , toastPointer = toastPointer
-                    , clockPointer = clockPointer
-                    }
-            in
-            -- Main Procedures
-            [ Tepa.syncAll
-                [ clockProcedure bucket
-                , editAccountFormProcedure bucket
-                ]
-            ]
+    in
+    -- Main Procedures
+    Tepa.syncAll
+        [ clockProcedure
+        , editAccountFormProcedure bucket
+        ]
 
 
-clockProcedure : Bucket -> Promise Void
-clockProcedure bucket =
+clockProcedure : Promise Void
+clockProcedure =
+    let
+        modifyClock f =
+            Tepa.modify <|
+                \m ->
+                    { m | clock = f m.clock }
+    in
     Time.every 500 <|
         \time ->
-            [ Tepa.onLayer bucket.clockPointer <|
-                Tepa.modify <|
-                    \m -> { m | currentTime = time }
+            [ modifyClock <|
+                \m -> { m | currentTime = time }
             ]
 
 
@@ -460,7 +423,7 @@ submitAccountProcedure bucket =
                                         [ Tepa.syncAll
                                             [ Toast.pushError
                                                 "Network error, please check your network and try again."
-                                                |> runToastPromise bucket.toastPointer
+                                                |> runToastPromise
                                                 |> Tepa.void
                                             , Tepa.sequence
                                                 [ modifyEditAccountForm <|
@@ -477,7 +440,7 @@ submitAccountProcedure bucket =
                                         [ Tepa.syncAll
                                             [ Toast.pushError
                                                 "Internal error, please contact our support team."
-                                                |> runToastPromise bucket.toastPointer
+                                                |> runToastPromise
                                                 |> Tepa.void
                                             , Tepa.sequence
                                                 [ modifyEditAccountForm <|
@@ -532,11 +495,14 @@ submitAccountProcedure bucket =
 
 
 runToastPromise :
-    Pointer Toast.Memory
-    -> Tepa.Promise Toast.Memory Toast.Event a
+    Tepa.Promise Toast.Memory Toast.Event a
     -> Promise a
-runToastPromise pointer prom =
-    Tepa.onLayer pointer prom
+runToastPromise prom =
+    Tepa.liftMemory
+        { get = .toast
+        , set = \toast m -> { m | toast = toast }
+        }
+        prom
         |> Tepa.liftEvent
             { wrap = ToastEvent
             , unwrap =

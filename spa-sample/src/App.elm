@@ -183,13 +183,13 @@ onUrlChange _ newUrl key =
                     ]
 
                 PageLogin layer ->
-                    [ Tepa.lazy <|
-                        \_ -> pageProcedure newUrl key (Tepa.layerMemory layer).msession
+                    [ Tepa.bind (Tepa.layerMemory layer) <|
+                        \m1 -> [ pageProcedure newUrl key m1.msession ]
                     ]
 
                 PageHome layer ->
-                    [ Tepa.lazy <|
-                        \_ -> pageProcedure newUrl key (Just (Tepa.layerMemory layer).session)
+                    [ Tepa.bind (Tepa.layerMemory layer) <|
+                        \m1 -> [ pageProcedure newUrl key (Just m1.session) ]
                     ]
 
 
@@ -247,29 +247,38 @@ pageProcedure url key msession =
     case Path.body url of
         Just [ "login" ] ->
             -- Users can access login page without sessions.
-            Tepa.putVariantLayer
-                { get = .page
-                , set = \v m -> { m | page = v }
-                , wrap = PageLogin
-                , unwrap =
-                    \m ->
-                        case m of
-                            PageLogin layer ->
-                                Just layer
-
-                            _ ->
-                                Nothing
-                , init = PageLogin.init msession
-                }
+            Tepa.bind
+                (PageLogin.init msession)
             <|
-                \pointer ->
-                    [ PageLogin.procedure key url
-                        |> runPageLoginPromise pointer
+                \initState ->
+                    [ Tepa.putVariantLayer
+                        { get = .page
+                        , set = \v m -> { m | page = v }
+                        , wrap = PageLogin
+                        , unwrap =
+                            \m ->
+                                case m of
+                                    PageLogin layer ->
+                                        Just layer
+
+                                    _ ->
+                                        Nothing
+                        , init = initState
+                        }
+                      <|
+                        \pointer ->
+                            [ PageLogin.procedure key url
+                                |> runPageLoginPromise pointer
+                            ]
                     ]
 
         Just [] ->
-            Tepa.bind requireSession <|
-                \session ->
+            Tepa.bind
+                (requireSession
+                    |> Tepa.andThen PageHome.init
+                )
+            <|
+                \initState ->
                     [ Tepa.putVariantLayer
                         { get = .page
                         , set = \a m -> { m | page = a }
@@ -282,7 +291,7 @@ pageProcedure url key msession =
 
                                     _ ->
                                         Nothing
-                        , init = PageHome.init session
+                        , init = initState
                         }
                       <|
                         \pointer ->

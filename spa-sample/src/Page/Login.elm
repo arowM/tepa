@@ -44,18 +44,22 @@ import Widget.Toast as Toast
 {-| -}
 type alias Memory =
     { msession : Maybe Session
-    , toast : Maybe (Layer Toast.Memory)
+    , toast : Toast.Memory
     , loginForm : LoginFormMemory
     }
 
 
 {-| -}
-init : Maybe Session -> Memory
+init : Maybe Session -> Tepa.Promise m e Memory
 init msession =
-    { loginForm = initLoginForm
-    , msession = msession
-    , toast = Nothing
-    }
+    Tepa.succeed
+        (\toast ->
+            { loginForm = initLoginForm
+            , msession = msession
+            , toast = toast
+            }
+        )
+        |> Tepa.sync Toast.init
 
 
 {-| -}
@@ -79,13 +83,8 @@ view =
                 [ localClass "page"
                 ]
                 [ loginFormView state.loginForm
-                , case state.toast of
-                    Nothing ->
-                        Html.text ""
-
-                    Just toast ->
-                        Toast.view toast
-                            |> Html.map (Tepa.mapMsg ToastEvent)
+                , Toast.view state.toast
+                    |> Html.map (Tepa.mapMsg ToastEvent)
                 ]
 
 
@@ -249,7 +248,6 @@ type alias Pointer m =
 type alias Bucket =
     { key : NavKey
     , requestPath : AppUrl
-    , toastPointer : Pointer Toast.Memory
     }
 
 
@@ -260,26 +258,16 @@ type alias Bucket =
 {-| -}
 procedure : NavKey -> AppUrl -> Promise Void
 procedure key url =
-    -- Initialize Widget
-    Tepa.putMaybeLayer
-        { get = .toast
-        , set = \toast m -> { m | toast = toast }
-        , init = Toast.init
-        }
-    <|
-        \toastPointer ->
-            let
-                bucket =
-                    { key = key
-                    , requestPath = url
-                    , toastPointer = toastPointer
-                    }
-            in
-            -- Main Procedures
-            [ Tepa.syncAll
-                [ loginFormProcedure bucket
-                ]
-            ]
+    let
+        bucket =
+            { key = key
+            , requestPath = url
+            }
+    in
+    -- Main Procedures
+    Tepa.syncAll
+        [ loginFormProcedure bucket
+        ]
 
 
 loginFormProcedure : Bucket -> Promise Void
@@ -365,7 +353,7 @@ submitLoginProcedure bucket =
                                         [ Tepa.syncAll
                                             [ Toast.pushError
                                                 "Network error, please check your network and try again."
-                                                |> runToastPromise bucket.toastPointer
+                                                |> runToastPromise
                                                 |> Tepa.void
                                             , Tepa.sequence
                                                 [ modifyLoginForm <|
@@ -382,7 +370,7 @@ submitLoginProcedure bucket =
                                         [ Tepa.syncAll
                                             [ Toast.pushError
                                                 "Internal error, please contact our support team."
-                                                |> runToastPromise bucket.toastPointer
+                                                |> runToastPromise
                                                 |> Tepa.void
                                             , Tepa.sequence
                                                 [ modifyLoginForm <|
@@ -451,11 +439,14 @@ submitLoginProcedure bucket =
 
 
 runToastPromise :
-    Pointer Toast.Memory
-    -> Tepa.Promise Toast.Memory Toast.Event a
+    Tepa.Promise Toast.Memory Toast.Event a
     -> Promise a
-runToastPromise pointer prom =
-    Tepa.onLayer pointer prom
+runToastPromise prom =
+    Tepa.liftMemory
+        { get = .toast
+        , set = \toast m -> { m | toast = toast }
+        }
+        prom
         |> Tepa.liftEvent
             { wrap = ToastEvent
             , unwrap =
@@ -534,7 +525,7 @@ scenario props =
         Toast.scenario
             { querySelf =
                 props.querySelf
-                    |> Scenario.childLayer .toast
+                    |> Scenario.mapLayer .toast
             , wrapEvent = ToastEvent >> props.wrapEvent
             , session = props.session
             }

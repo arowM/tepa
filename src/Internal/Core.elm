@@ -14,6 +14,7 @@ module Internal.Core exposing
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
     , now, here
+    , customRequest
     , layerEvent
     , Layer(..), Pointer(..), isPointedBy
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -22,10 +23,12 @@ module Internal.Core exposing
     , modify, push, currentState, cancel, lazy, listen
     , sleep, listenTimeEvery, listenLayerEvent, listenMsg
     , load, reload
+    , RandomValue(..), RandomRequest(..), isRequestForSpec
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
     , documentView, subscriptions
+    , RandomSpec(..), liftPromiseMemory
     )
 
 {-|
@@ -56,6 +59,7 @@ module Internal.Core exposing
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
 @docs now, here
+@docs customRequest
 @docs layerEvent
 @docs Layer, Pointer, isPointedBy
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
@@ -70,6 +74,11 @@ module Internal.Core exposing
 @docs load, reload
 
 
+# Random
+
+@docs RandomValue, RandomRequest, isRequestForSpec
+
+
 # Helper Procedures
 
 @docs onGoingProcedure
@@ -82,7 +91,7 @@ module Internal.Core exposing
 
 # TEA
 
-@docs init, update, NewState, Log
+@docs init, update, NewState, Log, RandomRequest
 @docs elementView, documentView, subscriptions
 
 -}
@@ -191,9 +200,11 @@ type Log
     | RequestCurrentZone RequestId
     | IssueHttpRequest RequestId LayerId HttpRequest
     | IssuePortRequest RequestId LayerId Value
+    | IssueRandomRequest RequestId LayerId RandomRequest
     | AddListener RequestId LayerId String
     | ResolvePortRequest RequestId
     | ResolveHttpRequest RequestId
+    | ResolveRandomRequest RequestId
     | LayerExpired LayerId
     | PushPath AppUrl
     | ReplacePath AppUrl
@@ -212,6 +223,30 @@ type alias HttpRequest =
     , timeout : Maybe Int
     , tracker : Maybe String
     }
+
+
+{-| -}
+type RandomSpec a
+    = RandomSpecInt
+        { id : String
+        , min : Int
+        , max : Int
+        , unwrap : RandomValue -> Maybe a
+        , wrap : a -> Result String RandomValue
+        }
+    | RandomSpecFloat
+        { id : String
+        , min : Float
+        , max : Float
+        , unwrap : RandomValue -> Maybe a
+        , wrap : a -> Result String RandomValue
+        }
+    | RandomSpecEnum
+        { id : String
+        , candidates : List ( Float, a )
+        , unwrap : RandomValue -> Maybe a
+        , wrap : a -> Result String RandomValue
+        }
 
 
 
@@ -235,6 +270,10 @@ type Msg event
     | HttpBytesResponseMsg
         { requestId : RequestId
         , response : Result HttpRequestError ( Http.Metadata, Bytes )
+        }
+    | RandomResponseMsg
+        { requestId : RequestId
+        , response : RandomValue
         }
     | CurrentTimeMsg
         { requestId : RequestId
@@ -261,6 +300,37 @@ type Msg event
     | UrlChange AppUrl
     | UrlRequest Browser.UrlRequest
     | NoOp
+
+
+{-| -}
+type RandomValue
+    = RandomInt Int
+    | RandomFloat Float
+    | RandomEnum Int
+
+
+{-| -}
+type RandomRequest
+    = RequestRandomInt String
+    | RequestRandomFloat String
+    | RequestRandomEnum String
+
+
+{-| -}
+isRequestForSpec : RandomSpec a -> RandomRequest -> Bool
+isRequestForSpec spec req =
+    case ( spec, req ) of
+        ( RandomSpecInt param, RequestRandomInt id ) ->
+            param.id == id
+
+        ( RandomSpecFloat param, RequestRandomFloat id ) ->
+            param.id == id
+
+        ( RandomSpecEnum param, RequestRandomEnum id ) ->
+            param.id == id
+
+        _ ->
+            False
 
 
 {-| -}
@@ -307,6 +377,12 @@ mapMsg f msg1 =
             CurrentZoneMsg
                 { requestId = r.requestId
                 , zone = r.zone
+                }
+
+        RandomResponseMsg r ->
+            RandomResponseMsg
+                { requestId = r.requestId
+                , response = r.response
                 }
 
         ViewStubMsg r ->
@@ -389,6 +465,12 @@ unwrapMsg f msg1 =
             CurrentZoneMsg
                 { requestId = r.requestId
                 , zone = r.zone
+                }
+
+        RandomResponseMsg r ->
+            RandomResponseMsg
+                { requestId = r.requestId
+                , response = r.response
                 }
 
         ViewStubMsg r ->
@@ -671,11 +753,11 @@ andThenPromise f (Promise promA) =
 
 
 {-| -}
-liftPromiseMemory :
+onLayer_ :
     Pointer_ m m1
     -> Promise m1 e a
     -> Promise m e a
-liftPromiseMemory o (Promise prom1) =
+onLayer_ o (Promise prom1) =
     Promise <|
         \context ->
             case o.get context.state of
@@ -735,8 +817,66 @@ liftPromiseMemory o (Promise prom1) =
                                                 failPromise
 
                                             Just m1 ->
-                                                liftPromiseMemory o (nextProm msg m1)
+                                                onLayer_ o (nextProm msg m1)
                     }
+
+
+{-| -}
+liftPromiseMemory :
+    { get : m -> m1
+    , set : m1 -> m -> m
+    }
+    -> Promise m1 e a
+    -> Promise m e a
+liftPromiseMemory o (Promise prom1) =
+    Promise <|
+        \context ->
+            let
+                state1 =
+                    o.get context.state
+
+                eff1 =
+                    prom1
+                        { state = state1
+                        , thisLayerId =
+                            let
+                                (ThisLayerId lid) =
+                                    context.thisLayerId
+                            in
+                            ThisLayerId lid
+                        , nextRequestId = context.nextRequestId
+                        , nextLayerId = context.nextLayerId
+                        , subs = []
+                        }
+            in
+            { newContext =
+                { state = o.set eff1.newContext.state context.state
+                , thisLayerId = context.thisLayerId
+                , nextRequestId = eff1.newContext.nextRequestId
+                , nextLayerId = eff1.newContext.nextLayerId
+                , subs =
+                    context.subs
+                        ++ List.map
+                            (\f m ->
+                                o.get m |> f
+                            )
+                            eff1.newContext.subs
+                }
+            , realCmds = eff1.realCmds
+            , logs = eff1.logs
+            , state =
+                case eff1.state of
+                    Resolved a ->
+                        Resolved a
+
+                    Rejected ->
+                        Rejected
+
+                    AwaitMsg nextProm ->
+                        AwaitMsg <|
+                            \msg m ->
+                                liftPromiseMemory o (nextProm msg <| o.get m)
+            }
 
 
 {-| -}
@@ -987,7 +1127,7 @@ newLayer o m1 =
 {-| -}
 onLayer : Pointer m m1 -> Promise m1 e a -> Promise m e a
 onLayer (Pointer layer) procs =
-    liftPromiseMemory layer procs
+    onLayer_ layer procs
 
 
 {-| -}
@@ -1695,6 +1835,46 @@ here =
                 ]
             , logs =
                 [ RequestCurrentZone myRequestId
+                ]
+            , state = AwaitMsg nextPromise
+            }
+
+
+{-| -}
+customRequest :
+    (RequestId -> Msg e -> m -> Maybe ( a, List Log ))
+    -> (RequestId -> Cmd (Msg e))
+    -> (RequestId -> LayerId -> Log)
+    -> Promise m e a
+customRequest newPromise_ realCmd log =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                (ThisLayerId thisLayerId) =
+                    context.thisLayerId
+
+                nextPromise : Msg e -> m -> Promise m e a
+                nextPromise msg m =
+                    case newPromise_ myRequestId msg m of
+                        Just ( a, logs ) ->
+                            succeedPromise a
+                                |> setLogs logs
+
+                        Nothing ->
+                            justAwaitPromise nextPromise
+            in
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                }
+            , realCmds =
+                [ realCmd myRequestId
+                ]
+            , logs =
+                [ log myRequestId thisLayerId
                 ]
             , state = AwaitMsg nextPromise
             }

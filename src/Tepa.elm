@@ -7,7 +7,7 @@ module Tepa exposing
     , UrlRequest(..)
     , Promise
     , map
-    , liftEvent, onLayer
+    , liftEvent, liftMemory
     , Pointer
     , orFaster
     , andThen, bindAndThen
@@ -22,11 +22,11 @@ module Tepa exposing
     , withMaybe
     , sequenceOnLayer
     , succeed
-    , currentState, layerEvent
+    , currentState, layerMemory, layerEvent
     , portRequest
     , withLayerEvent, listenLayerEvent
-    , Layer, isPointedBy
-    , layerMemory
+    , Layer, onLayer
+    , isPointedBy
     , maybeLayer, putMaybeLayer
     , variantLayer, putVariantLayer
     , newListItemLayer, putNewListItemLayer
@@ -68,7 +68,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 # Transformers
 
 @docs map
-@docs liftEvent, onLayer
+@docs liftEvent, liftMemory
 @docs Pointer
 
 
@@ -101,7 +101,7 @@ Promises that returns `Void` are called as a _Procedure_.
 # Primitive Promises
 
 @docs succeed
-@docs currentState, layerEvent
+@docs currentState, layerMemory, layerEvent
 @docs portRequest
 
 
@@ -112,8 +112,8 @@ Promises that returns `Void` are called as a _Procedure_.
 
 # Layer
 
-@docs Layer, isPointedBy
-@docs layerMemory
+@docs Layer, onLayer
+@docs isPointedBy
 @docs maybeLayer, putMaybeLayer
 @docs variantLayer, putVariantLayer
 @docs newListItemLayer, putNewListItemLayer
@@ -175,6 +175,18 @@ map =
     Core.mapPromise
 
 
+{-| Transform the Promise Memory.
+-}
+liftMemory :
+    { get : m0 -> m1
+    , set : m1 -> m0 -> m0
+    }
+    -> Promise m1 e a
+    -> Promise m0 e a
+liftMemory =
+    Core.liftPromiseMemory
+
+
 {-| Transform the Events produced or consumed by a Procedure.
 -}
 liftEvent :
@@ -204,12 +216,6 @@ type alias Layer m =
 isPointedBy : Pointer m m1 -> Layer m1 -> Bool
 isPointedBy =
     Core.isPointedBy
-
-
-{-| -}
-layerMemory : Layer m -> m
-layerMemory (Core.Layer _ m) =
-    m
 
 
 {-| -}
@@ -581,6 +587,12 @@ Note that this returns the Memory state when it is resolved:
 currentState : Promise m e m
 currentState =
     Core.currentState
+
+
+{-| -}
+layerMemory : Layer m1 -> Promise m e m1
+layerMemory (Core.Layer _ m) =
+    succeed m
 
 
 {-| Lower level Promise that awaits Layer events.

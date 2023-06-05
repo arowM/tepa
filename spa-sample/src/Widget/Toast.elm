@@ -53,7 +53,7 @@ import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise, Void)
 import Tepa.Scenario as Scenario exposing (Scenario)
-import Tepa.Time
+import Tepa.Time as Time
 import Test.Html.Event as HtmlEvent
 import Test.Html.Query as HtmlQuery
 import Test.Html.Selector as Selector
@@ -107,11 +107,12 @@ messageTypeCode type_ =
 
 
 {-| -}
-init : Memory
+init : Promise m e Memory
 init =
-    Memory
-        { items = []
-        }
+    Tepa.succeed <|
+        Memory
+            { items = []
+            }
 
 
 
@@ -209,10 +210,10 @@ toastItemProcedure =
                         [ Tepa.none
                         ]
             )
-            |> Tepa.orFaster (Tepa.Time.sleep toastTimeout)
+            |> Tepa.orFaster (Time.sleep toastTimeout)
         , Tepa.modify
             (\m -> { m | isHidden = True })
-        , Tepa.Time.sleep toastFadeOutDuration
+        , Time.sleep toastFadeOutDuration
         ]
 
 
@@ -221,15 +222,13 @@ toastItemProcedure =
 
 
 {-| -}
-view : Layer Memory -> Html (Msg Event)
-view =
-    Tepa.layerView <|
-        \(Memory memory) ->
-            Html.keyed "div"
-                [ localClass "toast"
-                , Mixin.style "--zindex" <| String.fromInt ZIndex.toast
-                ]
-                (List.map (Tepa.keyedLayerView toastItemView) memory.items)
+view : Memory -> Html (Msg Event)
+view (Memory memory) =
+    Html.keyed "div"
+        [ localClass "toast"
+        , Mixin.style "--zindex" <| String.fromInt ZIndex.toast
+        ]
+        (List.map (Tepa.keyedLayerView toastItemView) memory.items)
 
 
 toastItemView : ToastItemMemory -> Html (Msg Event)

@@ -25,6 +25,7 @@ module Tepa.Scenario exposing
     , expectPortRequest
     , appLayer
     , childLayer
+    , mapLayer
     , loadApp
     , userOperation
     , layerEvent
@@ -35,6 +36,7 @@ module Tepa.Scenario exposing
     , HttpRequest
     , HttpRequestBody(..)
     , portResponse
+    , randomResponse
     , fromJust
     , fromOk
     , RenderConfig
@@ -104,6 +106,7 @@ module Tepa.Scenario exposing
 
 @docs appLayer
 @docs childLayer
+@docs mapLayer
 
 
 ## Event Simulators
@@ -126,6 +129,11 @@ module Tepa.Scenario exposing
 ## Port response Simulators
 
 @docs portResponse
+
+
+## Random response Simulators
+
+@docs randomResponse
 
 
 # Conditions
@@ -159,6 +167,7 @@ import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Layer, Msg)
+import Tepa.Random as Random
 import Tepa.Time as Time exposing (Posix, Zone)
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
@@ -214,6 +223,7 @@ type alias SessionContext m e =
     { model : Model m e
     , portRequests : List ( ( RequestId, LayerId ), Value ) -- reversed
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
+    , randomRequests : List ( ( RequestId, LayerId ), Core.RandomRequest ) -- reversed
     , timers : List (Timer e)
     , listeners : List Listener -- reversed
     , history : History
@@ -1009,7 +1019,7 @@ expectPortRequest (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectHttpRequest: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectPortRequest: The application is not active on the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1018,7 +1028,7 @@ expectPortRequest (Session session) markup param =
                                     \_ ->
                                         Err (Core.memoryState sessionContext.model)
                                             |> Expect.equal
-                                                (Ok "expectHttpRequest: No layer found.")
+                                                (Ok "expectPortRequest: No layer found.")
 
                             Just (Core.Layer lid1 _) ->
                                 List.filterMap
@@ -1088,9 +1098,23 @@ childLayer :
 childLayer f parent =
     parent
         >> Maybe.andThen
-            (\l1 ->
-                f <| Tepa.layerMemory l1
+            (\(Core.Layer _ m1) ->
+                f m1
             )
+
+
+{-| -}
+mapLayer :
+    (m1 -> m2)
+    -> (Layer m -> Maybe (Layer m1))
+    -> (Layer m -> Maybe (Layer m2))
+mapLayer f parent =
+    \l ->
+        parent l
+            |> Maybe.map
+                (\(Core.Layer lid m) ->
+                    Core.Layer lid (f m)
+                )
 
 
 
@@ -1727,7 +1751,7 @@ portResponse (Session session) markup param =
                                             Nothing
                                     )
                                     sessionContext.portRequests
-                                    |> Result.fromMaybe "portResponse: No commands found for the response."
+                                    |> Result.fromMaybe "portResponse: No requests found for the response."
                                     |> Result.andThen
                                         (\( msg, nextPortRequests ) ->
                                             let
@@ -1786,6 +1810,159 @@ portResponse (Session session) markup param =
                 else
                     Ok
         }
+
+
+{-| Simulate response to the `Tepa.Random.request`.
+
+Suppose your application requests random integer:
+
+    import Tepa.Random as Random
+    import Tepa.Scenario as Scenario
+
+    oneToTen : Random.Spec Int
+    oneToTen =
+        Random.int 1 10
+
+    respondToOneToTenInt : Scenario flags m e
+    respondToOneToTenInt =
+        Scenario.randomResponse
+            mySession
+            (Scenario.textContent "Respond `1` to the first unresolved `oneToTen` request.")
+            { layer = myLayer
+            , spec = oneToTen
+            , value = 1
+            }
+
+    -- If there is no unresolved `oneToTen` request at the time, the test fails.
+
+If no Layers found for the query, it does nothing and just passes the test.
+
+-}
+randomResponse :
+    Session
+    -> Markup
+    ->
+        { layer : Layer m -> Maybe (Layer m1)
+        , spec : Random.Spec a
+        , response : a
+        }
+    -> Scenario flags m e
+randomResponse (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "randomResponse: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
+                                -- It is natural to receive responses after the Layer has expired.
+                                SeqTest.pass context
+
+                            Just (Core.Layer lid_ _) ->
+                                takeLastMatched
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == lid_ && Core.isRequestForSpec param.spec req then
+                                            Just rid
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.randomRequests
+                                    |> Result.fromMaybe "randomResponse: No requests found for the response."
+                                    |> Result.andThen
+                                        (\( rid, nextRandomRequests ) ->
+                                            wrapBySpec param.spec param.response
+                                                |> Result.map
+                                                    (\resp ->
+                                                        ( Core.RandomResponseMsg
+                                                            { requestId = rid
+                                                            , response = resp
+                                                            }
+                                                        , nextRandomRequests
+                                                        )
+                                                    )
+                                        )
+                                    |> Result.andThen
+                                        (\( msg, nextRandomRequests ) ->
+                                            let
+                                                updateResult =
+                                                    update
+                                                        { currentTime = context.currentTime
+                                                        , zone = context.zone
+                                                        }
+                                                        msg
+                                                        { sessionContext
+                                                            | randomRequests = nextRandomRequests
+                                                        }
+                                            in
+                                            case updateResult of
+                                                SessionExpired ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.remove session.uniqueName
+                                                                        context.sessions
+                                                            }
+
+                                                SessionUpdateFailed err ->
+                                                    Err err
+
+                                                SessionUpdated nextSessionContext ->
+                                                    Ok <|
+                                                        SeqTest.pass
+                                                            { context
+                                                                | sessions =
+                                                                    Dict.insert session.uniqueName
+                                                                        nextSessionContext
+                                                                        context.sessions
+                                                            }
+                                        )
+                                    |> unwrapResult
+                                        (\err ->
+                                            SeqTest.fail description <|
+                                                \_ -> Expect.fail err
+                                        )
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processRandomResponseMarkup
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+wrapBySpec : Random.Spec a -> a -> Result String Core.RandomValue
+wrapBySpec spec =
+    case spec of
+        Core.RandomSpecInt param ->
+            param.wrap
+
+        Core.RandomSpecFloat param ->
+            param.wrap
+
+        Core.RandomSpecEnum param ->
+            param.wrap
 
 
 
@@ -1937,6 +2114,7 @@ toTest o =
                                                 { model = newState.nextModel
                                                 , portRequests = []
                                                 , httpRequests = []
+                                                , randomRequests = []
                                                 , timers = []
                                                 , listeners = []
                                                 , history =
@@ -2022,6 +2200,7 @@ update config msg context =
     { model = newState.nextModel
     , portRequests = context.portRequests
     , httpRequests = context.httpRequests
+    , randomRequests = context.randomRequests
     , timers = context.timers
     , listeners = context.listeners
     , history = context.history
@@ -2140,6 +2319,13 @@ applyLog config log context =
                                     context.timers
                 }
 
+        Core.IssueRandomRequest rid lid req ->
+            SessionUpdated
+                { context
+                    | randomRequests =
+                        ( ( rid, lid ), req ) :: context.randomRequests
+                }
+
         Core.AddListener rid lid name ->
             SessionUpdated
                 { context
@@ -2175,6 +2361,17 @@ applyLog config log context =
                             context.httpRequests
                 }
 
+        Core.ResolveRandomRequest rid ->
+            SessionUpdated
+                { context
+                    | randomRequests =
+                        List.filter
+                            (\( ( rid_, _ ), _ ) ->
+                                rid_ /= rid
+                            )
+                            context.randomRequests
+                }
+
         Core.LayerExpired lid ->
             SessionUpdated
                 { context
@@ -2186,6 +2383,10 @@ applyLog config log context =
                         List.filter
                             (\( ( _, lid_ ), _ ) -> lid_ /= lid)
                             context.httpRequests
+                    , randomRequests =
+                        List.filter
+                            (\( ( _, lid_ ), _ ) -> lid_ /= lid)
+                            context.randomRequests
                     , timers =
                         List.filter
                             (\timer ->
@@ -2444,6 +2645,7 @@ buildMarkdown o =
   - processExpectCurrentTime: Processor for `expectCurrentTime` markup
   - processExpectHttpRequestMarkup: Processor for `expectHttpRequest` markup
   - processExpectPortRequestMarkup: Processor for `expectPortRequest` markup
+  - processExpectRandomRequestMarkup: Processor for `expectRandomRequest` markup
   - processLoadAppMarkup: Processor for `loadApp` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
   - processLayerEventMarkup: Processor for `layerEvent` markup
@@ -2451,6 +2653,7 @@ buildMarkdown o =
   - processSleepMarkup: Processor for `sleep` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
+  - processRandomResponseMarkup: Processor for `randomResponse` markup
   - processTodo: Processor for `todo` markup
 
 -}
@@ -2483,6 +2686,10 @@ type alias RenderConfig =
         { uniqueSessionName : String }
         -> Markup
         -> Markup
+    , processExpectRandomRequestMarkup :
+        { uniqueSessionName : String }
+        -> Markup
+        -> Markup
     , processLoadAppMarkup :
         { uniqueSessionName : String }
         -> Markup
@@ -2510,6 +2717,11 @@ type alias RenderConfig =
         -> Markup
         -> Markup
     , processPortResponseMarkup :
+        { uniqueSessionName : String
+        }
+        -> Markup
+        -> Markup
+    , processRandomResponseMarkup :
         { uniqueSessionName : String
         }
         -> Markup
@@ -2592,6 +2804,7 @@ ja_JP =
     , processExpectCurrentTime = identity
     , processExpectHttpRequestMarkup = prependSessionName
     , processExpectPortRequestMarkup = prependSessionName
+    , processExpectRandomRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
     , processLayerEventMarkup = prependSessionSystemName
@@ -2599,6 +2812,7 @@ ja_JP =
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
+    , processRandomResponseMarkup = prependSessionSystemName
     , processTodo = prependSessionSystemName
     }
 
@@ -2728,6 +2942,7 @@ en_US =
     , processExpectCurrentTime = identity
     , processExpectHttpRequestMarkup = prependSessionName
     , processExpectPortRequestMarkup = prependSessionName
+    , processExpectRandomRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
     , processLayerEventMarkup = prependSessionSystemName
@@ -2735,6 +2950,7 @@ en_US =
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
+    , processRandomResponseMarkup = prependSessionSystemName
     , processTodo = prependSessionSystemName
     }
 
