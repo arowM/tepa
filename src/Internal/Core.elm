@@ -10,13 +10,15 @@ module Internal.Core exposing
     , andThenPromise
     , syncPromise
     , liftPromiseEvent
+    , liftPromiseMemory
+    , Pointer_
     , portRequest
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
     , now, here
     , customRequest
     , layerEvent
-    , Layer(..), Pointer(..), isPointedBy
+    , Layer(..), ThisLayerId(..)
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
@@ -28,7 +30,7 @@ module Internal.Core exposing
     , newLayer, onLayer
     , init, update, NewState, Log(..)
     , documentView, subscriptions
-    , RandomSpec(..), liftPromiseMemory
+    , RandomSpec(..)
     )
 
 {-|
@@ -55,13 +57,15 @@ module Internal.Core exposing
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseEvent
+@docs liftPromiseMemory
+@docs Pointer_
 @docs portRequest
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
 @docs now, here
 @docs customRequest
 @docs layerEvent
-@docs Layer, Pointer, isPointedBy
+@docs Layer, ThisLayerId
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
 @docs none, sequence, concurrent
 
@@ -753,11 +757,11 @@ andThenPromise f (Promise promA) =
 
 
 {-| -}
-onLayer_ :
+onLayer :
     Pointer_ m m1
     -> Promise m1 e a
     -> Promise m e a
-onLayer_ o (Promise prom1) =
+onLayer o (Promise prom1) =
     Promise <|
         \context ->
             case o.get context.state of
@@ -817,7 +821,7 @@ onLayer_ o (Promise prom1) =
                                                 failPromise
 
                                             Just m1 ->
-                                                onLayer_ o (nextProm msg m1)
+                                                onLayer o (nextProm msg m1)
                     }
 
 
@@ -1082,52 +1086,10 @@ type Layer m
 
 
 {-| -}
-newLayer :
-    { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
-    , modify : (Layer m1 -> Layer m1) -> m -> m
-    }
-    -> m1
-    -> Promise m e ( Layer m1, Pointer m m1 )
-newLayer o m1 =
+newLayer : m1 -> Promise m e (Layer m1)
+newLayer m1 =
     genNewLayerId
-        |> andThenPromise
-            (\layerId ->
-                let
-                    unwrapper : Layer m1 -> Maybe m1
-                    unwrapper (Layer layerId_ m1_) =
-                        if layerId_ == layerId then
-                            Just m1_
-
-                        else
-                            Nothing
-
-                    modifier : m1 -> Layer m1 -> Layer m1
-                    modifier newM1 (Layer layerId_ oldM1) =
-                        if layerId_ == layerId then
-                            Layer layerId newM1
-
-                        else
-                            Layer layerId_ oldM1
-                in
-                succeedPromise <|
-                    ( Layer layerId m1
-                    , Pointer
-                        { get =
-                            \m ->
-                                o.get unwrapper m
-                        , set =
-                            \newM1 ->
-                                o.modify (modifier newM1)
-                        , layerId = ThisLayerId layerId
-                        }
-                    )
-            )
-
-
-{-| -}
-onLayer : Pointer m m1 -> Promise m1 e a -> Promise m e a
-onLayer (Pointer layer) procs =
-    onLayer_ layer procs
+        |> mapPromise (\layerId -> Layer layerId m1)
 
 
 {-| -}
@@ -1212,26 +1174,11 @@ type ThisLayerId m
     = ThisLayerId LayerId
 
 
-{-| -}
-type Pointer m m1
-    = Pointer (Pointer_ m m1)
-
-
 type alias Pointer_ m m1 =
     { get : m -> Maybe m1
     , set : m1 -> m -> m
     , layerId : ThisLayerId m1
     }
-
-
-{-| -}
-isPointedBy : Pointer m m1 -> Layer m1 -> Bool
-isPointedBy (Pointer pointer) (Layer layerId _) =
-    let
-        (ThisLayerId pointerLayerId) =
-            pointer.layerId
-    in
-    pointerLayerId == layerId
 
 
 {-| -}

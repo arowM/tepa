@@ -8,7 +8,6 @@ module Tepa exposing
     , Promise
     , map
     , liftEvent, liftMemory
-    , Pointer
     , orFaster
     , andThen, bindAndThen
     , sync
@@ -20,17 +19,12 @@ module Tepa exposing
     , when
     , unless
     , withMaybe
-    , sequenceOnLayer
     , succeed
     , currentState, layerMemory, layerEvent
     , portRequest
     , withLayerEvent, listenLayerEvent
     , Layer, onLayer
-    , isPointedBy
-    , maybeLayer, putMaybeLayer
-    , variantLayer, putVariantLayer
-    , newListItemLayer, putNewListItemLayer
-    , newLayer, putNewLayer
+    , newLayer, isOnSameLayer
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , update
     , subscriptions
@@ -69,7 +63,6 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 
 @docs map
 @docs liftEvent, liftMemory
-@docs Pointer
 
 
 # Composition
@@ -95,7 +88,6 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs when
 @docs unless
 @docs withMaybe
-@docs sequenceOnLayer
 
 
 # Primitive Promises
@@ -113,11 +105,7 @@ Promises that returns `Void` are called as a _Procedure_.
 # Layer
 
 @docs Layer, onLayer
-@docs isPointedBy
-@docs maybeLayer, putMaybeLayer
-@docs variantLayer, putVariantLayer
-@docs newListItemLayer, putNewListItemLayer
-@docs newLayer, putNewLayer
+@docs newLayer, isOnSameLayer
 @docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
 
 
@@ -199,28 +187,78 @@ liftEvent =
     Core.liftPromiseEvent
 
 
-{-| Call a child Layer Promise.
+{-| Run promise on the specified Layer.
+
+It determines the Layer to execute a given Promise with the parameter `get` based on the current memory state.
+
+For example, consider the following situation:
+
+    Tepa.bind
+        (PageLogin.init msession
+            |> Tepa.andThen Tepa.newLayer
+        )
+    <|
+        \newLayer ->
+            [ Tepa.modify <| \m -> { m | page = PageLogin newLayer }
+            , PageLogin.procedure key url
+                |> Tepa.onLayer
+                    { get =
+                        \m ->
+                            case m.page of
+                                PageLogin layer ->
+                                    Just layer
+
+                                _ ->
+                                    Nothing
+                    , set =
+                        \layer m ->
+                            { m | page = PageLogin layer }
+                    }
+            ]
+
+Here, `modify` is called just before `onLayer`, and the `bind` guarantees that the `onLayer` request is generated based on the result of `modify`, even if there is another Promise to be executed in concurrently.
+
+If the target layer disappears during the execution of a given Promise, the rest of the process is aborted, and if the result of the `get` parameter is `Nothing` at the time `onLayer` is called, the process is also aborted there.
+
 -}
-onLayer : Pointer m m1 -> Promise m1 e a -> Promise m e a
-onLayer =
-    Core.onLayer
+onLayer :
+    { get : m -> Maybe (Layer m1)
+    , set : Layer m1 -> m -> m
+    }
+    -> Promise m1 e a
+    -> Promise m e a
+onLayer param prom1 =
+    bindAndThen currentState <|
+        \state ->
+            case param.get state of
+                Nothing ->
+                    Core.cancel
+
+                Just (Core.Layer lid _) ->
+                    Core.onLayer
+                        { get =
+                            \m ->
+                                param.get m
+                                    |> Maybe.andThen
+                                        (\(Core.Layer lid_ m1) ->
+                                            if lid == lid_ then
+                                                Just m1
+
+                                            else
+                                                Nothing
+                                        )
+                        , set =
+                            \m1 ->
+                                param.set (Core.Layer lid m1)
+                        , layerId = Core.ThisLayerId lid
+                        }
+                        prom1
 
 
 {-| _Layer_ is a concept that deals with a part of the application. It can successfully represent elements that are created or removed during the application runtime. Especially, it matches well with Pages in SPAs. The application itself is also a Layer.
 -}
 type alias Layer m =
     Core.Layer m
-
-
-{-| -}
-isPointedBy : Pointer m m1 -> Layer m1 -> Bool
-isPointedBy =
-    Core.isPointedBy
-
-
-{-| -}
-type alias Pointer m m1 =
-    Core.Pointer m m1
 
 
 
@@ -506,13 +544,6 @@ withMaybe ma f =
             sequence <| f a
 
 
-{-| -}
-sequenceOnLayer : Pointer m m1 -> List (Promise m1 e Void) -> Promise m e Void
-sequenceOnLayer p proms =
-    sequence proms
-        |> onLayer p
-
-
 {-| Run callback function when the Layer received an event; if the callback function returns empty List, it awaits another event again.
 -}
 withLayerEvent : (e -> List (Promise m e Void)) -> Promise m e Void
@@ -685,172 +716,16 @@ portRequest =
 -- Layer
 
 
-{-| Procedure style of `maybeLayer`.
-
-    putMaybeLayer param =
-        bind (maybeLayer param)
-
--}
-putMaybeLayer :
-    { get : m -> Maybe (Layer m1)
-    , set : Maybe (Layer m1) -> m -> m
-    , init : m1
-    }
-    -> (Pointer m m1 -> List (Promise m e Void))
-    -> Promise m e Void
-putMaybeLayer param =
-    bind (maybeLayer param)
-
-
 {-| -}
-maybeLayer :
-    { get : m -> Maybe (Layer m1)
-    , set : Maybe (Layer m1) -> m -> m
-    , init : m1
-    }
-    -> Promise m e (Pointer m m1)
-maybeLayer o =
-    newLayer
-        { get =
-            \getter m ->
-                o.get m
-                    |> Maybe.andThen getter
-        , modify =
-            \modifier m ->
-                o.get m
-                    |> Maybe.map modifier
-                    |> (\ml1 -> o.set ml1 m)
-        , init = o.init
-        }
-        |> andThen
-            (\( layer, pointer ) ->
-                (modify <| o.set (Just layer))
-                    |> map (\_ -> pointer)
-            )
-
-
-{-| Procedure style of `variantLayer`.
-
-    putVariantLayer param =
-        bind (variantLayer param)
-
--}
-putVariantLayer :
-    { get : m -> v
-    , set : v -> m -> m
-    , wrap : Layer m1 -> v
-    , unwrap : v -> Maybe (Layer m1)
-    , init : m1
-    }
-    -> (Pointer m m1 -> List (Promise m e Void))
-    -> Promise m e Void
-putVariantLayer param =
-    bind (variantLayer param)
-
-
-{-| -}
-variantLayer :
-    { get : m -> v
-    , set : v -> m -> m
-    , wrap : Layer m1 -> v
-    , unwrap : v -> Maybe (Layer m1)
-    , init : m1
-    }
-    -> Promise m e (Pointer m m1)
-variantLayer o =
-    newLayer
-        { get =
-            \getter m ->
-                o.get m
-                    |> o.unwrap
-                    |> Maybe.andThen getter
-        , modify =
-            \modifier m ->
-                case o.get m |> o.unwrap of
-                    Nothing ->
-                        m
-
-                    Just l1 ->
-                        o.set (o.wrap <| modifier l1) m
-        , init = o.init
-        }
-        |> andThen
-            (\( layer, pointer ) ->
-                (modify <| o.set (o.wrap layer))
-                    |> map (\_ -> pointer)
-            )
-
-
-{-| Procedure style of `newListItemLayer`.
-
-    putNewListItemLayer param init =
-        bind (newListItemLayer param)
-
--}
-putNewListItemLayer :
-    { get : m -> List (Layer m1)
-    , set : List (Layer m1) -> m -> m
-    , init : m1
-    }
-    -> (( Layer m1, Pointer m m1 ) -> List (Promise m e Void))
-    -> Promise m e Void
-putNewListItemLayer param =
-    bind (newListItemLayer param)
-
-
-{-| -}
-newListItemLayer :
-    { get : m -> List (Layer m1)
-    , set : List (Layer m1) -> m -> m
-    , init : m1
-    }
-    -> Promise m e ( Layer m1, Pointer m m1 )
-newListItemLayer o =
-    newLayer
-        { get =
-            \getter m ->
-                o.get m
-                    |> List.filterMap getter
-                    |> List.head
-        , modify =
-            \modifier m ->
-                o.get m
-                    |> List.map modifier
-                    |> (\l1s -> o.set l1s m)
-        , init = o.init
-        }
-
-
-{-| Procedure style of `maybeLayer`.
-
-    putNewLayer param =
-        bind (newLayer param)
-
--}
-putNewLayer :
-    { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
-    , modify : (Layer m1 -> Layer m1) -> m -> m
-    , init : m1
-    }
-    -> (( Layer m1, Pointer m m1 ) -> List (Promise m e Void))
-    -> Promise m e Void
-putNewLayer param =
-    bind (newLayer param)
-
-
-{-| -}
-newLayer :
-    { get : (Layer m1 -> Maybe m1) -> m -> Maybe m1
-    , modify : (Layer m1 -> Layer m1) -> m -> m
-    , init : m1
-    }
-    -> Promise m e ( Layer m1, Pointer m m1 )
-newLayer param =
+newLayer : m1 -> Promise m e (Layer m1)
+newLayer =
     Core.newLayer
-        { get = param.get
-        , modify = param.modify
-        }
-        param.init
+
+
+{-| -}
+isOnSameLayer : Layer m -> Layer m -> Bool
+isOnSameLayer (Core.Layer lid1 _) (Core.Layer lid2 _) =
+    lid1 == lid2
 
 
 {-| -}

@@ -241,10 +241,6 @@ type alias Promise a =
     Tepa.Promise Memory Event a
 
 
-type alias Pointer m =
-    Tepa.Pointer Memory m
-
-
 type alias Bucket =
     { key : NavKey
     , requestPath : AppUrl

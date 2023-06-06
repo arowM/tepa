@@ -153,39 +153,44 @@ pushError =
 pushItem : MessageType -> String -> Promise Memory Event Closed
 pushItem type_ str =
     Tepa.map (\_ -> Closed) <|
-        Tepa.putNewLayer
-            { get =
-                \getter (Memory m) ->
-                    List.filterMap getter m.items
-                        |> List.head
-            , modify =
-                \modifier (Memory m) ->
-                    Memory
-                        { m
-                            | items = List.map modifier m.items
-                        }
-            , init =
+        Tepa.bind
+            (Tepa.newLayer
                 { isHidden = False
                 , messageType = type_
                 , content = str
                 }
-            }
+            )
         <|
-            \( newItemLayer, itemPointer ) ->
+            \newItem ->
                 [ Tepa.modify <|
                     \(Memory m) ->
-                        Memory { m | items = m.items ++ [ newItemLayer ] }
+                        Memory { m | items = m.items ++ [ newItem ] }
                 , toastItemProcedure
-                    |> Tepa.onLayer itemPointer
+                    |> Tepa.onLayer
+                        { get =
+                            \(Memory m) ->
+                                List.filter (Tepa.isOnSameLayer newItem) m.items
+                                    |> List.head
+                        , set =
+                            \new (Memory m) ->
+                                Memory
+                                    { m
+                                        | items =
+                                            List.map
+                                                (\item ->
+                                                    if Tepa.isOnSameLayer newItem item then
+                                                        new
+
+                                                    else
+                                                        item
+                                                )
+                                                m.items
+                                    }
+                        }
                 , Tepa.modify <|
                     \(Memory m) ->
                         Memory
-                            { m
-                                | items =
-                                    List.filter
-                                        (not << Tepa.isPointedBy itemPointer)
-                                        m.items
-                            }
+                            { m | items = List.filter (not << Tepa.isOnSameLayer newItem) m.items }
                 ]
 
 

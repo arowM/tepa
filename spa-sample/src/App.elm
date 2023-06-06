@@ -153,10 +153,6 @@ type alias Promise a =
     Tepa.Promise Memory Event a
 
 
-type alias Pointer m =
-    Tepa.Pointer Memory m
-
-
 
 -- -- Initialization
 
@@ -248,56 +244,73 @@ pageProcedure url key msession =
         Just [ "login" ] ->
             -- Users can access login page without sessions.
             Tepa.bind
-                (PageLogin.init msession)
+                (PageLogin.init msession
+                    |> Tepa.andThen Tepa.newLayer
+                )
             <|
-                \initState ->
-                    [ Tepa.putVariantLayer
-                        { get = .page
-                        , set = \v m -> { m | page = v }
-                        , wrap = PageLogin
-                        , unwrap =
-                            \m ->
-                                case m of
-                                    PageLogin layer ->
-                                        Just layer
+                \newLayer ->
+                    [ Tepa.modify <| \m -> { m | page = PageLogin newLayer }
+                    , PageLogin.procedure key url
+                        |> Tepa.onLayer
+                            { get =
+                                \m ->
+                                    case m.page of
+                                        PageLogin layer ->
+                                            Just layer
 
-                                    _ ->
-                                        Nothing
-                        , init = initState
-                        }
-                      <|
-                        \pointer ->
-                            [ PageLogin.procedure key url
-                                |> runPageLoginPromise pointer
-                            ]
+                                        _ ->
+                                            Nothing
+                            , set =
+                                \layer m ->
+                                    { m | page = PageLogin layer }
+                            }
+                        |> Tepa.liftEvent
+                            { wrap = PageLoginEvent
+                            , unwrap =
+                                \e ->
+                                    case e of
+                                        PageLoginEvent e1 ->
+                                            Just e1
+
+                                        _ ->
+                                            Nothing
+                            }
                     ]
 
         Just [] ->
             Tepa.bind
                 (requireSession
                     |> Tepa.andThen PageHome.init
+                    |> Tepa.andThen Tepa.newLayer
                 )
             <|
-                \initState ->
-                    [ Tepa.putVariantLayer
-                        { get = .page
-                        , set = \a m -> { m | page = a }
-                        , wrap = PageHome
-                        , unwrap =
-                            \m ->
-                                case m of
-                                    PageHome a ->
-                                        Just a
+                \newLayer ->
+                    [ Tepa.modify <| \m -> { m | page = PageHome newLayer }
+                    , PageHome.procedure key url
+                        |> Tepa.onLayer
+                            { get =
+                                \m ->
+                                    case m.page of
+                                        PageHome layer ->
+                                            Just layer
 
-                                    _ ->
-                                        Nothing
-                        , init = initState
-                        }
-                      <|
-                        \pointer ->
-                            [ PageHome.procedure key url
-                                |> runPageHomePromise pointer
-                            ]
+                                        _ ->
+                                            Nothing
+                            , set =
+                                \layer m ->
+                                    { m | page = PageHome layer }
+                            }
+                        |> Tepa.liftEvent
+                            { wrap = PageHomeEvent
+                            , unwrap =
+                                \e ->
+                                    case e of
+                                        PageHomeEvent e1 ->
+                                            Just e1
+
+                                        _ ->
+                                            Nothing
+                            }
                     ]
 
         _ ->
@@ -309,44 +322,6 @@ pageProcedure url key msession =
                                 { msession = msession
                                 }
                     }
-
-
-runPageLoginPromise :
-    Pointer PageLogin.Memory
-    -> Tepa.Promise PageLogin.Memory PageLogin.Event a
-    -> Promise a
-runPageLoginPromise pointer prom =
-    Tepa.onLayer pointer prom
-        |> Tepa.liftEvent
-            { wrap = PageLoginEvent
-            , unwrap =
-                \e ->
-                    case e of
-                        PageLoginEvent e1 ->
-                            Just e1
-
-                        _ ->
-                            Nothing
-            }
-
-
-runPageHomePromise :
-    Pointer PageHome.Memory
-    -> Tepa.Promise PageHome.Memory PageHome.Event a
-    -> Promise a
-runPageHomePromise pointer prom =
-    Tepa.onLayer pointer prom
-        |> Tepa.liftEvent
-            { wrap = PageHomeEvent
-            , unwrap =
-                \e ->
-                    case e of
-                        PageHomeEvent e1 ->
-                            Just e1
-
-                        _ ->
-                            Nothing
-            }
 
 
 
