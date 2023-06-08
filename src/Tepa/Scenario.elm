@@ -29,7 +29,6 @@ module Tepa.Scenario exposing
     , loadApp
     , userOperation
     , layerEvent
-    , listenerEvent
     , sleep
     , httpResponse
     , httpBytesResponse
@@ -114,7 +113,6 @@ module Tepa.Scenario exposing
 @docs loadApp
 @docs userOperation
 @docs layerEvent
-@docs listenerEvent
 @docs sleep
 
 
@@ -225,7 +223,6 @@ type alias SessionContext m e =
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
     , randomRequests : List ( ( RequestId, LayerId ), Core.RandomRequest ) -- reversed
     , timers : List (Timer e)
-    , listeners : List Listener -- reversed
     , history : History
     }
 
@@ -236,15 +233,6 @@ type alias Timer e =
     { runAfter : Int
     , every : Maybe Int
     , msg : Posix -> Core.Msg e
-    , layerId : LayerId
-    }
-
-
-{-| Manage listen operations.
--}
-type alias Listener =
-    { uniqueName : String
-    , requestId : RequestId
     , layerId : LayerId
     }
 
@@ -1435,127 +1423,6 @@ userOperation (Session session) markup param =
         }
 
 
-{-| Publish an event to the only first Listner specified by its name and query.
-
-Suppose your application has a WebSocket message Listener named "WebSocket message Listener":
-
-    import Json.Encode as JE
-
-    myScenario =
-        [ Debug.todo "After some operations..."
-        , listenerEvent sakuraChanMainSession
-            (textContent "Receive WebSocket message")
-            { layer = "WebSocket message Listener"
-            , event =
-                WebSocketMessage <|
-                    JE.object
-                        [ ( "action", JE.string "connected" )
-                        ]
-            }
-        , Debug.todo "..."
-        ]
-
-If no Layers found for the query, it does nothing and the test passes.
-
--}
-listenerEvent :
-    Session
-    -> Markup
-    ->
-        { layer : Layer m -> Maybe (Layer m1)
-        , name : String
-        , event : event
-        }
-    -> Scenario flags m event
-listenerEvent (Session session) markup param =
-    let
-        description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
-    in
-    Scenario
-        { test =
-            \_ context ->
-                case Dict.get session.uniqueName context.sessions of
-                    Nothing ->
-                        SeqTest.fail description <|
-                            \_ ->
-                                Expect.fail
-                                    "listenerEvent: The application is not active on the session. Use `loadApp` beforehand."
-
-                    Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                SeqTest.pass context
-
-                            Just (Core.Layer thisLid _) ->
-                                sessionContext.listeners
-                                    |> List.filterMap
-                                        (\listener ->
-                                            if listener.layerId == thisLid && listener.uniqueName == param.name then
-                                                Just <|
-                                                    Core.ListenerMsg
-                                                        { requestId = listener.requestId
-                                                        , event = param.event
-                                                        }
-
-                                            else
-                                                Nothing
-                                        )
-                                    |> List.head
-                                    |> Maybe.map
-                                        (\msg ->
-                                            let
-                                                resUpdate =
-                                                    update
-                                                        { currentTime = context.currentTime
-                                                        , zone = context.zone
-                                                        }
-                                                        msg
-                                                        sessionContext
-                                            in
-                                            case resUpdate of
-                                                SessionExpired ->
-                                                    SeqTest.pass
-                                                        { context
-                                                            | sessions =
-                                                                Dict.remove session.uniqueName
-                                                                    context.sessions
-                                                        }
-
-                                                SessionUpdateFailed err ->
-                                                    SeqTest.fail description <|
-                                                        \_ -> Expect.fail err
-
-                                                SessionUpdated nextSessionContext ->
-                                                    SeqTest.pass
-                                                        { context
-                                                            | sessions =
-                                                                Dict.insert session.uniqueName
-                                                                    nextSessionContext
-                                                                    context.sessions
-                                                        }
-                                        )
-                                    |> Maybe.withDefault
-                                        (SeqTest.pass context)
-        , markup =
-            \config ->
-                let
-                    markup_ =
-                        config.processListenerEventMarkup
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
-        }
-
-
 {-| Wait for given micro seconds.
 
 It only affects Promises defined in `Tepa.Time`, so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA.
@@ -1684,7 +1551,7 @@ advanceClock config msec context =
 -- Response Simulators
 
 
-{-| Simulate response to the `Tepa.portRequest`.
+{-| Simulate response to the `Tepa.portRequest` or `Tepa.listenPortStream`.
 
 Suppose your application requests to access localStorage via port request named "Port to get page.account.bio":
 
@@ -1709,7 +1576,6 @@ portResponse :
     -> Markup
     ->
         { layer : Layer m -> Maybe (Layer m1)
-        , name : String
         , response : Value -> Maybe Value
         }
     -> Scenario flags m e
@@ -2116,7 +1982,6 @@ toTest o =
                                                 , httpRequests = []
                                                 , randomRequests = []
                                                 , timers = []
-                                                , listeners = []
                                                 , history =
                                                     History.init url
                                                 }
@@ -2202,7 +2067,6 @@ update config msg context =
     , httpRequests = context.httpRequests
     , randomRequests = context.randomRequests
     , timers = context.timers
-    , listeners = context.listeners
     , history = context.history
     }
         |> applyLogs config newState.logs
@@ -2287,7 +2151,7 @@ applyLog config log context =
                 )
                 context
 
-        Core.IssuePortRequest rid lid req ->
+        Core.HandshakePortStream rid lid req ->
             SessionUpdated
                 { context
                     | portRequests =
@@ -2324,19 +2188,6 @@ applyLog config log context =
                 { context
                     | randomRequests =
                         ( ( rid, lid ), req ) :: context.randomRequests
-                }
-
-        Core.AddListener rid lid name ->
-            SessionUpdated
-                { context
-                    | listeners =
-                        { uniqueName = name
-                        , requestId = rid
-                        , layerId = lid
-                        }
-                            :: context.listeners
-
-                    -- reversed
                 }
 
         Core.ResolvePortRequest rid ->
@@ -2393,12 +2244,6 @@ applyLog config log context =
                                 timer.layerId /= lid
                             )
                             context.timers
-                    , listeners =
-                        List.filter
-                            (\listener ->
-                                listener.layerId /= lid
-                            )
-                            context.listeners
                 }
 
         Core.PushPath path ->
@@ -2649,7 +2494,6 @@ buildMarkdown o =
   - processLoadAppMarkup: Processor for `loadApp` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
   - processLayerEventMarkup: Processor for `layerEvent` markup
-  - processListenerEventMarkup: Processor for `listenerEvent` markup
   - processSleepMarkup: Processor for `sleep` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
@@ -2701,10 +2545,6 @@ type alias RenderConfig =
         -> Markup
         -> Markup
     , processLayerEventMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processListenerEventMarkup :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
@@ -2808,7 +2648,6 @@ ja_JP =
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
     , processLayerEventMarkup = prependSessionSystemName
-    , processListenerEventMarkup = prependSessionSystemName
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
@@ -2946,7 +2785,6 @@ en_US =
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
     , processLayerEventMarkup = prependSessionSystemName
-    , processListenerEventMarkup = prependSessionSystemName
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName

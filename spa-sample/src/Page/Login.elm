@@ -380,19 +380,15 @@ submitLoginProcedure bucket =
                                         ]
 
                                     Login.IncorrectIdOrPasswordResponse ->
-                                        [ Tepa.syncAll
-                                            [ Tepa.sequence
-                                                [ modifyLoginForm <|
-                                                    \m ->
-                                                        { m
-                                                            | isBusy = False
-                                                            , incorrectIdOrPass = True
-                                                        }
-                                                , Tepa.lazy <|
-                                                    \_ ->
-                                                        loginFormProcedure bucket
-                                                ]
-                                            ]
+                                        [ modifyLoginForm <|
+                                            \m ->
+                                                { m
+                                                    | isBusy = False
+                                                    , incorrectIdOrPass = True
+                                                }
+                                        , Tepa.lazy <|
+                                            \_ ->
+                                                loginFormProcedure bucket
                                         ]
 
                                     Login.GoodResponse resp ->

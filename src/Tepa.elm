@@ -15,13 +15,13 @@ module Tepa exposing
     , sequence, andThenSequence, none, cancel
     , syncAll
     , bind, bind2, bind3
-    , modify, listen, lazy
+    , modify, lazy
     , when
     , unless
     , withMaybe
     , succeed
     , currentState, layerMemory, layerEvent
-    , portRequest
+    , portRequest, listenPortStream
     , withLayerEvent, listenLayerEvent
     , Layer, onLayer
     , newLayer, isOnSameLayer
@@ -80,7 +80,7 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs sequence, andThenSequence, none, cancel
 @docs syncAll
 @docs bind, bind2, bind3
-@docs modify, listen, lazy
+@docs modify, lazy
 
 
 # Helper Procedures
@@ -94,7 +94,7 @@ Promises that returns `Void` are called as a _Procedure_.
 
 @docs succeed
 @docs currentState, layerMemory, layerEvent
-@docs portRequest
+@docs portRequest, listenPortStream
 
 
 # Helper Promises
@@ -463,47 +463,6 @@ unsafePush =
     Core.push
 
 
-{-| Construct a Promise that start Subscription and listen to its Events till the Layer expires.
-
-TODO Browser.Events
-
-Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
-
-    myProcedures : List (Promise Memory Event Void)
-    myProcedures =
-        [ newLayer myLayerPosition initValue
-            |> andThen
-                (\(myLayer, myPointer) ->
-                    syncAll
-                        [ listen
-                            { "tick-listener"
-                            , subscription = \_ ->
-                                Time.every 1000 Tick
-                            , handler = onEveryTick
-                            }
-                        , Debug.todo "Main Promise"
-                        ]
-                )
-
-    onEveryTick : Event -> List (Promise c m e Void)
-    onEveryTick event =
-        case event of
-            Tick time ->
-                Debug.todo "Sequence of Promises"
-            _ ->
-                []
-
--}
-listen :
-    { name : String
-    , subscription : m -> Sub e
-    , handler : e -> List (Promise m e Void)
-    }
-    -> Promise m e Void
-listen =
-    Core.listen
-
-
 {-| -}
 lazy : (() -> Promise m e Void) -> Promise m e Void
 lazy =
@@ -700,8 +659,7 @@ In Elm side:
 
 -}
 portRequest :
-    { name : String
-    , ports :
+    { ports :
         { request : Value -> Cmd (Msg e)
         , response : (Value -> Msg e) -> Sub (Msg e)
         }
@@ -710,6 +668,29 @@ portRequest :
     -> Promise m e Value
 portRequest =
     Core.portRequest
+
+
+{-| Similar to `portRequest`, but `listenPortStream` can receive many responses.
+Say you have WebSocket API endpoint.
+
+    TODO some sample codes
+
+Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer. If you call `listenPortStream` in recursive Promise, it spawns listeners many times!
+
+    TODO some sample codes
+
+-}
+listenPortStream :
+    { ports :
+        { request : Value -> Cmd (Msg e)
+        , response : (Value -> Msg e) -> Sub (Msg e)
+        }
+    , requestBody : Value
+    }
+    -> (Value -> List (Promise m e Void))
+    -> Promise m e Void
+listenPortStream =
+    Core.listenPortStream
 
 
 

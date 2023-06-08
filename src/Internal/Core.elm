@@ -12,7 +12,7 @@ module Internal.Core exposing
     , liftPromiseEvent
     , liftPromiseMemory
     , Pointer_
-    , portRequest
+    , portRequest, listenPortStream
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
     , now, here
@@ -22,7 +22,7 @@ module Internal.Core exposing
     , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
     , none, sequence, concurrent
     , Void, void
-    , modify, push, currentState, cancel, lazy, listen
+    , modify, push, currentState, cancel, lazy
     , sleep, listenTimeEvery, listenLayerEvent, listenMsg
     , load, reload
     , RandomValue(..), RandomRequest(..), isRequestForSpec
@@ -59,7 +59,7 @@ module Internal.Core exposing
 @docs liftPromiseEvent
 @docs liftPromiseMemory
 @docs Pointer_
-@docs portRequest
+@docs portRequest, listenPortStream
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
 @docs now, here
@@ -73,7 +73,7 @@ module Internal.Core exposing
 # Primitive Procedures
 
 @docs Void, void
-@docs modify, push, currentState, cancel, lazy, listen
+@docs modify, push, currentState, cancel, lazy
 @docs sleep, listenTimeEvery, listenLayerEvent, listenMsg
 @docs load, reload
 
@@ -203,9 +203,8 @@ type Log
     | RequestCurrentTime RequestId
     | RequestCurrentZone RequestId
     | IssueHttpRequest RequestId LayerId HttpRequest
-    | IssuePortRequest RequestId LayerId Value
+    | HandshakePortStream RequestId LayerId Value
     | IssueRandomRequest RequestId LayerId RandomRequest
-    | AddListener RequestId LayerId String
     | ResolvePortRequest RequestId
     | ResolveHttpRequest RequestId
     | ResolveRandomRequest RequestId
@@ -287,10 +286,6 @@ type Msg event
         { requestId : RequestId
         , zone : Time.Zone
         }
-    | ListenerMsg
-        { requestId : RequestId
-        , event : event
-        }
     | ViewStubMsg
         { event : event
         }
@@ -351,12 +346,6 @@ mapMsg f msg1 =
             PortResponseMsg
                 { requestId = r.requestId
                 , response = r.response
-                }
-
-        ListenerMsg r ->
-            ListenerMsg
-                { requestId = r.requestId
-                , event = f r.event
                 }
 
         HttpResponseMsg r ->
@@ -435,17 +424,6 @@ unwrapMsg f msg1 =
                 { requestId = r.requestId
                 , response = r.response
                 }
-
-        ListenerMsg r ->
-            case f r.event of
-                Nothing ->
-                    NoOp
-
-                Just e ->
-                    ListenerMsg
-                        { requestId = r.requestId
-                        , event = e
-                        }
 
         HttpResponseMsg r ->
             HttpResponseMsg
@@ -1182,13 +1160,16 @@ type alias Pointer_ m m1 =
 
 
 {-| -}
-listen :
-    { name : String
-    , subscription : m -> Sub e
-    , handler : e -> List (Promise m e Void)
+listenPortStream :
+    { ports :
+        { request : Value -> Cmd (Msg e)
+        , response : (Value -> Msg e) -> Sub (Msg e)
+        }
+    , requestBody : Value
     }
+    -> (Value -> List (Promise m e Void))
     -> Promise m e Void
-listen { name, subscription, handler } =
+listenPortStream o handler =
     Promise <|
         \context ->
             let
@@ -1198,34 +1179,20 @@ listen { name, subscription, handler } =
                 (ThisLayerId thisLayerId) =
                     context.thisLayerId
 
-                newContext =
-                    { context
-                        | nextRequestId = RequestId.inc context.nextRequestId
-                        , subs =
-                            (\m ->
-                                Just
-                                    ( myRequestId
-                                    , subscription m
-                                        |> Sub.map toListenerMsg
-                                    )
-                            )
-                                :: context.subs
-                    }
-
-                toListenerMsg e =
-                    ListenerMsg
-                        { requestId = myRequestId
-                        , event = e
-                        }
+                responseDecoder : Decoder ( RequestId, Value )
+                responseDecoder =
+                    JD.map2 Tuple.pair
+                        (JD.field "id" RequestId.decoder)
+                        (JD.field "body" JD.value)
 
                 awaitForever : Msg e -> m -> Promise m e Void
                 awaitForever msg _ =
                     case msg of
-                        ListenerMsg listenerMsg ->
-                            if listenerMsg.requestId == myRequestId then
+                        PortResponseMsg streamMsg ->
+                            if streamMsg.requestId == myRequestId then
                                 concurrent
                                     [ justAwaitPromise awaitForever
-                                    , handler listenerMsg.event
+                                    , handler streamMsg.response
                                         |> sequence
                                     ]
 
@@ -1235,10 +1202,42 @@ listen { name, subscription, handler } =
                         _ ->
                             justAwaitPromise awaitForever
             in
-            { newContext = newContext
-            , realCmds = []
+            { newContext =
+                { context
+                    | nextRequestId = RequestId.inc context.nextRequestId
+                    , subs =
+                        (\_ ->
+                            Just
+                                ( myRequestId
+                                , o.ports.response
+                                    (\rawResponse ->
+                                        case JD.decodeValue responseDecoder rawResponse of
+                                            Err _ ->
+                                                NoOp
+
+                                            Ok ( requestId, body ) ->
+                                                if requestId == myRequestId then
+                                                    PortResponseMsg
+                                                        { requestId = myRequestId
+                                                        , response = body
+                                                        }
+
+                                                else
+                                                    NoOp
+                                    )
+                                )
+                        )
+                            :: context.subs
+                }
+            , realCmds =
+                [ o.ports.request <|
+                    JE.object
+                        [ ( "id", RequestId.toValue myRequestId )
+                        , ( "body", o.requestBody )
+                        ]
+                ]
             , logs =
-                [ AddListener myRequestId thisLayerId name
+                [ HandshakePortStream myRequestId thisLayerId o.requestBody
                 ]
             , state = AwaitMsg awaitForever
             }
@@ -1620,8 +1619,7 @@ processRawHttpResponse resp =
 
 {-| -}
 portRequest :
-    { name : String
-    , ports :
+    { ports :
         { request : Value -> Cmd (Msg e)
         , response : (Value -> Msg e) -> Sub (Msg e)
         }
@@ -1695,7 +1693,7 @@ portRequest o =
                         ]
                 ]
             , logs =
-                [ IssuePortRequest myRequestId thisLayerId o.requestBody
+                [ HandshakePortStream myRequestId thisLayerId o.requestBody
                 ]
             , state = AwaitMsg nextPromise
             }
