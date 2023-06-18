@@ -3,7 +3,7 @@ module Page.Home.EditAccount exposing
     , EditAccount
     , Response(..)
     , GoodResponseBody
-    , Form
+    , keys
     , FormError(..)
     , displayFormError
     , fromForm
@@ -32,7 +32,7 @@ module Page.Home.EditAccount exposing
 
 If you are not familiar with the concept of _form decoding_, see [blog post](https://arow.info/posts/2019/form-decoding/).
 
-@docs Form
+@docs keys
 @docs FormError
 @docs displayFormError
 @docs fromForm
@@ -47,6 +47,7 @@ If you are not familiar with the concept of _form decoding_, see [blog post](htt
 
 -}
 
+import Dict exposing (Dict)
 import Form.Decoder as FD
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
@@ -73,7 +74,7 @@ type alias EditAccount_ =
 
 {-| Request server for editing account.
 -}
-request : EditAccount -> Promise m e Response
+request : EditAccount -> Promise m Response
 request (EditAccount editAccount) =
     Http.post
         { url = endpointUrl
@@ -276,10 +277,13 @@ response rawResponse =
 -- Form decoding
 
 
-{-| Represents current form status, which can be invalid.
+{-| Keys for form elements.
 -}
-type alias Form =
-    { name : String
+keys :
+    { editAccountFormName : String
+    }
+keys =
+    { editAccountFormName = "editAccountFormName"
     }
 
 
@@ -300,31 +304,35 @@ displayFormError error =
 
 {-| Decode form.
 -}
-fromForm : Form -> Result (List FormError) EditAccount
+fromForm : Dict String String -> Result (List FormError) EditAccount
 fromForm form =
     FD.run formDecoder form
 
 
 {-|
 
-    sample1 : Form
-    sample1 =
-        { name = ""
-        }
+    import Dict
 
-    toFormErrors sample1
+    Dict.fromList
+        [ (keys.editAccountFormName, "")
+        ]
+        |> toFormErrors
     --> [ IdRequired ]
 
-    sample2 : Form
-    sample2 =
-        { name = "a"
-        }
+    Dict.fromList
+        [
+        ]
+        |> toFormErrors
+    --> [ IdRequired ]
 
-    toFormErrors sample2
+    Dict.fromList
+        [ (keys.editAccountFormName, "a")
+        ]
+        |> toFormErrors
     --> []
 
 -}
-toFormErrors : Form -> List FormError
+toFormErrors : Dict String String -> List FormError
 toFormErrors form =
     case fromForm form of
         Ok _ ->
@@ -334,14 +342,15 @@ toFormErrors form =
             errs
 
 
-formDecoder : FD.Decoder Form FormError EditAccount
+formDecoder : FD.Decoder (Dict String String) FormError EditAccount
 formDecoder =
     FD.top EditAccount_
-        |> FD.field (FD.lift .name formIdDecoder)
+        |> FD.field (FD.lift (Dict.get keys.editAccountFormName) formIdDecoder)
         |> FD.map EditAccount
 
 
-formIdDecoder : FD.Decoder String FormError String
+formIdDecoder : FD.Decoder (Maybe String) FormError String
 formIdDecoder =
     FD.identity
+        |> FD.map (Maybe.withDefault "")
         |> FD.assert (FD.minLength IdRequired 1)

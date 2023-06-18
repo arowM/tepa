@@ -56,7 +56,7 @@ type alias Posix =
 Block progress on the current procedure for the given number of milliseconds. The JavaScript equivalent of this is `setTimeout` which lets you delay work until later.
 
 -}
-sleep : Int -> Promise m e Void
+sleep : Int -> Promise m Void
 sleep =
     Internal.sleep
 
@@ -66,7 +66,7 @@ sleep =
 Get the POSIX time at the moment when this Promise is evaluated.
 
 -}
-now : Promise m e Posix
+now : Promise m Posix
 now =
     Internal.now
 
@@ -78,8 +78,8 @@ Get the current time periodically at the specified interval in milliseconds (lik
 -}
 every :
     Int
-    -> (Posix -> List (Promise m e Void))
-    -> Promise m e Void
+    -> (Posix -> List (Promise m Void))
+    -> Promise m Void
 every =
     Internal.listenTimeEvery
 
@@ -146,7 +146,7 @@ out what day it is where you are:
     import Tepa exposing (Promise)
     import Tepa.Time as Time
 
-    whatDayIsIt : Promise m e Int
+    whatDayIsIt : Promise m Int
     whatDayIsIt =
         Tepa.suceed Time.toDay
             |> Tepa.sync Time.here
@@ -155,7 +155,7 @@ out what day it is where you are:
 Refer to the `Time.here` documentation for more detailed notes.
 
 -}
-here : Promise m e Zone
+here : Promise m Zone
 here =
     Internal.here
 

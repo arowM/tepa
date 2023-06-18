@@ -1,8 +1,6 @@
 module App exposing
-    ( Event
-    , Memory
+    ( Memory
     , Page(..)
-    , Promise
     , ScenarioSet
     , main
     , props
@@ -11,10 +9,8 @@ module App exposing
 
 {-| Application main.
 
-@docs Event
 @docs Memory
 @docs Page
-@docs Promise
 @docs ScenarioSet
 @docs main
 @docs props
@@ -31,7 +27,7 @@ import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
-import Tepa exposing (Document, Layer, Msg, NavKey, Void)
+import Tepa exposing (Document, Layer, Msg, NavKey, Promise, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -42,13 +38,13 @@ import Tepa.Scenario as Scenario exposing (Scenario)
 
 
 {-| -}
-main : Tepa.Program Value Memory Event
+main : Tepa.Program Value Memory
 main =
     Tepa.application props
 
 
 {-| -}
-props : Tepa.ApplicationProps Value Memory Event
+props : Tepa.ApplicationProps Value Memory
 props =
     { init = init
     , procedure = procedure
@@ -92,13 +88,13 @@ type Page
 -- View
 
 
-view : Layer Memory -> Document (Msg Event)
+view : Layer Memory -> Document Msg
 view =
     Tepa.layerDocument <|
-        \memory ->
+        \{ state } ->
             { title = "Sample App"
             , body =
-                [ case memory.page of
+                [ case state.page of
                     PageLoading ->
                         pageLoadingView
 
@@ -107,11 +103,9 @@ view =
 
                     PageLogin pageLogin ->
                         PageLogin.view pageLogin
-                            |> Html.map (Tepa.mapMsg PageLoginEvent)
 
                     PageHome pageHome ->
                         PageHome.view pageHome
-                            |> Html.map (Tepa.mapMsg PageHomeEvent)
                 ]
             }
 
@@ -136,34 +130,16 @@ pageNotFoundView =
 
 
 -- Procedures
-
-
-{-| -}
-type Event
-    = PageLoginEvent PageLogin.Event
-    | PageHomeEvent PageHome.Event
-
-
-
--- | PageUsersEvent PageUsers.Event
-
-
-{-| -}
-type alias Promise a =
-    Tepa.Promise Memory Event a
-
-
-
 -- -- Initialization
 
 
 {-| -}
-procedure : Value -> AppUrl -> NavKey -> Promise Void
+procedure : Value -> AppUrl -> NavKey -> Promise Memory Void
 procedure _ url key =
     pageProcedure url key Nothing
 
 
-onUrlChange : flags -> AppUrl -> NavKey -> Promise Void
+onUrlChange : flags -> AppUrl -> NavKey -> Promise Memory Void
 onUrlChange _ newUrl key =
     Tepa.bind Tepa.currentState <|
         \state ->
@@ -179,17 +155,17 @@ onUrlChange _ newUrl key =
                     ]
 
                 PageLogin layer ->
-                    [ Tepa.bind (Tepa.layerMemory layer) <|
+                    [ Tepa.bind (Tepa.layerState layer) <|
                         \m1 -> [ pageProcedure newUrl key m1.msession ]
                     ]
 
                 PageHome layer ->
-                    [ Tepa.bind (Tepa.layerMemory layer) <|
+                    [ Tepa.bind (Tepa.layerState layer) <|
                         \m1 -> [ pageProcedure newUrl key (Just m1.session) ]
                     ]
 
 
-onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Void
+onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Memory Void
 onUrlRequest _ urlRequest key =
     case urlRequest of
         Tepa.InternalPath url ->
@@ -207,14 +183,14 @@ pageProcedure :
     AppUrl
     -> NavKey
     -> Maybe Session
-    -> Promise Void
+    -> Promise Memory Void
 pageProcedure url key msession =
     let
-        requireSession : Promise Session
-        requireSession =
+        withSession : (Session -> Promise Memory Void) -> Promise Memory Void
+        withSession action =
             case msession of
                 Just session ->
-                    Tepa.succeed session
+                    action session
 
                 Nothing ->
                     -- Check if the user is already logged in.
@@ -222,10 +198,10 @@ pageProcedure url key msession =
                         \response ->
                             case response of
                                 FetchProfile.GoodResponse resp ->
-                                    Tepa.succeed resp
+                                    action resp
 
                                 _ ->
-                                    Nav.redirectPath key
+                                    Nav.pushPath key
                                         { path =
                                             [ Path.prefix
                                             , "login"
@@ -264,54 +240,35 @@ pageProcedure url key msession =
                                 \layer m ->
                                     { m | page = PageLogin layer }
                             }
-                        |> Tepa.liftEvent
-                            { wrap = PageLoginEvent
-                            , unwrap =
-                                \e ->
-                                    case e of
-                                        PageLoginEvent e1 ->
-                                            Just e1
-
-                                        _ ->
-                                            Nothing
-                            }
+                        |> Tepa.void
                     ]
 
         Just [] ->
-            Tepa.bind
-                (requireSession
-                    |> Tepa.andThen PageHome.init
-                    |> Tepa.andThen Tepa.newLayer
-                )
-            <|
-                \newLayer ->
-                    [ Tepa.modify <| \m -> { m | page = PageHome newLayer }
-                    , PageHome.procedure key url
-                        |> Tepa.onLayer
-                            { get =
-                                \m ->
-                                    case m.page of
-                                        PageHome layer ->
-                                            Just layer
+            withSession <|
+                \session ->
+                    Tepa.bind
+                        (PageHome.init session
+                            |> Tepa.andThen Tepa.newLayer
+                        )
+                    <|
+                        \newLayer ->
+                            [ Tepa.modify <| \m -> { m | page = PageHome newLayer }
+                            , PageHome.procedure key url
+                                |> Tepa.onLayer
+                                    { get =
+                                        \m ->
+                                            case m.page of
+                                                PageHome layer ->
+                                                    Just layer
 
-                                        _ ->
-                                            Nothing
-                            , set =
-                                \layer m ->
-                                    { m | page = PageHome layer }
-                            }
-                        |> Tepa.liftEvent
-                            { wrap = PageHomeEvent
-                            , unwrap =
-                                \e ->
-                                    case e of
-                                        PageHomeEvent e1 ->
-                                            Just e1
-
-                                        _ ->
-                                            Nothing
-                            }
-                    ]
+                                                _ ->
+                                                    Nothing
+                                    , set =
+                                        \layer m ->
+                                            { m | page = PageHome layer }
+                                    }
+                                |> Tepa.void
+                            ]
 
         _ ->
             Tepa.modify <|
@@ -330,13 +287,13 @@ pageProcedure url key msession =
 
 {-| -}
 type alias ScenarioSet flags =
-    { login : PageLogin.ScenarioSet flags Memory Event
-    , home : PageHome.ScenarioSet flags Memory Event
+    { login : PageLogin.ScenarioSet flags Memory
+    , home : PageHome.ScenarioSet flags Memory
     , app :
         { receiveProfile :
             (() -> Maybe ( Http.Metadata, String ))
             -> Scenario.Markup
-            -> Scenario flags Memory Event
+            -> Scenario flags Memory
         , fetchProfileEndpoint :
             { method : String
             , url : String
@@ -361,7 +318,6 @@ scenario session =
                                 _ ->
                                     Nothing
                         )
-            , wrapEvent = PageLoginEvent
             , session = session
             }
     , home =
@@ -377,7 +333,6 @@ scenario session =
                                 _ ->
                                     Nothing
                         )
-            , wrapEvent = PageHomeEvent
             , session = session
             }
     , app =
@@ -390,7 +345,7 @@ scenario session =
     }
 
 
-receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags Memory Event
+receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags Memory
 receiveProfile session toResponse markup =
     Scenario.httpResponse session
         markup

@@ -58,8 +58,7 @@ config =
     , NoUnused.Variables.rule
     , Simplify.defaults
         |> Simplify.ignoreCaseOfForTypes
-            [ "Widget.Toast.Event"
-            , "Page.Home.EditAccount.FormError"
+            [ "Page.Home.EditAccount.FormError"
             , "Scenario.Msg"
             ]
         |> Simplify.rule

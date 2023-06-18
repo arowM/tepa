@@ -9,7 +9,7 @@ module Scenario exposing
 
 -}
 
-import App exposing (Event, Memory)
+import App exposing (Memory)
 import Browser
 import DebugToJson
 import Dict
@@ -153,7 +153,7 @@ onSakuraChanSecondSession =
 
 
 type alias Section =
-    Scenario.Section Value Memory Event
+    Scenario.Section Value Memory
 
 
 {-| -}

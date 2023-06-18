@@ -52,7 +52,7 @@ To actually get random values, you create a promise with the [`request`](#reques
     import Tepa exposing (Promise)
     import Tepa.Random as Random
 
-    newNumber : Promise m e Int
+    newNumber : Promise m Int
     newNumber =
         Random.request oneToTen
 
@@ -94,7 +94,7 @@ random points:
     pointY =
         Random.int -100 100
 
-    newPoint : Promise m e ( Int, Int )
+    newPoint : Promise m ( Int, Int )
     newPoint =
         Tepa.succeed Tuple.pair
             |> Tepa.sync (Random.request pointX)
@@ -104,7 +104,7 @@ Each time you run the `newPoint` promise, it will resolve to a new 2D point like
 `(57, 18)` or `(-82, 6)`.
 
 -}
-request : Spec a -> Promise m e a
+request : Spec a -> Promise m a
 request spec =
     case spec of
         Core.RandomSpecInt o ->

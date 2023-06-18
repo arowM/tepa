@@ -3,7 +3,7 @@ module Page.Login.Login exposing
     , Login
     , Response(..)
     , GoodResponseBody
-    , Form
+    , keys
     , FormError(..)
     , displayFormError
     , fromForm
@@ -32,7 +32,7 @@ module Page.Login.Login exposing
 
 If you are not familiar with the concept of _form decoding_, see [blog post](https://arow.info/posts/2019/form-decoding/).
 
-@docs Form
+@docs keys
 @docs FormError
 @docs displayFormError
 @docs fromForm
@@ -48,6 +48,7 @@ If you are not familiar with the concept of _form decoding_, see [blog post](htt
 -}
 
 import App.Session as Session exposing (Profile)
+import Dict exposing (Dict)
 import Form.Decoder as FD
 import Json.Decode as JD
 import Json.Decode.Pipeline as JDP
@@ -75,7 +76,7 @@ type alias Login_ =
 
 {-| Request server for login.
 -}
-request : Login -> Promise m e Response
+request : Login -> Promise m Response
 request (Login login) =
     Http.request
         { method = method
@@ -296,11 +297,15 @@ response rawResponse =
 -- Form decoding
 
 
-{-| Represents current form status, which can be invalid.
+{-| Keys for form elements.
 -}
-type alias Form =
-    { id : String
-    , pass : String
+keys :
+    { loginFormId : String
+    , loginFormPassword : String
+    }
+keys =
+    { loginFormId = "loginFormId"
+    , loginFormPassword = "loginFormPassword"
     }
 
 
@@ -329,42 +334,44 @@ displayFormError error =
 
 {-| Decode form.
 -}
-fromForm : Form -> Result (List FormError) Login
-fromForm form =
-    FD.run formDecoder form
+fromForm : Dict String String -> Result (List FormError) Login
+fromForm =
+    FD.run formDecoder
 
 
 {-|
 
-    sample1 : Form
-    sample1 =
-        { id = ""
-        , pass = "foo"
-        }
+    import Dict
 
-    toFormErrors sample1
+    Dict.fromList
+        [ (keys.loginFormPassword, "foo")
+        ]
+        |> toFormErrors
     --> [ IdRequired ]
 
-    sample2 : Form
-    sample2 =
-        { id = "foo"
-        , pass = ""
-        }
+    Dict.fromList
+        [ (keys.loginFormPassword, "foo")
+        , (keys.loginFormId, "")
+        ]
+        |> toFormErrors
+    --> [ IdRequired ]
 
-    toFormErrors sample2
+    Dict.fromList
+        [ (keys.loginFormId, "foo")
+        , (keys.loginFormPassword, "")
+        ]
+        |> toFormErrors
     --> [ PassRequired ]
 
-    sample3 : Form
-    sample3 =
-        { id = "a"
-        , pass = "2"
-        }
-
-    toFormErrors sample3
+    Dict.fromList
+        [ (keys.loginFormId, "a")
+        , (keys.loginFormPassword, "2")
+        ]
+        |> toFormErrors
     --> []
 
 -}
-toFormErrors : Form -> List FormError
+toFormErrors : Dict String String -> List FormError
 toFormErrors form =
     case fromForm form of
         Ok _ ->
@@ -374,21 +381,23 @@ toFormErrors form =
             errs
 
 
-formDecoder : FD.Decoder Form FormError Login
+formDecoder : FD.Decoder (Dict String String) FormError Login
 formDecoder =
     FD.top Login_
-        |> FD.field (FD.lift .id formIdDecoder)
-        |> FD.field (FD.lift .pass formPassDecoder)
+        |> FD.field (FD.lift (Dict.get keys.loginFormId) formIdDecoder)
+        |> FD.field (FD.lift (Dict.get keys.loginFormPassword) formPassDecoder)
         |> FD.map Login
 
 
-formIdDecoder : FD.Decoder String FormError String
+formIdDecoder : FD.Decoder (Maybe String) FormError String
 formIdDecoder =
     FD.identity
+        |> FD.map (Maybe.withDefault "")
         |> FD.assert (FD.minLength IdRequired 1)
 
 
-formPassDecoder : FD.Decoder String FormError String
+formPassDecoder : FD.Decoder (Maybe String) FormError String
 formPassDecoder =
     FD.identity
+        |> FD.map (Maybe.withDefault "")
         |> FD.assert (FD.minLength PassRequired 1)

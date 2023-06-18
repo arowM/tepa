@@ -1,6 +1,5 @@
 module Tepa.Navigation exposing
     ( pushPath
-    , redirectPath
     , replacePath
     , back
     , forward
@@ -19,7 +18,6 @@ Refer to the `Browser.Navigation` documentation for more detailed notes.
 # Navigate within Page
 
 @docs pushPath
-@docs redirectPath
 @docs replacePath
 @docs back
 @docs forward
@@ -53,7 +51,7 @@ Refer to the `Browser.Navigation.pushUrl` documentation for more detailed notes.
 pushPath :
     NavKey
     -> AppUrl
-    -> Promise m e Void
+    -> Promise m Void
 pushPath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -74,40 +72,6 @@ pushPath navKey path =
         )
 
 
-{-| Similar to `pushPath`, but also ignore subsequent Promises.
-
-You can use `redirectPath` for pruning:
-
-    import Tepa exposing (Promise, Void)
-    import Tepa.Navigation as Nav
-
-    requireLogin : Promise m e Profile
-    requireLogin =
-        Tepa.bind requestUserProfile <|
-            \response ->
-                case response of
-                    SuccessfulResponse profile ->
-                        Tepa.succeed profile
-
-                    _ ->
-                        Nav.redirectPath loginPage
-
-    onLoad : Promise m e Void
-    onLoad =
-        Tepa.bind requireLogin <|
-            \profile ->
-                Debug.todo "Procedure for only when the user is already logged in."
-
--}
-redirectPath :
-    NavKey
-    -> AppUrl
-    -> Promise m e any
-redirectPath navKey path =
-    pushPath navKey path
-        |> Tepa.andThen (\_ -> Core.cancel)
-
-
 {-| TEPA version of [replaceUrl](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#replaceUrl).
 
 Change the URL path, but do not trigger a page load. You can construct the URL path using [lydell/elm-app-url](https://package.elm-lang.org/packages/lydell/elm-app-url/latest/AppUrl).
@@ -120,7 +84,7 @@ Refer to the `Browser.Navigation.replaceUrl` documentation for more detailed not
 replacePath :
     NavKey
     -> AppUrl
-    -> Promise m e Void
+    -> Promise m Void
 replacePath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -148,7 +112,7 @@ Go back some number of pages. So `back 1` goes back one page, and `back 2` goes 
 Refer to the `Browser.Navigation.back` documentation for more detailed notes.
 
 -}
-back : NavKey -> Int -> Promise m e Void
+back : NavKey -> Int -> Promise m Void
 back navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -175,7 +139,7 @@ Go forward some number of pages. So `forward 1` goes forward one page, and `forw
 Refer to the `Browser.Navigation.back` documentation for more detailed notes.
 
 -}
-forward : NavKey -> Int -> Promise m e Void
+forward : NavKey -> Int -> Promise m Void
 forward navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -200,7 +164,7 @@ forward navKey steps =
 Leave the current page and load the given URL. **This always results in a
 page load**, even if the provided URL is the same as the current one.
 
-    gotoElmWebsite : Promise m e Void
+    gotoElmWebsite : Promise m Void
     gotoElmWebsite =
         load "https://elm-lang.org"
 
@@ -209,7 +173,7 @@ Check out the [`lydell/elm-app-url`][app-url] package for help building URLs.
 [app-url]: /packages/lydell/elm-app-url/latest
 
 -}
-load : String -> Promise m e Void
+load : String -> Promise m Void
 load =
     Core.load
 
@@ -222,7 +186,7 @@ This may grab resources from the browser cache, so use
 if you want to be sure that you are not loading any cached resources.
 
 -}
-reload : Promise m e Void
+reload : Promise m Void
 reload =
     Core.reload False
 
@@ -230,6 +194,6 @@ reload =
 {-| Reload the current page without using the browser cache. **This always
 results in a page load!** It is more common to want [`reload`](#reload).
 -}
-reloadAndSkipCache : Promise m e Void
+reloadAndSkipCache : Promise m Void
 reloadAndSkipCache =
     Core.reload True

@@ -68,7 +68,7 @@ import Tepa exposing (Promise)
     import Tepa exposing (Promise)
     import Tepa.Http as Http
 
-    myProcedures : Promise m e ()
+    myProcedures : Promise m ()
     myProcedures =
         [ Debug.todo "some procedures"
         , Tepa.bind
@@ -98,7 +98,7 @@ the full text of _Public Opinion_ by Walter Lippmann.
 get :
     { url : String
     }
-    -> Promise m e (Response String)
+    -> Promise m (Response String)
 get param =
     request
         { method = "GET"
@@ -116,7 +116,7 @@ some JSON data. It might look like this:
     import Tepa exposing (Promise)
     import Tepa.Http as Http
 
-    myProcedures : Promise m e ()
+    myProcedures : Promise m ()
     myProcedures =
         [ Debug.todo "some procedures"
         , Tepa.bind
@@ -152,7 +152,7 @@ post :
     { url : String
     , requestBody : RequestBody
     }
-    -> Promise m e (Response String)
+    -> Promise m (Response String)
 post param =
     request
         { method = "POST"
@@ -178,7 +178,6 @@ post param =
             Promise
                 c
                 m
-                e
                 (Result
                     Http.Error
                     ( Http.Metadata, String )
@@ -202,7 +201,7 @@ request :
     , requestBody : RequestBody
     , timeout : Maybe Int
     }
-    -> Promise m e (Response String)
+    -> Promise m (Response String)
 request param =
     Core.httpRequest
         { method = param.method
@@ -244,7 +243,7 @@ bytesRequest :
     , requestBody : RequestBody
     , timeout : Maybe Int
     }
-    -> Promise m e (Response Bytes)
+    -> Promise m (Response Bytes)
 bytesRequest param =
     Core.httpBytesRequest
         { method = param.method

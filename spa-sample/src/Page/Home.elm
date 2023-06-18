@@ -1,8 +1,6 @@
 module Page.Home exposing
-    ( Event
-    , Memory
+    ( Memory
     , ClockMemory
-    , Promise
     , ScenarioProps
     , ScenarioSet
     , init
@@ -13,10 +11,8 @@ module Page.Home exposing
 
 {-| Home page.
 
-@docs Event
 @docs Memory
 @docs ClockMemory
-@docs Promise
 @docs ScenarioProps
 @docs ScenarioSet
 @docs init
@@ -33,14 +29,15 @@ import Dict
 import Expect
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
-import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
-import Tepa exposing (Layer, NavKey, Void)
+import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Time as Time exposing (Posix)
+import Test.Html.Event as HtmlEvent
+import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
 import Widget.Toast as Toast
@@ -63,7 +60,7 @@ type alias ClockMemory =
 
 
 {-| -}
-init : Session -> Tepa.Promise m e Memory
+init : Session -> Promise m Memory
 init session =
     Tepa.succeed
         (\toast now zone ->
@@ -73,7 +70,14 @@ init session =
                 { currentTime = now
                 , zone = zone
                 }
-            , editAccountForm = initEditAccountForm session
+            , editAccountForm =
+                { isBusy = False
+
+                -- Do not show errors initially to avoid bothering
+                -- the user with "Input required" errors
+                -- when they has not yet entered the information.
+                , showError = False
+                }
             }
         )
         |> Tepa.sync Toast.init
@@ -81,30 +85,19 @@ init session =
         |> Tepa.sync Time.here
 
 
-{-| -}
-type Event
-    = ToastEvent Toast.Event
-    | ChangeEditAccountFormAccountId String
-    | ClickSubmitEditAccount
-
-
 
 -- View
-
-
-type alias Msg =
-    Tepa.Msg Event
 
 
 {-| -}
 view : Layer Memory -> Html Msg
 view =
     Tepa.layerView <|
-        \state ->
+        \context ->
             Html.div
                 [ localClass "page"
                 ]
-                [ clockView state.clock
+                [ clockView (Tepa.mapViewContext .clock context)
                 , Html.div
                     [ localClass "greeting"
                     ]
@@ -116,7 +109,7 @@ view =
                     , Html.span
                         [ localClass "greeting_name"
                         ]
-                        [ state.session.profile.name
+                        [ context.state.session.profile.name
                             |> Maybe.withDefault "(Unknown)"
                             |> Html.text
                         ]
@@ -126,7 +119,7 @@ view =
                         [ Html.text "!"
                         ]
                     ]
-                , editAccountFormView state.editAccountForm
+                , editAccountFormView (Tepa.mapViewContext .editAccountForm context)
                 , Html.div
                     [ localClass "dashboard_links"
                     ]
@@ -146,13 +139,13 @@ view =
                         [ Html.text "Users"
                         ]
                     ]
-                , Toast.view state.toast
-                    |> Html.map (Tepa.mapMsg ToastEvent)
+                , Toast.view
+                    (Tepa.mapViewContext .toast context)
                 ]
 
 
-clockView : ClockMemory -> Html Msg
-clockView state =
+clockView : ViewContext ClockMemory -> Html Msg
+clockView { state } =
     Html.div
         [ localClass "clock"
         ]
@@ -226,31 +219,16 @@ formatTime zone time =
 
 
 type alias EditAccountFormMemory =
-    { form : EditAccount.Form
-    , isBusy : Bool
+    { isBusy : Bool
     , showError : Bool
     }
 
 
-initEditAccountForm : Session -> EditAccountFormMemory
-initEditAccountForm session =
-    { form =
-        { name = Maybe.withDefault "" session.profile.name
-        }
-    , isBusy = False
-
-    -- Do not show errors initially to avoid bothering
-    -- the user with "Input required" errors
-    -- when they has not yet entered the information.
-    , showError = False
-    }
-
-
-editAccountFormView : EditAccountFormMemory -> Html Msg
-editAccountFormView state =
+editAccountFormView : ViewContext EditAccountFormMemory -> Html Msg
+editAccountFormView { state, setKey, values } =
     let
         errors =
-            EditAccount.toFormErrors state.form
+            EditAccount.toFormErrors values
     in
     Html.div
         [ localClass "editAccountForm"
@@ -258,29 +236,17 @@ editAccountFormView state =
             (state.showError && not (List.isEmpty errors))
         ]
         [ Html.node "label"
-            [ localClass "editAccountForm_label-id"
+            [ localClass "editAccountForm_id_label"
             ]
             [ Html.text "New name:"
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
-                , Mixin.attribute "value" state.form.name
                 , Mixin.disabled state.isBusy
-                , Events.onChange ChangeEditAccountFormAccountId
-                    |> Tepa.eventMixin
+                , localClass "editAccountForm_id_input"
+                , setKey EditAccount.keys.editAccountFormName
+                    |> Mixin.fromAttributes
                 ]
                 []
-            ]
-        , Html.div
-            [ localClass "editAccountForm_buttonGroup"
-            ]
-            [ Html.node "button"
-                [ localClass "editAccountForm_buttonGroup_button-submit"
-                , Mixin.disabled state.isBusy
-                , Events.onClick ClickSubmitEditAccount
-                    |> Tepa.eventMixin
-                ]
-                [ Html.text "Save"
-                ]
             ]
         , if state.showError && List.length errors > 0 then
             Html.div
@@ -299,16 +265,27 @@ editAccountFormView state =
 
           else
             Html.text ""
+        , Html.node "button"
+            [ localClass "editAccountForm_saveButton"
+            , Mixin.disabled state.isBusy
+            , setKey keys.editAccountFormSaveButton
+                |> Mixin.fromAttributes
+            ]
+            [ Html.text "Save"
+            ]
         ]
+
+
+keys :
+    { editAccountFormSaveButton : String
+    }
+keys =
+    { editAccountFormSaveButton = "editAccountFormSaveButton"
+    }
 
 
 
 -- Procedures
-
-
-{-| -}
-type alias Promise a =
-    Tepa.Promise Memory Event a
 
 
 type alias Bucket =
@@ -322,7 +299,7 @@ type alias Bucket =
 
 
 {-| -}
-procedure : NavKey -> AppUrl -> Promise Void
+procedure : NavKey -> AppUrl -> Promise Memory Void
 procedure key url =
     let
         bucket =
@@ -333,11 +310,16 @@ procedure key url =
     -- Main Procedures
     Tepa.syncAll
         [ clockProcedure
-        , editAccountFormProcedure bucket
+        , Tepa.bind Tepa.currentState <|
+            \{ session } ->
+                [ Tepa.setValue EditAccount.keys.editAccountFormName <|
+                    Maybe.withDefault "" session.profile.name
+                , editAccountFormProcedure bucket
+                ]
         ]
 
 
-clockProcedure : Promise Void
+clockProcedure : Promise Memory Void
 clockProcedure =
     let
         modifyClock f =
@@ -352,42 +334,18 @@ clockProcedure =
             ]
 
 
-editAccountFormProcedure : Bucket -> Promise Void
+editAccountFormProcedure : Bucket -> Promise Memory Void
 editAccountFormProcedure bucket =
-    let
-        modifyForm f =
-            Tepa.modify <|
-                \m ->
-                    { m
-                        | editAccountForm =
-                            let
-                                editAccountForm =
-                                    m.editAccountForm
-                            in
-                            { editAccountForm
-                                | form = f editAccountForm.form
-                            }
-                    }
-    in
-    Tepa.withLayerEvent <|
-        \e ->
-            case e of
-                ChangeEditAccountFormAccountId str ->
-                    [ modifyForm <|
-                        \m -> { m | name = str }
-                    , Tepa.lazy <|
-                        \_ -> editAccountFormProcedure bucket
-                    ]
-
-                ClickSubmitEditAccount ->
-                    [ Tepa.lazy <| \_ -> submitAccountProcedure bucket
-                    ]
-
-                _ ->
-                    []
+    Tepa.sequence
+        [ Tepa.awaitViewEvent
+            { key = keys.editAccountFormSaveButton
+            , type_ = "click"
+            }
+        , Tepa.lazy <| \_ -> submitAccountProcedure bucket
+        ]
 
 
-submitAccountProcedure : Bucket -> Promise Void
+submitAccountProcedure : Bucket -> Promise Memory Void
 submitAccountProcedure bucket =
     let
         modifyEditAccountForm f =
@@ -400,9 +358,9 @@ submitAccountProcedure bucket =
     Tepa.sequence
         [ modifyEditAccountForm <|
             \m -> { m | isBusy = True }
-        , Tepa.bind Tepa.currentState <|
-            \curr ->
-                case EditAccount.fromForm curr.editAccountForm.form of
+        , Tepa.bind Tepa.getValues <|
+            \form ->
+                case EditAccount.fromForm form of
                     Err _ ->
                         [ modifyEditAccountForm <|
                             \m ->
@@ -495,25 +453,14 @@ submitAccountProcedure bucket =
 
 
 runToastPromise :
-    Tepa.Promise Toast.Memory Toast.Event a
-    -> Promise a
+    Promise Toast.Memory a
+    -> Promise Memory a
 runToastPromise prom =
     Tepa.liftMemory
         { get = .toast
         , set = \toast m -> { m | toast = toast }
         }
         prom
-        |> Tepa.liftEvent
-            { wrap = ToastEvent
-            , unwrap =
-                \e ->
-                    case e of
-                        ToastEvent e1 ->
-                            Just e1
-
-                        _ ->
-                            Nothing
-            }
 
 
 
@@ -521,33 +468,33 @@ runToastPromise prom =
 
 
 {-| -}
-type alias ScenarioSet flags m e =
+type alias ScenarioSet flags m =
     { layer : Layer m -> Maybe (Layer Memory)
     , changeEditAccountFormAccountId :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , clickSubmitEditAccount :
-        Scenario.Markup -> Scenario flags m e
+        Scenario.Markup -> Scenario flags m
     , receiveEditAccountResp :
         (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , expectAvailable :
-        Scenario.Markup -> Scenario flags m e
+        Scenario.Markup -> Scenario flags m
     , expectEditAccountFormShowNoErrors :
-        Scenario.Markup -> Scenario flags m e
+        Scenario.Markup -> Scenario flags m
     , expectGreetingMessage :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , expectClockMessage :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , editAccountEndpoint :
         { method : String
         , url : String
@@ -556,15 +503,14 @@ type alias ScenarioSet flags m e =
 
 
 {-| -}
-type alias ScenarioProps m e =
+type alias ScenarioProps m =
     { querySelf : Layer m -> Maybe (Layer Memory)
-    , wrapEvent : Event -> e
     , session : Scenario.Session
     }
 
 
 {-| -}
-scenario : ScenarioProps m e -> ScenarioSet flags m e
+scenario : ScenarioProps m -> ScenarioSet flags m
 scenario props =
     { layer = props.querySelf
     , changeEditAccountFormAccountId = changeEditAccountFormAccountId props
@@ -581,29 +527,33 @@ scenario props =
     }
 
 
-changeEditAccountFormAccountId : ScenarioProps m e -> { value : String } -> Scenario.Markup -> Scenario flags m e
+changeEditAccountFormAccountId : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario flags m
 changeEditAccountFormAccountId props { value } markup =
-    Scenario.layerEvent props.session
+    Scenario.userOperation props.session
         markup
-        { layer = props.querySelf
-        , event =
-            ChangeEditAccountFormAccountId value
-                |> props.wrapEvent
+        { query =
+            Query.find
+                [ localClassSelector "editAccountForm_id_input"
+                ]
+        , operation = HtmlEvent.change value
         }
 
 
-clickSubmitEditAccount : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
+clickSubmitEditAccount : ScenarioProps m -> Scenario.Markup -> Scenario flags m
 clickSubmitEditAccount props markup =
-    Scenario.layerEvent props.session
+    Scenario.userOperation props.session
         markup
-        { layer = props.querySelf
-        , event =
-            ClickSubmitEditAccount
-                |> props.wrapEvent
+        { query =
+            Query.find
+                [ localClassSelector "editAccountForm_saveButton"
+                , Selector.disabled False
+                ]
+        , operation =
+            HtmlEvent.click
         }
 
 
-receiveEditAccountResp : ScenarioProps m e -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags m e
+receiveEditAccountResp : ScenarioProps m -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags m
 receiveEditAccountResp props toResponse markup =
     Scenario.httpResponse props.session
         markup
@@ -623,7 +573,7 @@ receiveEditAccountResp props toResponse markup =
         }
 
 
-expectAvailable : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
+expectAvailable : ScenarioProps m -> Scenario.Markup -> Scenario flags m
 expectAvailable props markup =
     Scenario.expectMemory props.session
         markup
@@ -632,7 +582,7 @@ expectAvailable props markup =
         }
 
 
-expectEditAccountFormShowNoErrors : ScenarioProps m e -> Scenario.Markup -> Scenario flags m e
+expectEditAccountFormShowNoErrors : ScenarioProps m -> Scenario.Markup -> Scenario flags m
 expectEditAccountFormShowNoErrors props markup =
     Scenario.expectAppView props.session
         markup
@@ -650,12 +600,12 @@ expectEditAccountFormShowNoErrors props markup =
 
 
 expectGreetingMessage :
-    ScenarioProps m e
+    ScenarioProps m
     ->
         { value : String
         }
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 expectGreetingMessage props { value } markup =
     Scenario.expectAppView props.session
         markup
@@ -674,12 +624,12 @@ expectGreetingMessage props { value } markup =
 
 
 expectClockMessage :
-    ScenarioProps m e
+    ScenarioProps m
     ->
         { value : String
         }
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 expectClockMessage props { value } markup =
     Scenario.expectAppView props.session
         markup

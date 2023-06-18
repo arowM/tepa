@@ -43,7 +43,7 @@ import Url.Builder as Url
 
 {-| Request server for user profile.
 -}
-request : Promise m e Response
+request : Promise m Response
 request =
     Http.get
         { url = endpointUrl

@@ -7,30 +7,31 @@ module Tepa exposing
     , UrlRequest(..)
     , Promise
     , map
-    , liftEvent, liftMemory
+    , liftMemory
     , orFaster
     , andThen, bindAndThen
     , sync
     , Void, void
-    , sequence, andThenSequence, none, cancel
+    , sequence, andThenSequence, none
     , syncAll
+    , race
     , bind, bind2, bind3
     , modify, lazy
     , when
     , unless
     , withMaybe
     , succeed
-    , currentState, layerMemory, layerEvent
+    , currentState, layerState
     , portRequest, listenPortStream
-    , withLayerEvent, listenLayerEvent
-    , Layer, onLayer
+    , awaitViewEvent, customViewEvent
+    , getValue, getValues, setValue
+    , Layer, onLayer, LayerResult(..)
     , newLayer, isOnSameLayer
-    , layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
+    , ViewContext, mapViewContext, layerView, keyedLayerView, layerDocument
     , update
     , subscriptions
     , init
     , Msg
-    , mapMsg
     , Model
     , onUrlChange
     , onUrlRequest
@@ -62,7 +63,7 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 # Transformers
 
 @docs map
-@docs liftEvent, liftMemory
+@docs liftMemory
 
 
 # Composition
@@ -77,8 +78,9 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 Promises that returns `Void` are called as a _Procedure_.
 
 @docs Void, void
-@docs sequence, andThenSequence, none, cancel
+@docs sequence, andThenSequence, none
 @docs syncAll
+@docs race
 @docs bind, bind2, bind3
 @docs modify, lazy
 
@@ -93,20 +95,17 @@ Promises that returns `Void` are called as a _Procedure_.
 # Primitive Promises
 
 @docs succeed
-@docs currentState, layerMemory, layerEvent
+@docs currentState, layerState
 @docs portRequest, listenPortStream
-
-
-# Helper Promises
-
-@docs withLayerEvent, listenLayerEvent
+@docs awaitViewEvent, customViewEvent
+@docs getValue, getValues, setValue
 
 
 # Layer
 
-@docs Layer, onLayer
+@docs Layer, onLayer, LayerResult
 @docs newLayer, isOnSameLayer
-@docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
+@docs ViewContext, mapViewContext, layerView, keyedLayerView, layerDocument
 
 
 # Connect to TEA app
@@ -115,7 +114,6 @@ Promises that returns `Void` are called as a _Procedure_.
 @docs subscriptions
 @docs init
 @docs Msg
-@docs mapMsg
 @docs Model
 @docs onUrlChange
 @docs onUrlRequest
@@ -129,21 +127,25 @@ Promises that returns `Void` are called as a _Procedure_.
 
 import AppUrl exposing (AppUrl)
 import Browser
+import Dict exposing (Dict)
 import Html exposing (Attribute, Html)
 import Internal.Core as Core
     exposing
         ( Msg(..)
         , Promise(..)
         )
+import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
-import Mixin exposing (Mixin)
 import Url exposing (Url)
 
 
-{-| The Promise represents the eventual completion of an operation and its resulting value. Similar to [Promise in JS](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise).
+{-| The Promise represents the eventual completion of an operation and its resulting value. Similar to [Promise in JavaScript](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise).
+
+The main difference from Promise in JavaScript is that Promise in TEPA does not be rejected. When you represent rejected state, just return `Result` value as its result.
+
 -}
-type alias Promise memory event result =
-    Core.Promise memory event result
+type alias Promise memory result =
+    Core.Promise memory result
 
 
 {-| Build a Promise that is always completed with the given value immediately.
@@ -151,14 +153,14 @@ type alias Promise memory event result =
 This is usefull for building Promise for concurrent operations with `sync`.
 
 -}
-succeed : a -> Promise memory event a
+succeed : a -> Promise memory a
 succeed =
     Core.succeedPromise
 
 
 {-| Transform a resulting value produced by a Promise.
 -}
-map : (a -> b) -> Promise m e a -> Promise m e b
+map : (a -> b) -> Promise m a -> Promise m b
 map =
     Core.mapPromise
 
@@ -169,22 +171,10 @@ liftMemory :
     { get : m0 -> m1
     , set : m1 -> m0 -> m0
     }
-    -> Promise m1 e a
-    -> Promise m0 e a
+    -> Promise m1 a
+    -> Promise m0 a
 liftMemory =
     Core.liftPromiseMemory
-
-
-{-| Transform the Events produced or consumed by a Procedure.
--}
-liftEvent :
-    { wrap : e1 -> e0
-    , unwrap : e0 -> Maybe e1
-    }
-    -> Promise m e1 a
-    -> Promise m e0 a
-liftEvent =
-    Core.liftPromiseEvent
 
 
 {-| Run promise on the specified Layer.
@@ -225,34 +215,31 @@ onLayer :
     { get : m -> Maybe (Layer m1)
     , set : Layer m1 -> m -> m
     }
-    -> Promise m1 e a
-    -> Promise m e a
-onLayer param prom1 =
-    bindAndThen currentState <|
-        \state ->
-            case param.get state of
-                Nothing ->
-                    Core.cancel
+    -> Promise m1 a
+    -> Promise m (LayerResult a)
+onLayer o prom1 =
+    Core.onLayer o prom1
+        |> map fromCoreLayerResult
 
-                Just (Core.Layer lid _) ->
-                    Core.onLayer
-                        { get =
-                            \m ->
-                                param.get m
-                                    |> Maybe.andThen
-                                        (\(Core.Layer lid_ m1) ->
-                                            if lid == lid_ then
-                                                Just m1
 
-                                            else
-                                                Nothing
-                                        )
-                        , set =
-                            \m1 ->
-                                param.set (Core.Layer lid m1)
-                        , layerId = Core.ThisLayerId lid
-                        }
-                        prom1
+fromCoreLayerResult : Core.LayerResult a -> LayerResult a
+fromCoreLayerResult res =
+    case res of
+        Core.LayerOk a ->
+            LayerOk a
+
+        Core.LayerNotExists ->
+            LayerNotExists
+
+        Core.LayerExpired ->
+            LayerExpired
+
+
+{-| -}
+type LayerResult a
+    = LayerOk a
+    | LayerNotExists
+    | LayerExpired
 
 
 {-| _Layer_ is a concept that deals with a part of the application. It can successfully represent elements that are created or removed during the application runtime. Especially, it matches well with Pages in SPAs. The application itself is also a Layer.
@@ -283,14 +270,25 @@ May you want to set timeout on your request:
         Debug.todo ""
 
 -}
-orFaster : Promise m e a -> Promise m e a -> Promise m e a
+orFaster : Promise m a -> Promise m a -> Promise m a
 orFaster =
     Core.andRacePromise
 
 
+{-| -}
+race : List (Promise m Void) -> Promise m Void
+race promises =
+    case promises of
+        [] ->
+            none
+
+        p :: ps ->
+            List.foldl orFaster p ps
+
+
 {-| Build a new Promise that evaluate two Promises sequentially.
 -}
-andThen : (a -> Promise m e b) -> Promise m e a -> Promise m e b
+andThen : (a -> Promise m b) -> Promise m a -> Promise m b
 andThen =
     Core.andThenPromise
 
@@ -304,7 +302,7 @@ You can use `bindAndThen` to bind some Promise result to a variable:
             anotherPromise result
 
 -}
-bindAndThen : Promise m e a -> (a -> Promise m e b) -> Promise m e b
+bindAndThen : Promise m a -> (a -> Promise m b) -> Promise m b
 bindAndThen p f =
     andThen f p
 
@@ -332,7 +330,7 @@ bindAndThen p f =
             |> sync request2
 
 -}
-sync : Promise m e a -> Promise m e (a -> b) -> Promise m e b
+sync : Promise m a -> Promise m (a -> b) -> Promise m b
 sync =
     Core.syncPromise
 
@@ -347,14 +345,14 @@ type alias Void =
 
 
 {-| -}
-void : Promise m e a -> Promise m e Void
+void : Promise m a -> Promise m Void
 void =
     Core.void
 
 
 {-| Concatenate given sequence of Procedures.
 -}
-sequence : List (Promise m e Void) -> Promise m e Void
+sequence : List (Promise m Void) -> Promise m Void
 sequence =
     Core.sequence
 
@@ -365,7 +363,7 @@ sequence =
         andThen (f >> sequence)
 
 -}
-andThenSequence : (a -> List (Promise m e Void)) -> Promise m e a -> Promise m e Void
+andThenSequence : (a -> List (Promise m Void)) -> Promise m a -> Promise m Void
 andThenSequence f =
     andThen (f >> sequence)
 
@@ -380,14 +378,14 @@ You can use `bind` to bind some Promise result to a variable:
             ]
 
 -}
-bind : Promise m e a -> (a -> List (Promise m e Void)) -> Promise m e Void
+bind : Promise m a -> (a -> List (Promise m Void)) -> Promise m Void
 bind promise f =
     andThenSequence f promise
 
 
 {-| Run two Promises concurrently, and bind the results to variables when both are complete.
 -}
-bind2 : Promise m e a -> Promise m e b -> (a -> b -> List (Promise m e Void)) -> Promise m e Void
+bind2 : Promise m a -> Promise m b -> (a -> b -> List (Promise m Void)) -> Promise m Void
 bind2 p1 p2 f =
     succeed Tuple.pair
         |> sync p1
@@ -402,11 +400,11 @@ If you need to bind more Promises, use `sync`.
 
 -}
 bind3 :
-    Promise m e a
-    -> Promise m e b
-    -> Promise m e c
-    -> (a -> b -> c -> List (Promise m e Void))
-    -> Promise m e Void
+    Promise m a
+    -> Promise m b
+    -> Promise m c
+    -> (a -> b -> c -> List (Promise m Void))
+    -> Promise m Void
 bind3 p1 p2 p3 f =
     succeed (\a b c -> ( a, b, c ))
         |> sync p1
@@ -418,21 +416,14 @@ bind3 p1 p2 p3 f =
 
 {-| Procedure that does nothing.
 -}
-none : Promise m e Void
+none : Promise m Void
 none =
     Core.none
 
 
-{-| Cancel all the subsequent Procedures.
--}
-cancel : Promise m e Void
-cancel =
-    Core.cancel
-
-
 {-| Run Procedures concurrently, and await all to be completed.
 -}
-syncAll : List (Promise m e Void) -> Promise m e Void
+syncAll : List (Promise m Void) -> Promise m Void
 syncAll =
     Core.concurrent
 
@@ -442,7 +433,7 @@ syncAll =
 Note that the update operation, passed as the second argument, is performed atomically; it means the state of the Memory is not updated by another process during it is read and written by the `modify`.
 
 -}
-modify : (m -> m) -> Promise m e Void
+modify : (m -> m) -> Promise m Void
 modify =
     Core.modify
 
@@ -458,13 +449,13 @@ If you think you need to use this function, please check the following points:
 3.  if you still want to use it, use it at your own risk and do not ask any questions or bother the TEPA developers.
 
 -}
-unsafePush : (m -> Cmd (Msg e)) -> Promise m e Void
+unsafePush : (m -> Cmd Msg) -> Promise m Void
 unsafePush =
     Core.push
 
 
 {-| -}
-lazy : (() -> Promise m e Void) -> Promise m e Void
+lazy : (() -> Promise m Void) -> Promise m Void
 lazy =
     Core.lazy
 
@@ -475,7 +466,7 @@ lazy =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `True`, otherwise same as `none`.
 -}
-when : Bool -> List (Promise m e Void) -> Promise m e Void
+when : Bool -> List (Promise m Void) -> Promise m Void
 when p ps =
     if p then
         sequence ps
@@ -486,14 +477,14 @@ when p ps =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `False`, otherwise same as `none`.
 -}
-unless : Bool -> List (Promise m e Void) -> Promise m e Void
+unless : Bool -> List (Promise m Void) -> Promise m Void
 unless p =
     when (not p)
 
 
 {-| Evaluate the sequence of Procedures returned by the callback function only if the first argument is `Just`, otherwise same as `none`.
 -}
-withMaybe : Maybe a -> (a -> List (Promise m e Void)) -> Promise m e Void
+withMaybe : Maybe a -> (a -> List (Promise m Void)) -> Promise m Void
 withMaybe ma f =
     case ma of
         Nothing ->
@@ -501,51 +492,6 @@ withMaybe ma f =
 
         Just a ->
             sequence <| f a
-
-
-{-| Run callback function when the Layer received an event; if the callback function returns empty List, it awaits another event again.
--}
-withLayerEvent : (e -> List (Promise m e Void)) -> Promise m e Void
-withLayerEvent f =
-    layerEvent
-        |> andThen
-            (\e ->
-                case f e of
-                    [] ->
-                        withLayerEvent f
-
-                    proms ->
-                        sequence proms
-            )
-
-
-{-| Construct a Promise that listen to Events on a layer till the Layer expires.
-
-Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer.
-
-    myProcedures : List (Promise Memory Event Void)
-    myProcedures =
-        [ newLayer myLayerPosition initValue
-            |> andThen
-                (\(myLayer, myPointer) ->
-                    syncAll
-                        [ listenLayerEvent onEveryClickAddButton
-                        , Debug.todo "Main Promise"
-                        ]
-                )
-
-    onEveryClickAddButton : Event -> List (Promise c m e Void)
-    onEveryClickAddButton event =
-        case event of
-            ClickAddButton ->
-                Debug.todo "Sequence of Promises"
-            _ ->
-                []
-
--}
-listenLayerEvent : (e -> List (Promise m e Void)) -> Promise m e Void
-listenLayerEvent =
-    Core.listenLayerEvent
 
 
 
@@ -574,25 +520,15 @@ Note that this returns the Memory state when it is resolved:
         Debug.todo ""
 
 -}
-currentState : Promise m e m
+currentState : Promise m m
 currentState =
     Core.currentState
 
 
 {-| -}
-layerMemory : Layer m1 -> Promise m e m1
-layerMemory (Core.Layer _ m) =
-    succeed m
-
-
-{-| Lower level Promise that awaits Layer events.
-
-This resolves with every Event the Layer receives; for specific Layer Events, you can use `withLayerEvent` and `listenLayerEvent` helper functions.
-
--}
-layerEvent : Promise m e e
-layerEvent =
-    Core.layerEvent
+layerState : Layer m1 -> Promise m m1
+layerState (Core.Layer layer) =
+    succeed layer.state
 
 
 {-| Build a Promise to send one outgoing port Message and receive the corresponding incoming port Message only once.
@@ -660,12 +596,12 @@ In Elm side:
 -}
 portRequest :
     { ports :
-        { request : Value -> Cmd (Msg e)
-        , response : (Value -> Msg e) -> Sub (Msg e)
+        { request : Value -> Cmd Msg
+        , response : (Value -> Msg) -> Sub Msg
         }
     , requestBody : Value
     }
-    -> Promise m e Value
+    -> Promise m Value
 portRequest =
     Core.portRequest
 
@@ -682,15 +618,79 @@ Keep in mind that this Promise blocks subsequent Promises, so it is common pract
 -}
 listenPortStream :
     { ports :
-        { request : Value -> Cmd (Msg e)
-        , response : (Value -> Msg e) -> Sub (Msg e)
+        { request : Value -> Cmd Msg
+        , response : (Value -> Msg) -> Sub Msg
         }
     , requestBody : Value
     }
-    -> (Value -> List (Promise m e Void))
-    -> Promise m e Void
+    -> (Value -> List (Promise m Void))
+    -> Promise m Void
 listenPortStream =
     Core.listenPortStream
+
+
+{-| -}
+awaitViewEvent :
+    { key : String
+    , type_ : String
+    }
+    -> Promise m Void
+awaitViewEvent param =
+    customViewEvent
+        { key = param.key
+        , type_ = param.type_
+        , decoder = justAwait
+        }
+
+
+{-| -}
+customViewEvent :
+    { key : String
+    , type_ : String
+    , decoder :
+        Decoder
+            { stopPropagation : Bool
+            , preventDefault : Bool
+            , value : a
+            }
+    }
+    -> Promise m a
+customViewEvent =
+    Core.viewEvent
+
+
+{-| -}
+justAwait :
+    Decoder
+        { stopPropagation : Bool
+        , preventDefault : Bool
+        , value : Void
+        }
+justAwait =
+    JD.succeed
+        { stopPropagation = False
+        , preventDefault = False
+        , value = Core.OnGoingProcedure
+        }
+
+
+{-| `Nothing` means that the key does not exist or the value of the element specified by the key has not been changed.
+-}
+getValue : String -> Promise m (Maybe String)
+getValue =
+    Core.getValue
+
+
+{-| -}
+getValues : Promise m (Dict String String)
+getValues =
+    Core.getValues
+
+
+{-| -}
+setValue : String -> String -> Promise m Void
+setValue =
+    Core.setValue
 
 
 
@@ -698,46 +698,59 @@ listenPortStream =
 
 
 {-| -}
-newLayer : m1 -> Promise m e (Layer m1)
+newLayer : m1 -> Promise m (Layer m1)
 newLayer =
     Core.newLayer
 
 
 {-| -}
 isOnSameLayer : Layer m -> Layer m -> Bool
-isOnSameLayer (Core.Layer lid1 _) (Core.Layer lid2 _) =
-    lid1 == lid2
+isOnSameLayer (Core.Layer layer1) (Core.Layer layer2) =
+    layer1.id == layer2.id
 
 
 {-| -}
-layerView : (m -> Html (Msg e)) -> Layer m -> Html (Msg e)
+layerView :
+    (ViewContext m -> Html Msg)
+    -> Layer m
+    -> Html Msg
 layerView =
     Core.layerView
 
 
 {-| -}
-keyedLayerView : (m -> Html (Msg e)) -> Layer m -> ( String, Html (Msg e) )
+type alias ViewContext m =
+    { state : m
+    , setKey : String -> List (Attribute Msg)
+    , values : Dict String String
+    }
+
+
+{-| -}
+mapViewContext : (m -> m1) -> ViewContext m -> ViewContext m1
+mapViewContext f context =
+    { state = f context.state
+    , setKey = context.setKey
+    , values = context.values
+    }
+
+
+{-| -}
+keyedLayerView :
+    (ViewContext m -> Html Msg)
+    -> Layer m
+    -> ( String, Html Msg )
 keyedLayerView =
     Core.keyedLayerView
 
 
 {-| -}
-layerDocument : (m -> Document (Msg e)) -> Layer m -> Document (Msg e)
+layerDocument :
+    (ViewContext m -> Document Msg)
+    -> Layer m
+    -> Document Msg
 layerDocument =
     Core.layerDocument
-
-
-{-| -}
-eventAttr : Attribute e -> Attribute (Msg e)
-eventAttr =
-    Core.eventAttr
-
-
-{-| [elm-mixin](https://package.elm-lang.org/packages/arowM/elm-mixin/latest/) version of `eventAttr`.
--}
-eventMixin : Mixin e -> Mixin (Msg e)
-eventMixin =
-    Core.eventMixin
 
 
 
@@ -747,8 +760,8 @@ eventMixin =
 {-| Procedure version of [Browser.application](https://package.elm-lang.org/packages/elm/browser/latest/Browser#application).
 -}
 application :
-    ApplicationProps flags memory event
-    -> Program flags memory event
+    ApplicationProps flags memory
+    -> Program flags memory
 application props =
     Browser.application
         { init =
@@ -772,12 +785,12 @@ application props =
 
 
 {-| -}
-type alias ApplicationProps flags memory event =
+type alias ApplicationProps flags memory =
     { init : memory
-    , procedure : flags -> AppUrl -> NavKey -> Promise memory event Void
-    , view : Layer memory -> Document (Msg event)
-    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory event Void
-    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory event Void
+    , procedure : flags -> AppUrl -> NavKey -> Promise memory Void
+    , view : Layer memory -> Document Msg
+    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory Void
+    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory Void
     }
 
 
@@ -792,8 +805,8 @@ type alias NavKey =
 
 {-| An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).
 -}
-type alias Program flags memory event =
-    Platform.Program flags (Model memory event) (Msg event)
+type alias Program flags memory =
+    Platform.Program flags (Model memory) Msg
 
 
 {-| Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
@@ -832,7 +845,7 @@ fromBrowserUrlRequest req =
 
 {-| TEA update function implementation for running your Procedures.
 -}
-update : Msg event -> Model memory event -> ( Model memory event, Cmd (Msg event) )
+update : Msg -> Model memory -> ( Model memory, Cmd Msg )
 update msg model =
     let
         newState =
@@ -846,14 +859,14 @@ update msg model =
 
 {-| Just like `Procedure.documentView`.
 -}
-documentView : (Layer memory -> Document (Msg event)) -> Model memory event -> Document (Msg event)
+documentView : (Layer memory -> Document Msg) -> Model memory -> Document Msg
 documentView =
     Core.documentView
 
 
 {-| TEA subscriptions function implementation for running your Procedures.
 -}
-subscriptions : Model memory event -> Sub (Msg event)
+subscriptions : Model memory -> Sub Msg
 subscriptions =
     Core.subscriptions
 
@@ -863,11 +876,11 @@ subscriptions =
 init :
     memory
     ->
-        { procedure : Promise memory event Void
-        , onUrlChange : AppUrl -> Promise memory event Void
-        , onUrlRequest : UrlRequest -> Promise memory event Void
+        { procedure : Promise memory Void
+        , onUrlChange : AppUrl -> Promise memory Void
+        , onUrlRequest : UrlRequest -> Promise memory Void
         }
-    -> ( Model memory event, Cmd (Msg event) )
+    -> ( Model memory, Cmd Msg )
 init memory param =
     let
         procs =
@@ -899,25 +912,19 @@ init memory param =
 
 {-| TEA Message that wraps your events.
 -}
-type alias Msg event =
-    Core.Msg event
-
-
-{-| -}
-mapMsg : (event1 -> event0) -> Msg event1 -> Msg event0
-mapMsg =
-    Core.mapMsg
+type alias Msg =
+    Core.Msg
 
 
 {-| TEA Model that stores your Procedure state.
 -}
-type alias Model m e =
-    Core.Model m e
+type alias Model m =
+    Core.Model m
 
 
 {-| TEA `onUrlChange` property value.
 -}
-onUrlChange : Url -> Msg event
+onUrlChange : Url -> Msg
 onUrlChange url =
     AppUrl.fromUrl url
         |> Core.UrlChange
@@ -925,6 +932,6 @@ onUrlChange url =
 
 {-| TEA `onUrlRequest` property value.
 -}
-onUrlRequest : Browser.UrlRequest -> Msg event
+onUrlRequest : Browser.UrlRequest -> Msg
 onUrlRequest =
     Core.UrlRequest

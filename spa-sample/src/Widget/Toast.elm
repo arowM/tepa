@@ -2,7 +2,6 @@ module Widget.Toast exposing
     ( Memory
     , init
     , view
-    , Event
     , Closed
     , pushWarning
     , pushError
@@ -21,7 +20,6 @@ module Widget.Toast exposing
 @docs Memory
 @docs init
 @docs view
-@docs Event
 @docs Closed
 
 
@@ -49,7 +47,6 @@ import App.ZIndex as ZIndex
 import Expect
 import Html.Attributes as Attributes
 import Mixin exposing (Mixin)
-import Mixin.Events as Events
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise, Void)
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -107,21 +104,12 @@ messageTypeCode type_ =
 
 
 {-| -}
-init : Promise m e Memory
+init : Promise m Memory
 init =
     Tepa.succeed <|
         Memory
             { items = []
             }
-
-
-
--- Event
-
-
-{-| -}
-type Event
-    = CloseToastItem
 
 
 {-| Represents that the popup is closed by user or timeout.
@@ -137,7 +125,7 @@ type Closed
 {-| Show warning message.
 This promise blocks subsequent processes untill the item is closed.
 -}
-pushWarning : String -> Promise Memory Event Closed
+pushWarning : String -> Promise Memory Closed
 pushWarning =
     pushItem WarningMessage
 
@@ -145,12 +133,12 @@ pushWarning =
 {-| Show error message.
 This promise blocks subsequent processes untill the item is closed.
 -}
-pushError : String -> Promise Memory Event Closed
+pushError : String -> Promise Memory Closed
 pushError =
     pushItem ErrorMessage
 
 
-pushItem : MessageType -> String -> Promise Memory Event Closed
+pushItem : MessageType -> String -> Promise Memory Closed
 pushItem type_ str =
     Tepa.map (\_ -> Closed) <|
         Tepa.bind
@@ -187,6 +175,7 @@ pushItem type_ str =
                                                 m.items
                                     }
                         }
+                    |> Tepa.void
                 , Tepa.modify <|
                     \(Memory m) ->
                         Memory
@@ -205,16 +194,13 @@ type alias ToastItemMemory =
     }
 
 
-toastItemProcedure : Promise ToastItemMemory Event Void
+toastItemProcedure : Promise ToastItemMemory Void
 toastItemProcedure =
     Tepa.sequence
-        [ Tepa.withLayerEvent
-            (\e ->
-                case e of
-                    CloseToastItem ->
-                        [ Tepa.none
-                        ]
-            )
+        [ Tepa.awaitViewEvent
+            { key = keys.toastItemClose
+            , type_ = "click"
+            }
             |> Tepa.orFaster (Time.sleep toastTimeout)
         , Tepa.modify
             (\m -> { m | isHidden = True })
@@ -227,37 +213,49 @@ toastItemProcedure =
 
 
 {-| -}
-view : Memory -> Html (Msg Event)
-view (Memory memory) =
+view : Tepa.ViewContext Memory -> Html Msg
+view context =
+    let
+        (Memory state) =
+            context.state
+    in
     Html.keyed "div"
         [ localClass "toast"
         , Mixin.style "--zindex" <| String.fromInt ZIndex.toast
         ]
-        (List.map (Tepa.keyedLayerView toastItemView) memory.items)
+        (List.map (Tepa.keyedLayerView toastItemView) state.items)
 
 
-toastItemView : ToastItemMemory -> Html (Msg Event)
-toastItemView memory =
+toastItemView : Tepa.ViewContext ToastItemMemory -> Html Msg
+toastItemView { state, setKey } =
     Html.div
         [ localClass "toast_item"
-        , localClass <| "toast_item-" ++ messageTypeCode memory.messageType
+        , localClass <| "toast_item-" ++ messageTypeCode state.messageType
         , Mixin.attribute "role" "dialog"
-        , Mixin.boolAttribute "aria-hidden" memory.isHidden
+        , Mixin.boolAttribute "aria-hidden" state.isHidden
         , Mixin.style "--disappearing-duration" (String.fromInt toastFadeOutDuration ++ "ms")
         ]
         [ Html.div
             [ localClass "toast_item_body"
             ]
-            [ Html.text memory.content
+            [ Html.text state.content
             ]
         , Html.div
             [ localClass "toast_item_close"
-            , Events.onClick CloseToastItem
-                |> Tepa.eventMixin
+            , Mixin.fromAttributes
+                (setKey keys.toastItemClose)
             ]
             [ Html.text "×"
             ]
         ]
+
+
+keys :
+    { toastItemClose : String
+    }
+keys =
+    { toastItemClose = "toastItemClose"
+    }
 
 
 
@@ -265,53 +263,52 @@ toastItemView memory =
 
 
 {-| -}
-type alias ScenarioSet flags m e =
+type alias ScenarioSet flags m =
     { expectWarningMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , expectErrorMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , expectDisappearingWarningMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , expectDisappearingErrorMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
-    , expectNoWarningMessages : Scenario.Markup -> Scenario flags m e
-    , expectNoErrorMessages : Scenario.Markup -> Scenario flags m e
-    , expectNoMessages : Scenario.Markup -> Scenario flags m e
+        -> Scenario flags m
+    , expectNoWarningMessages : Scenario.Markup -> Scenario flags m
+    , expectNoErrorMessages : Scenario.Markup -> Scenario flags m
+    , expectNoMessages : Scenario.Markup -> Scenario flags m
     , closeWarningsByMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     , closeErrorsByMessage :
         { message : String
         }
         -> Scenario.Markup
-        -> Scenario flags m e
+        -> Scenario flags m
     }
 
 
 {-| -}
-type alias ScenarioProps m e =
+type alias ScenarioProps m =
     { querySelf : Layer m -> Maybe (Layer Memory)
-    , wrapEvent : Event -> e
     , session : Scenario.Session
     }
 
 
 {-| -}
-scenario : ScenarioProps m e -> ScenarioSet flags m e
+scenario : ScenarioProps m -> ScenarioSet flags m
 scenario props =
     { expectWarningMessage = expectMessage props WarningMessage
     , expectErrorMessage = expectMessage props ErrorMessage
@@ -336,13 +333,13 @@ scenario props =
 
 
 expectMessage :
-    ScenarioProps m e
+    ScenarioProps m
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 expectMessage props messageType { message } markup =
     Scenario.expectAppView props.session
         markup
@@ -363,13 +360,13 @@ expectMessage props messageType { message } markup =
 
 
 expectDisappearingMessage :
-    ScenarioProps m e
+    ScenarioProps m
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 expectDisappearingMessage props messageType { message } markup =
     Scenario.expectAppView props.session
         markup
@@ -392,10 +389,10 @@ expectDisappearingMessage props messageType { message } markup =
 
 
 expectNoMessages :
-    ScenarioProps m e
+    ScenarioProps m
     -> String
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 expectNoMessages props itemClassname markup =
     Scenario.expectAppView props.session
         markup
@@ -410,13 +407,13 @@ expectNoMessages props itemClassname markup =
 
 
 closeByMessage :
-    ScenarioProps m e
+    ScenarioProps m
     -> MessageType
     ->
         { message : String
         }
     -> Scenario.Markup
-    -> Scenario flags m e
+    -> Scenario flags m
 closeByMessage props messageType { message } markup =
     Scenario.userOperation props.session
         markup

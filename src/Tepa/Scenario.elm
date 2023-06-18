@@ -28,7 +28,6 @@ module Tepa.Scenario exposing
     , mapLayer
     , loadApp
     , userOperation
-    , layerEvent
     , sleep
     , httpResponse
     , httpBytesResponse
@@ -112,7 +111,6 @@ module Tepa.Scenario exposing
 
 @docs loadApp
 @docs userOperation
-@docs layerEvent
 @docs sleep
 
 
@@ -182,9 +180,9 @@ import Test.Sequence as SeqTest
 The Scenario you built can be converted to tests with `toTest`, and to documents with `toHtml` or `toMarkdown`.
 
 -}
-type Scenario flags memory event
+type Scenario flags memory
     = Scenario
-        { test : TestConfig flags memory event -> TestContext memory event -> SeqTest.Sequence (TestContext memory event)
+        { test : TestConfig flags memory -> TestContext memory -> SeqTest.Sequence (TestContext memory)
         , markup :
             RenderConfig -> ListBlock -> Result InvalidMarkup ListBlock
         }
@@ -202,37 +200,37 @@ type alias ListBlock =
         MdBuilder.ListBlock
 
 
-type alias TestConfig flags m e =
-    { view : m -> Document (Msg e)
-    , init : flags -> AppUrl -> SessionUpdateResult m e
+type alias TestConfig flags m =
+    { view : m -> Document Msg
+    , init : flags -> AppUrl -> SessionUpdateResult m
     }
 
 
 {-| -}
-type alias TestContext m e =
-    { sessions : Dict String (SessionContext m e)
+type alias TestContext m =
+    { sessions : Dict String (SessionContext m)
     , currentTime : Int -- in milliseconds
     , zone : Zone
     }
 
 
 {-| -}
-type alias SessionContext m e =
-    { model : Model m e
+type alias SessionContext m =
+    { model : Model m
     , portRequests : List ( ( RequestId, LayerId ), Value ) -- reversed
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
     , randomRequests : List ( ( RequestId, LayerId ), Core.RandomRequest ) -- reversed
-    , timers : List (Timer e)
+    , timers : List Timer
     , history : History
     }
 
 
 {-| Manage timeout operations.
 -}
-type alias Timer e =
+type alias Timer =
     { runAfter : Int
     , every : Maybe Int
-    , msg : Posix -> Core.Msg e
+    , msg : Posix -> Core.Msg
     , layerId : LayerId
     }
 
@@ -247,7 +245,7 @@ type InvalidMarkup
 
 {-| A Scenario that does nothing.
 -}
-none : Scenario flags m e
+none : Scenario flags m
 none =
     Scenario
         { test = noneTest
@@ -256,14 +254,14 @@ none =
 
 
 {-| -}
-noneTest : TestConfig flags m e -> TestContext m e -> SeqTest.Sequence (TestContext m e)
+noneTest : TestConfig flags m -> TestContext m -> SeqTest.Sequence (TestContext m)
 noneTest _ =
     SeqTest.pass
 
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
 -}
-sequence : List (Scenario flags m e) -> Scenario flags m e
+sequence : List (Scenario flags m) -> Scenario flags m
 sequence =
     List.foldl
         (\a acc ->
@@ -272,7 +270,7 @@ sequence =
         none
 
 
-mappend : Scenario flags m e -> Scenario flags m e -> Scenario flags m e
+mappend : Scenario flags m -> Scenario flags m -> Scenario flags m
 mappend (Scenario s1) (Scenario s2) =
     Scenario
         { test =
@@ -350,9 +348,9 @@ In such case, you can declare common section, and refer to the title in `depende
         }
 
 -}
-type alias Section flags memory event =
+type alias Section flags memory =
     { title : String
-    , content : List (Scenario flags memory event)
+    , content : List (Scenario flags memory)
     , dependency : Dependency
     }
 
@@ -449,7 +447,7 @@ This Scenario only affects document generation, and is ignored for scenario test
 You can start with `userComment` and `systemComment` to build the skeleton of your scenario, and gradually replace `userComment` with Event Simulator and `systemComment` with Expectation.
 
 -}
-userComment : User -> String -> Scenario flags m e
+userComment : User -> String -> Scenario flags m
 userComment (User user) commentText =
     comment
         { content =
@@ -466,7 +464,7 @@ userComment (User user) commentText =
 This Scenario only affects document generation, and is ignored for scenario test generation.
 
 -}
-systemComment : Session -> String -> Scenario flags m e
+systemComment : Session -> String -> Scenario flags m
 systemComment (Session session) commentText =
     comment
         { content =
@@ -485,7 +483,7 @@ systemComment (Session session) commentText =
 
 {-| Lower level function to add detailed comments.
 -}
-comment : Markup -> Scenario flags m e
+comment : Markup -> Scenario flags m
 comment markup =
     Scenario
         { test = noneTest
@@ -503,7 +501,7 @@ comment markup =
 You can create a scenario first with `todo` and later replace that `todo` with an actual test, which is the scenario driven development.
 
 -}
-todo : Session -> Markup -> Scenario flags m e
+todo : Session -> Markup -> Scenario flags m
 todo (Session session) markup =
     let
         description =
@@ -671,7 +669,7 @@ expectMemory :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : m1 -> Expectation
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 expectMemory (Session session) markup param =
     let
         description =
@@ -696,8 +694,8 @@ expectMemory (Session session) markup param =
                                             |> Expect.equal
                                                 (Ok "expectMemory: No layer found.")
 
-                            Just (Core.Layer _ m1) ->
-                                SeqTest.pass m1
+                            Just (Core.Layer layer1) ->
+                                SeqTest.pass layer1.state
                                     |> SeqTest.assert description
                                         param.expectation
                                     |> SeqTest.map (\_ -> context)
@@ -799,9 +797,9 @@ expectAppView :
     Session
     -> Markup
     ->
-        { expectation : Document (Msg event) -> Expectation
+        { expectation : Document Msg -> Expectation
         }
-    -> Scenario flags m event
+    -> Scenario flags m
 expectAppView (Session session) markup { expectation } =
     let
         description =
@@ -882,7 +880,7 @@ expectCurrentTime :
     ->
         { expectation : Posix -> Expectation
         }
-    -> Scenario flags m event
+    -> Scenario flags m
 expectCurrentTime markup { expectation } =
     let
         description =
@@ -923,7 +921,7 @@ expectHttpRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List HttpRequest -> Expectation
         }
-    -> Scenario flags m event
+    -> Scenario flags m
 expectHttpRequest (Session session) markup param =
     let
         description =
@@ -948,10 +946,10 @@ expectHttpRequest (Session session) markup param =
                                             |> Expect.equal
                                                 (Ok "expectHttpRequest: No layer found.")
 
-                            Just (Core.Layer lid1 _) ->
+                            Just (Core.Layer layer1) ->
                                 List.filterMap
                                     (\( ( _, lid ), req ) ->
-                                        if lid == lid1 then
+                                        if Core.ThisLayerId lid == layer1.id then
                                             Just <| fromCoreHttpRequest req
 
                                         else
@@ -993,7 +991,7 @@ expectPortRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List Value -> Expectation
         }
-    -> Scenario flags m event
+    -> Scenario flags m
 expectPortRequest (Session session) markup param =
     let
         description =
@@ -1018,10 +1016,10 @@ expectPortRequest (Session session) markup param =
                                             |> Expect.equal
                                                 (Ok "expectPortRequest: No layer found.")
 
-                            Just (Core.Layer lid1 _) ->
+                            Just (Core.Layer layer1) ->
                                 List.filterMap
                                     (\( ( _, lid ), val ) ->
-                                        if lid == lid1 then
+                                        if Core.ThisLayerId lid == layer1.id then
                                             Just val
 
                                         else
@@ -1086,8 +1084,8 @@ childLayer :
 childLayer f parent =
     parent
         >> Maybe.andThen
-            (\(Core.Layer _ m1) ->
-                f m1
+            (\(Core.Layer layer1) ->
+                f layer1.state
             )
 
 
@@ -1096,13 +1094,8 @@ mapLayer :
     (m1 -> m2)
     -> (Layer m -> Maybe (Layer m1))
     -> (Layer m -> Maybe (Layer m2))
-mapLayer f parent =
-    \l ->
-        parent l
-            |> Maybe.map
-                (\(Core.Layer lid m) ->
-                    Core.Layer lid (f m)
-                )
+mapLayer =
+    Core.mapLayer
 
 
 
@@ -1156,7 +1149,7 @@ loadApp :
         { path : AppUrl
         , flags : flags
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 loadApp (Session session) markup o =
     let
         description =
@@ -1205,113 +1198,6 @@ loadApp (Session session) markup o =
         }
 
 
-{-| Publish an event to the only first Layer specified by query.
-
-Suppose your application has a popup:
-
-    import MarkdownAst as Markdown
-
-    myScenario =
-        [ Debug.todo "After some operations..."
-        , onLayer popup
-            [ layerEvent sakuraChanMainSession
-                (textContent "Click cancel button.")
-                { event = ClickPopupCancelButton
-                }
-            ]
-        , Debug.todo "..."
-        ]
-
-The example above publishes `ClickPopupCancelButton` event to the LayerId for the `popup` Layer.
-
-If no Layers are found for the query, the test fails.
-
--}
-layerEvent :
-    Session
-    -> Markup
-    ->
-        { layer : Layer m -> Maybe (Layer m1)
-        , event : event
-        }
-    -> Scenario flags m event
-layerEvent (Session session) markup param =
-    let
-        description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
-    in
-    Scenario
-        { test =
-            \_ context ->
-                case Dict.get session.uniqueName context.sessions of
-                    Nothing ->
-                        SeqTest.fail description <|
-                            \_ ->
-                                Expect.fail
-                                    "layerEvent: The application is not active on the session. Use `loadApp` beforehand."
-
-                    Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                SeqTest.fail description <|
-                                    \_ ->
-                                        Expect.fail
-                                            "layerEvent: No Layer found."
-
-                            Just (Core.Layer lid _) ->
-                                let
-                                    res =
-                                        update
-                                            { currentTime = context.currentTime
-                                            , zone = context.zone
-                                            }
-                                            (Core.LayerMsg
-                                                { layerId = lid
-                                                , event = param.event
-                                                }
-                                            )
-                                            sessionContext
-                                in
-                                case res of
-                                    SessionExpired ->
-                                        SeqTest.pass
-                                            { context
-                                                | sessions =
-                                                    Dict.remove session.uniqueName
-                                                        context.sessions
-                                            }
-
-                                    SessionUpdateFailed err ->
-                                        SeqTest.fail description <|
-                                            \_ -> Expect.fail err
-
-                                    SessionUpdated nextSessionContext ->
-                                        SeqTest.pass
-                                            { context
-                                                | sessions =
-                                                    Dict.insert session.uniqueName
-                                                        nextSessionContext
-                                                        context.sessions
-                                            }
-        , markup =
-            \config ->
-                let
-                    markup_ =
-                        config.processLayerEventMarkup
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
-        }
-
-
 {-| About options:
 
   - layer: Query to specify the event target element from your current page HTML.
@@ -1329,10 +1215,10 @@ userOperation :
     Session
     -> Markup
     ->
-        { query : Single (Msg e) -> Single (Msg e)
+        { query : Single Msg -> Single Msg
         , operation : ( String, Value )
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 userOperation (Session session) markup param =
     let
         (User user) =
@@ -1431,7 +1317,7 @@ It only affects Promises defined in `Tepa.Time`, so you should not use [`Time` m
 sleep :
     Markup
     -> Int
-    -> Scenario flags m e
+    -> Scenario flags m
 sleep markup msec =
     let
         description =
@@ -1501,8 +1387,8 @@ advanceClock :
     , zone : Zone
     }
     -> Int
-    -> SessionContext m e
-    -> SessionUpdateResult m e
+    -> SessionContext m
+    -> SessionUpdateResult m
 advanceClock config msec context =
     case context.timers of
         [] ->
@@ -1578,7 +1464,7 @@ portResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : Value -> Maybe Value
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 portResponse (Session session) markup param =
     let
         description =
@@ -1600,10 +1486,10 @@ portResponse (Session session) markup param =
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            Just (Core.Layer lid_ _) ->
+                            Just (Core.Layer layer) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
-                                        if lid == lid_ then
+                                        if Core.ThisLayerId lid == layer.id then
                                             param.response req
                                                 |> Maybe.map
                                                     (\resp ->
@@ -1689,7 +1575,7 @@ Suppose your application requests random integer:
     oneToTen =
         Random.int 1 10
 
-    respondToOneToTenInt : Scenario flags m e
+    respondToOneToTenInt : Scenario flags m
     respondToOneToTenInt =
         Scenario.randomResponse
             mySession
@@ -1712,7 +1598,7 @@ randomResponse :
         , spec : Random.Spec a
         , response : a
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 randomResponse (Session session) markup param =
     let
         description =
@@ -1734,10 +1620,10 @@ randomResponse (Session session) markup param =
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            Just (Core.Layer lid_ _) ->
+                            Just (Core.Layer layer) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
-                                        if lid == lid_ && Core.isRequestForSpec param.spec req then
+                                        if Core.ThisLayerId lid == layer.id && Core.isRequestForSpec param.spec req then
                                             Just rid
 
                                         else
@@ -1853,7 +1739,7 @@ If the given value is `Nothing`, document generation and tests fails.
         ]
 
 -}
-fromJust : String -> Maybe a -> (a -> List (Scenario flags m e)) -> Scenario flags m e
+fromJust : String -> Maybe a -> (a -> List (Scenario flags m)) -> Scenario flags m
 fromJust description ma f =
     case ma of
         Nothing ->
@@ -1876,7 +1762,7 @@ fromJust description ma f =
 
 {-| Similar to `fromJust`, but extract `Ok` valur from `Result`.
 -}
-fromOk : String -> Result err a -> (a -> List (Scenario flags m e)) -> Scenario flags m e
+fromOk : String -> Result err a -> (a -> List (Scenario flags m)) -> Scenario flags m
 fromOk description res f =
     case res of
         Err _ ->
@@ -1904,8 +1790,8 @@ fromOk description res f =
 {-| Generate scenario tests.
 -}
 toTest :
-    { props : ApplicationProps flags memory event
-    , sections : List (Section flags memory event)
+    { props : ApplicationProps flags memory
+    , sections : List (Section flags memory)
     }
     -> Test
 toTest o =
@@ -1943,7 +1829,14 @@ toTest o =
                                         \m ->
                                             let
                                                 document =
-                                                    o.props.view (Core.Layer LayerId.init m)
+                                                    o.props.view
+                                                        (Core.Layer
+                                                            { id = Core.ThisLayerId LayerId.init
+                                                            , state = m
+                                                            , events = Core.ThisLayerEvents Dict.empty
+                                                            , values = Core.ThisLayerValues Dict.empty
+                                                            }
+                                                        )
                                             in
                                             { title = document.title
                                             , body = document.body
@@ -2009,21 +1902,21 @@ fromBrowserUrlRequest req =
             Tepa.ExternalPage url
 
 
-onUrlChange : AppUrl -> Msg e
+onUrlChange : AppUrl -> Msg
 onUrlChange path =
     Core.UrlChange path
 
 
-type SessionUpdateResult m e
+type SessionUpdateResult m
     = SessionExpired
     | SessionUpdateFailed String
-    | SessionUpdated (SessionContext m e)
+    | SessionUpdated (SessionContext m)
 
 
 sessionUpdateAndThen :
-    (SessionContext m e -> SessionUpdateResult m e)
-    -> SessionUpdateResult m e
-    -> SessionUpdateResult m e
+    (SessionContext m -> SessionUpdateResult m)
+    -> SessionUpdateResult m
+    -> SessionUpdateResult m
 sessionUpdateAndThen f res =
     case res of
         SessionUpdated context ->
@@ -2037,9 +1930,9 @@ applyMsgsTo :
     { currentTime : Int
     , zone : Zone
     }
-    -> SessionContext m e
-    -> List (Msg e)
-    -> SessionUpdateResult m e
+    -> SessionContext m
+    -> List Msg
+    -> SessionUpdateResult m
 applyMsgsTo config context =
     List.foldl
         (\msg acc ->
@@ -2054,9 +1947,9 @@ update :
     { currentTime : Int
     , zone : Zone
     }
-    -> Msg e
-    -> SessionContext m e
-    -> SessionUpdateResult m e
+    -> Msg
+    -> SessionContext m
+    -> SessionUpdateResult m
 update config msg context =
     let
         newState =
@@ -2077,8 +1970,8 @@ applyLogs :
     , zone : Zone
     }
     -> List Core.Log
-    -> SessionContext m e
-    -> SessionUpdateResult m e
+    -> SessionContext m
+    -> SessionUpdateResult m
 applyLogs config logs context =
     List.foldl
         (\log acc ->
@@ -2095,8 +1988,8 @@ applyLog :
     , zone : Zone
     }
     -> Core.Log
-    -> SessionContext m e
-    -> SessionUpdateResult m e
+    -> SessionContext m
+    -> SessionUpdateResult m
 applyLog config log context =
     case log of
         Core.SetTimer rid lid msec ->
@@ -2223,7 +2116,7 @@ applyLog config log context =
                             context.randomRequests
                 }
 
-        Core.LayerExpired lid ->
+        Core.LayerHasExpired lid ->
             SessionUpdated
                 { context
                     | portRequests =
@@ -2292,7 +2185,7 @@ applyLog config log context =
             SessionExpired
 
 
-putTimer : Timer e -> List (Timer e) -> List (Timer e)
+putTimer : Timer -> List Timer -> List Timer
 putTimer new timers =
     case timers of
         [] ->
@@ -2310,7 +2203,7 @@ putTimer new timers =
 -}
 toHtml :
     { title : String
-    , sections : List (Section flags m e)
+    , sections : List (Section flags m)
     , config : RenderConfig
     }
     -> Html msg
@@ -2387,7 +2280,7 @@ renderInvalidMarkdown reason =
 -}
 toMarkdown :
     { title : String
-    , sections : List (Section flags m e)
+    , sections : List (Section flags m)
     , config : RenderConfig
     }
     -> Result InvalidMarkup String
@@ -2398,7 +2291,7 @@ toMarkdown o =
 
 buildMarkdown :
     { title : String
-    , sections : List (Section flags m e)
+    , sections : List (Section flags m)
     , config : RenderConfig
     }
     -> Result InvalidMarkup MdAst.Section
@@ -2493,7 +2386,6 @@ buildMarkdown o =
   - processExpectRandomRequestMarkup: Processor for `expectRandomRequest` markup
   - processLoadAppMarkup: Processor for `loadApp` markup
   - processUserOperationMarkup: Processor for `userOperation` markup
-  - processLayerEventMarkup: Processor for `layerEvent` markup
   - processSleepMarkup: Processor for `sleep` markup
   - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
   - processPortResponseMarkup: Processor for `portResponse` markup
@@ -2542,10 +2434,6 @@ type alias RenderConfig =
         { uniqueSessionName : String
         , userName : String
         }
-        -> Markup
-        -> Markup
-    , processLayerEventMarkup :
-        { uniqueSessionName : String }
         -> Markup
         -> Markup
     , processSleepMarkup :
@@ -2647,7 +2535,6 @@ ja_JP =
     , processExpectRandomRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
-    , processLayerEventMarkup = prependSessionSystemName
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
@@ -2784,7 +2671,6 @@ en_US =
     , processExpectRandomRequestMarkup = prependSessionName
     , processLoadAppMarkup = prependSessionName
     , processUserOperationMarkup = prependSessionAndUserName
-    , processLayerEventMarkup = prependSessionSystemName
     , processSleepMarkup = identity
     , processHttpResponseMarkup = prependSessionSystemName
     , processPortResponseMarkup = prependSessionSystemName
@@ -2936,7 +2822,7 @@ httpResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, String )
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 httpResponse (Session session) markup param =
     let
         description =
@@ -2958,10 +2844,10 @@ httpResponse (Session session) markup param =
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            Just (Core.Layer lid_ _) ->
+                            Just (Core.Layer layer) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
-                                        if lid == lid_ then
+                                        if Core.ThisLayerId lid == layer.id then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
                                                     (\resp ->
@@ -3045,7 +2931,7 @@ httpBytesResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
         }
-    -> Scenario flags m e
+    -> Scenario flags m
 httpBytesResponse (Session session) markup param =
     let
         description =
@@ -3067,10 +2953,10 @@ httpBytesResponse (Session session) markup param =
                                 -- It is natural to receive responses after the Layer has expired.
                                 SeqTest.pass context
 
-                            Just (Core.Layer lid_ _) ->
+                            Just (Core.Layer layer) ->
                                 takeLastMatched
                                     (\( ( rid, lid ), req ) ->
-                                        if lid == lid_ then
+                                        if Core.ThisLayerId lid == layer.id then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
                                                     (\resp ->
