@@ -517,7 +517,7 @@ todo (Session session) markup =
             \config ->
                 let
                     markup_ =
-                        config.processTodo
+                        config.processSessionScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -703,7 +703,7 @@ expectMemory (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processExpectMemoryMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -826,7 +826,7 @@ expectAppView (Session session) markup { expectation } =
             \config ->
                 let
                     markup_ =
-                        config.processExpectAppViewMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -893,14 +893,10 @@ expectCurrentTime markup { expectation } =
                     |> SeqTest.assert description expectation
                     |> SeqTest.map (\_ -> context)
         , markup =
-            \config ->
-                let
-                    markup_ =
-                        config.processExpectCurrentTime markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
+            \_ ->
+                if markup.appear then
+                    MdBuilder.appendListItem markup.content
+                        >> MdBuilder.appendBlocks markup.detail
                         >> MdBuilder.break
                         >> Ok
 
@@ -964,7 +960,7 @@ expectHttpRequest (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processExpectHttpRequestMarkup
+                        config.processSessionScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -1034,7 +1030,7 @@ expectPortRequest (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processExpectPortRequestMarkup
+                        config.processSessionScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -1183,7 +1179,7 @@ loadApp (Session session) markup o =
             \config ->
                 let
                     markup_ =
-                        config.processLoadAppMarkup
+                        config.processSessionScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -1292,7 +1288,7 @@ userOperation (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processUserOperationMarkup
+                        config.processUserScenario
                             { uniqueSessionName = session.uniqueName
                             , userName = user.name
                             }
@@ -1366,14 +1362,10 @@ sleep markup msec =
                                 , currentTime = context.currentTime + msec
                             }
         , markup =
-            \config ->
-                let
-                    markup_ =
-                        config.processSleepMarkup markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
+            \_ ->
+                if markup.appear then
+                    MdBuilder.appendListItem markup.content
+                        >> MdBuilder.appendBlocks markup.detail
                         >> MdBuilder.break
                         >> Ok
 
@@ -1549,7 +1541,7 @@ portResponse (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processPortResponseMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -1689,7 +1681,7 @@ randomResponse (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processRandomResponseMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -2378,19 +2370,9 @@ buildMarkdown o =
       - argument: The time when the scenario starts and the time zone
   - dependentScenarioFirstListItem: First item on the list for a `RunAfter` scenario.
       - argument: `href` and `name` for its dependency.
-  - processExpectMemoryMarkup: Processor for `expectMemory` markup
-  - processExpectAppViewMarkup: Processor for `expectAppView` markup
-  - processExpectCurrentTime: Processor for `expectCurrentTime` markup
-  - processExpectHttpRequestMarkup: Processor for `expectHttpRequest` markup
-  - processExpectPortRequestMarkup: Processor for `expectPortRequest` markup
-  - processExpectRandomRequestMarkup: Processor for `expectRandomRequest` markup
-  - processLoadAppMarkup: Processor for `loadApp` markup
-  - processUserOperationMarkup: Processor for `userOperation` markup
-  - processSleepMarkup: Processor for `sleep` markup
-  - processHttpResponseMarkup: Processor for `httpResponse` or `httpBytesResponse` markup
-  - processPortResponseMarkup: Processor for `portResponse` markup
-  - processRandomResponseMarkup: Processor for `randomResponse` markup
-  - processTodo: Processor for `todo` markup
+  - processSessionScenario: Processor for markups associated with a session.
+  - processSystemScenario: Processor for markups associated with the specific system in a session.
+  - processUserScenario: Processor for markups associated with the specific user in a session.
 
 -}
 type alias RenderConfig =
@@ -2403,59 +2385,17 @@ type alias RenderConfig =
         , name : String
         }
         -> Markup
-    , processExpectMemoryMarkup :
+    , processSessionScenario :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
-    , processExpectAppViewMarkup :
+    , processSystemScenario :
         { uniqueSessionName : String }
         -> Markup
         -> Markup
-    , processExpectCurrentTime :
-        Markup
-        -> Markup
-    , processExpectHttpRequestMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processExpectPortRequestMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processExpectRandomRequestMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processLoadAppMarkup :
-        { uniqueSessionName : String }
-        -> Markup
-        -> Markup
-    , processUserOperationMarkup :
+    , processUserScenario :
         { uniqueSessionName : String
         , userName : String
-        }
-        -> Markup
-        -> Markup
-    , processSleepMarkup :
-        Markup
-        -> Markup
-    , processHttpResponseMarkup :
-        { uniqueSessionName : String
-        }
-        -> Markup
-        -> Markup
-    , processPortResponseMarkup :
-        { uniqueSessionName : String
-        }
-        -> Markup
-        -> Markup
-    , processRandomResponseMarkup :
-        { uniqueSessionName : String
-        }
-        -> Markup
-        -> Markup
-    , processTodo :
-        { uniqueSessionName : String
         }
         -> Markup
         -> Markup
@@ -2527,19 +2467,9 @@ ja_JP =
                 []
             , appear = True
             }
-    , processExpectMemoryMarkup = prependSessionSystemName
-    , processExpectAppViewMarkup = prependSessionSystemName
-    , processExpectCurrentTime = identity
-    , processExpectHttpRequestMarkup = prependSessionName
-    , processExpectPortRequestMarkup = prependSessionName
-    , processExpectRandomRequestMarkup = prependSessionName
-    , processLoadAppMarkup = prependSessionName
-    , processUserOperationMarkup = prependSessionAndUserName
-    , processSleepMarkup = identity
-    , processHttpResponseMarkup = prependSessionSystemName
-    , processPortResponseMarkup = prependSessionSystemName
-    , processRandomResponseMarkup = prependSessionSystemName
-    , processTodo = prependSessionSystemName
+    , processSessionScenario = prependSessionName
+    , processSystemScenario = prependSessionSystemName
+    , processUserScenario = prependSessionAndUserName
     }
 
 
@@ -2663,19 +2593,9 @@ en_US =
                 []
             , appear = True
             }
-    , processExpectMemoryMarkup = prependSessionSystemName
-    , processExpectAppViewMarkup = prependSessionSystemName
-    , processExpectCurrentTime = identity
-    , processExpectHttpRequestMarkup = prependSessionName
-    , processExpectPortRequestMarkup = prependSessionName
-    , processExpectRandomRequestMarkup = prependSessionName
-    , processLoadAppMarkup = prependSessionName
-    , processUserOperationMarkup = prependSessionAndUserName
-    , processSleepMarkup = identity
-    , processHttpResponseMarkup = prependSessionSystemName
-    , processPortResponseMarkup = prependSessionSystemName
-    , processRandomResponseMarkup = prependSessionSystemName
-    , processTodo = prependSessionSystemName
+    , processSessionScenario = prependSessionName
+    , processSystemScenario = prependSessionSystemName
+    , processUserScenario = prependSessionAndUserName
     }
 
 
@@ -2907,7 +2827,7 @@ httpResponse (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processHttpResponseMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
@@ -3015,7 +2935,7 @@ httpBytesResponse (Session session) markup param =
             \config ->
                 let
                     markup_ =
-                        config.processHttpResponseMarkup
+                        config.processSystemScenario
                             { uniqueSessionName = session.uniqueName }
                             markup
                 in
