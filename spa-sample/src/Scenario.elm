@@ -10,6 +10,7 @@ module Scenario exposing
 -}
 
 import App exposing (Memory)
+import App.Session as Session
 import Browser
 import DebugToJson
 import Dict
@@ -551,8 +552,25 @@ introduction1_1 config =
                 ]
             , appear = config.dev
             }
+        , onSakuraChanMainSession.login.receiveRandomLuckyHay
+            { value = Session.LuckyHayAlfalfa
+            }
+            { content =
+                [ Markdown.PlainText "Client receives random response for lucky hay: Alfalfa"
+                ]
+            , detail = []
+            , appear = config.dev
+            }
         , onSakuraChanMainSession.home.expectAvailable
             (Scenario.textContent "Redirect to home page.")
+        , let
+            value =
+                "Alfalfa"
+          in
+          onSakuraChanMainSession.home.expectLuckyHayMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The lucky grass hay is \"" ++ value ++ "\"")
         , let
             value =
                 "2023-01-01 09:00:15"
@@ -737,6 +755,23 @@ pageHomeCase1 config =
                 ]
             , appear = config.dev
             }
+        , onSakuraChanSecondSession.app.receiveRandomLuckyHay
+            { value = Session.LuckyHayTimothy
+            }
+            { content =
+                [ Markdown.PlainText "Client receives random response for lucky hay: Timothy"
+                ]
+            , detail = []
+            , appear = config.dev
+            }
+        , let
+            value =
+                "Timothy"
+          in
+          onSakuraChanSecondSession.home.expectLuckyHayMessage
+            { value = value
+            }
+            (Scenario.textContent <| "The lucky grass hay is \"" ++ value ++ "\"")
         , let
             value =
                 "Sakura-chan"

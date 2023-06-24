@@ -20,7 +20,7 @@ module App exposing
 
 import App.FetchProfile as FetchProfile
 import App.Path as Path
-import App.Session exposing (Session)
+import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Json.Encode exposing (Value)
@@ -30,6 +30,7 @@ import Page.Login as PageLogin
 import Tepa exposing (Document, Layer, Msg, NavKey, Promise, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
+import Tepa.Random as Random
 import Tepa.Scenario as Scenario exposing (Scenario)
 
 
@@ -198,7 +199,13 @@ pageProcedure url key msession =
                         \response ->
                             case response of
                                 FetchProfile.GoodResponse resp ->
-                                    action resp
+                                    Tepa.bind (Random.request Session.randomLuckyHay) <|
+                                        \luckyHay ->
+                                            [ action
+                                                { profile = resp.profile
+                                                , luckyHay = luckyHay
+                                                }
+                                            ]
 
                                 _ ->
                                     Nav.pushPath key
@@ -294,6 +301,11 @@ type alias ScenarioSet flags =
             (() -> Maybe ( Http.Metadata, String ))
             -> Scenario.Markup
             -> Scenario flags Memory
+        , receiveRandomLuckyHay :
+            { value : Session.LuckyHay
+            }
+            -> Scenario.Markup
+            -> Scenario flags Memory
         , fetchProfileEndpoint :
             { method : String
             , url : String
@@ -337,6 +349,7 @@ scenario session =
             }
     , app =
         { receiveProfile = receiveProfile session
+        , receiveRandomLuckyHay = receiveRandomLuckyHay session
         , fetchProfileEndpoint =
             { method = FetchProfile.method
             , url = FetchProfile.endpointUrl
@@ -357,4 +370,14 @@ receiveProfile session toResponse markup =
 
                 else
                     Nothing
+        }
+
+
+receiveRandomLuckyHay : Scenario.Session -> { value : Session.LuckyHay } -> Scenario.Markup -> Scenario flags Memory
+receiveRandomLuckyHay session { value } markup =
+    Scenario.randomResponse session
+        markup
+        { layer = Just
+        , spec = Session.randomLuckyHay
+        , response = value
         }

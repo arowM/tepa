@@ -23,6 +23,7 @@ module Tepa.Scenario exposing
     , expectCurrentTime
     , expectHttpRequest
     , expectPortRequest
+    , expectRandomRequest
     , appLayer
     , childLayer
     , mapLayer
@@ -98,6 +99,7 @@ module Tepa.Scenario exposing
 @docs expectCurrentTime
 @docs expectHttpRequest
 @docs expectPortRequest
+@docs expectRandomRequest
 
 
 ## Helper functions to specify Layer
@@ -1025,6 +1027,86 @@ expectPortRequest (Session session) markup param =
                                     |> SeqTest.pass
                                     |> SeqTest.assert description
                                         param.expectation
+                                    |> SeqTest.map (\_ -> context)
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processSessionScenario
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+{-| Describe your expectations for the unresolved Random requests at the time.
+
+You pass `Tepa.Random.Spec` to specify your expected request.
+
+-}
+expectRandomRequest :
+    Session
+    -> Markup
+    ->
+        { layer : Layer m -> Maybe (Layer m1)
+        , spec : Random.Spec a
+        }
+    -> Scenario flags m
+expectRandomRequest (Session session) markup param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "expectRandomRequest: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Err (Core.memoryState sessionContext.model)
+                                            |> Expect.equal
+                                                (Ok "expectRandomRequest: No layer found.")
+
+                            Just (Core.Layer layer1) ->
+                                List.filterMap
+                                    (\( ( _, lid ), val ) ->
+                                        if Core.ThisLayerId lid == layer1.id then
+                                            Just val
+
+                                        else
+                                            Nothing
+                                    )
+                                    sessionContext.randomRequests
+                                    |> SeqTest.pass
+                                    |> SeqTest.assert description
+                                        (\ls ->
+                                            let
+                                                hasRequest =
+                                                    List.any (Core.isRequestForSpec param.spec) ls
+                                            in
+                                            if hasRequest then
+                                                Expect.pass
+
+                                            else
+                                                Expect.fail "randomResponse: No requests found for the Spec"
+                                        )
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->

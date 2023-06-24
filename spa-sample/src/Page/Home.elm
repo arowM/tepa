@@ -23,7 +23,7 @@ module Page.Home exposing
 -}
 
 import App.Path as Path
-import App.Session exposing (Session)
+import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
@@ -99,6 +99,21 @@ view =
                 ]
                 [ clockView (Tepa.mapViewContext .clock context)
                 , Html.div
+                    [ localClass "luckyHay"
+                    ]
+                    [ Html.span
+                        [ localClass "luckyHay_text"
+                        ]
+                        [ Html.text "Your lucky grass hay for today: "
+                        ]
+                    , Html.span
+                        [ localClass "luckyHay_value"
+                        ]
+                        [ displayLuckyHay context.state.session.luckyHay
+                            |> Html.text
+                        ]
+                    ]
+                , Html.div
                     [ localClass "greeting"
                     ]
                     [ Html.span
@@ -142,6 +157,27 @@ view =
                 , Toast.view
                     (Tepa.mapViewContext .toast context)
                 ]
+
+
+{-| Stringify LuckyHay for display.
+-}
+displayLuckyHay : Session.LuckyHay -> String
+displayLuckyHay hay =
+    case hay of
+        Session.LuckyHayTimothy ->
+            "Timothy"
+
+        Session.LuckyHayOat ->
+            "Oat hay"
+
+        Session.LuckyHayAlfalfa ->
+            "Alfalfa"
+
+        Session.LuckyHayOrchard ->
+            "Orchard grass"
+
+        Session.LuckyHayBermuda ->
+            "Bermuda grass"
 
 
 clockView : ViewContext ClockMemory -> Html Msg
@@ -495,6 +531,11 @@ type alias ScenarioSet flags m =
         }
         -> Scenario.Markup
         -> Scenario flags m
+    , expectLuckyHayMessage :
+        { value : String
+        }
+        -> Scenario.Markup
+        -> Scenario flags m
     , editAccountEndpoint :
         { method : String
         , url : String
@@ -520,6 +561,7 @@ scenario props =
     , expectEditAccountFormShowNoErrors = expectEditAccountFormShowNoErrors props
     , expectGreetingMessage = expectGreetingMessage props
     , expectClockMessage = expectClockMessage props
+    , expectLuckyHayMessage = expectLuckyHayMessage props
     , editAccountEndpoint =
         { method = EditAccount.method
         , url = EditAccount.endpointUrl
@@ -615,11 +657,10 @@ expectGreetingMessage props { value } markup =
                     |> Query.find
                         [ localClassSelector "greeting"
                         ]
-                    |> Query.findAll
+                    |> Query.has
                         [ localClassSelector "greeting_name"
                         , Selector.exactText value
                         ]
-                    |> Query.count (Expect.equal 1)
         }
 
 
@@ -641,6 +682,29 @@ expectClockMessage props { value } markup =
                         ]
                     |> Query.has
                         [ Selector.exactText value
+                        ]
+        }
+
+
+expectLuckyHayMessage :
+    ScenarioProps m
+    ->
+        { value : String
+        }
+    -> Scenario.Markup
+    -> Scenario flags m
+expectLuckyHayMessage props { value } markup =
+    Scenario.expectAppView props.session
+        markup
+        { expectation =
+            \{ body } ->
+                Query.fromHtml (Html.div [] body)
+                    |> Query.find
+                        [ localClassSelector "luckyHay"
+                        ]
+                    |> Query.has
+                        [ localClassSelector "luckyHay_value"
+                        , Selector.exactText value
                         ]
         }
 

@@ -19,7 +19,7 @@ module Page.Login exposing
 -}
 
 import App.Path as Path
-import App.Session exposing (Session)
+import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
@@ -30,6 +30,7 @@ import Page.Login.Login as Login
 import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext, Void)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
+import Tepa.Random as Random
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
@@ -357,22 +358,26 @@ submitLoginProcedure bucket =
                                         ]
 
                                     Login.GoodResponse resp ->
-                                        [ Tepa.modify <|
-                                            \m ->
-                                                { m
-                                                    | msession =
-                                                        Just
-                                                            { profile = resp.profile
-                                                            }
-                                                    , loginForm =
-                                                        let
-                                                            loginForm =
-                                                                m.loginForm
-                                                        in
-                                                        { loginForm
-                                                            | isBusy = False
+                                        [ Tepa.bind (Random.request Session.randomLuckyHay) <|
+                                            \luckyHay ->
+                                                [ Tepa.modify <|
+                                                    \m ->
+                                                        { m
+                                                            | msession =
+                                                                Just
+                                                                    { profile = resp.profile
+                                                                    , luckyHay = luckyHay
+                                                                    }
+                                                            , loginForm =
+                                                                let
+                                                                    loginForm =
+                                                                        m.loginForm
+                                                                in
+                                                                { loginForm
+                                                                    | isBusy = False
+                                                                }
                                                         }
-                                                }
+                                                ]
                                         , Nav.pushPath bucket.key
                                             (bucket.requestPath.queryParameters
                                                 |> Dict.get "back"
@@ -429,6 +434,11 @@ type alias ScenarioSet flags m =
         (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
         -> Scenario flags m
+    , receiveRandomLuckyHay :
+        { value : Session.LuckyHay
+        }
+        -> Scenario.Markup
+        -> Scenario flags m
     , expectAvailable :
         Scenario.Markup -> Scenario flags m
     , expectLoginFormShowNoErrors :
@@ -462,6 +472,7 @@ scenario props =
     , changeLoginPass = changeLoginPass props
     , clickSubmitLogin = clickSubmitLogin props
     , receiveLoginResp = receiveLoginResp props
+    , receiveRandomLuckyHay = receiveRandomLuckyHay props
     , expectAvailable = expectAvailable props
     , expectRequestLogin = expectRequestLogin props
     , expectLoginFormShowNoErrors = expectLoginFormShowNoErrors props
@@ -539,6 +550,20 @@ receiveLoginResp props toResponse markup =
 
                 else
                     Nothing
+        }
+
+
+receiveRandomLuckyHay :
+    ScenarioProps m
+    -> { value : Session.LuckyHay }
+    -> Scenario.Markup
+    -> Scenario flags m
+receiveRandomLuckyHay props { value } markup =
+    Scenario.randomResponse props.session
+        markup
+        { layer = props.querySelf
+        , spec = Session.randomLuckyHay
+        , response = value
         }
 
 
