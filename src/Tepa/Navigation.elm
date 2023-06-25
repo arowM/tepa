@@ -191,8 +191,11 @@ reload =
     Core.reload False
 
 
-{-| Reload the current page without using the browser cache. **This always
+{-| TEPA version of [reloadAndSkipCache](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#reloadAndSkipCache).
+
+Reload the current page without using the browser cache. **This always
 results in a page load!** It is more common to want [`reload`](#reload).
+
 -}
 reloadAndSkipCache : Promise m Void
 reloadAndSkipCache =

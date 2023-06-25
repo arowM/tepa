@@ -150,6 +150,7 @@ module Tepa.Scenario exposing
 
 import AppUrl exposing (AppUrl)
 import Browser exposing (Document)
+import Browser.Dom as BrowserDom
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
 import Expect exposing (Expectation)
@@ -159,7 +160,7 @@ import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
 import Internal.LayerId as LayerId exposing (LayerId)
 import Internal.RequestId exposing (RequestId)
-import Json.Encode exposing (Value)
+import Json.Encode as JE exposing (Value)
 import MarkdownAst as MdAst
 import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
@@ -169,7 +170,9 @@ import Tepa.Random as Random
 import Tepa.Time as Time exposing (Posix, Zone)
 import Test exposing (Test)
 import Test.Html.Event as TestEvent
-import Test.Html.Query exposing (Single)
+import Test.Html.Query as TestQuery exposing (Single)
+import Test.Html.Selector as TestSelector
+import Test.Runner as TestRunner
 import Test.Sequence as SeqTest
 
 
@@ -213,6 +216,7 @@ type alias TestContext m =
     { sessions : Dict String (SessionContext m)
     , currentTime : Int -- in milliseconds
     , zone : Zone
+    , view : Core.Layer_ m -> Html Core.Msg
     }
 
 
@@ -1322,7 +1326,7 @@ userOperation (Session session) markup param =
                                     |> config.view
                                     |> .body
                                     |> Html.div []
-                                    |> Test.Html.Query.fromHtml
+                                    |> TestQuery.fromHtml
                                     |> param.query
                                     |> TestEvent.simulate param.operation
                                     |> TestEvent.toResult
@@ -1340,9 +1344,7 @@ userOperation (Session session) markup param =
                                         [ msg
                                         ]
                                             |> applyMsgsTo
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
+                                                context
                                                 sessionContext
                                 in
                                 case res of
@@ -1413,9 +1415,7 @@ sleep markup msec =
                                         let
                                             updateResult =
                                                 advanceClock
-                                                    { currentTime = context.currentTime
-                                                    , zone = context.zone
-                                                    }
+                                                    context
                                                     msec
                                                     sessionContext
                                         in
@@ -1457,9 +1457,7 @@ sleep markup msec =
 
 
 advanceClock :
-    { currentTime : Int
-    , zone : Zone
-    }
+    TestContext m
     -> Int
     -> SessionContext m
     -> SessionUpdateResult m
@@ -1583,9 +1581,7 @@ portResponse (Session session) markup param =
                                             let
                                                 updateResult =
                                                     update
-                                                        { currentTime = context.currentTime
-                                                        , zone = context.zone
-                                                        }
+                                                        context
                                                         msg
                                                         { sessionContext
                                                             | portRequests = nextPortRequests
@@ -1723,9 +1719,7 @@ randomResponse (Session session) markup param =
                                             let
                                                 updateResult =
                                                     update
-                                                        { currentTime = context.currentTime
-                                                        , zone = context.zone
-                                                        }
+                                                        context
                                                         msg
                                                         { sessionContext
                                                             | randomRequests = nextRandomRequests
@@ -1883,6 +1877,12 @@ toTest o =
                                 { sessions = Dict.empty
                                 , currentTime = Time.posixToMillis initialTime
                                 , zone = zone
+                                , view =
+                                    \layer ->
+                                        Core.Layer layer
+                                            |> o.props.view
+                                            |> .body
+                                            |> Html.div []
                                 }
 
                         RunAfter title ->
@@ -1940,9 +1940,7 @@ toTest o =
                                                     Core.init o.props.init procs
                                             in
                                             applyLogs
-                                                { currentTime = context.currentTime
-                                                , zone = context.zone
-                                                }
+                                                context
                                                 newState.logs
                                                 { model = newState.nextModel
                                                 , portRequests = []
@@ -2001,9 +1999,7 @@ sessionUpdateAndThen f res =
 
 
 applyMsgsTo :
-    { currentTime : Int
-    , zone : Zone
-    }
+    TestContext m
     -> SessionContext m
     -> List Msg
     -> SessionUpdateResult m
@@ -2018,9 +2014,7 @@ applyMsgsTo config context =
 
 
 update :
-    { currentTime : Int
-    , zone : Zone
-    }
+    TestContext m
     -> Msg
     -> SessionContext m
     -> SessionUpdateResult m
@@ -2040,9 +2034,7 @@ update config msg context =
 
 
 applyLogs :
-    { currentTime : Int
-    , zone : Zone
-    }
+    TestContext m
     -> List Core.Log
     -> SessionContext m
     -> SessionUpdateResult m
@@ -2058,9 +2050,7 @@ applyLogs config logs context =
 
 
 applyLog :
-    { currentTime : Int
-    , zone : Zone
-    }
+    TestContext m
     -> Core.Log
     -> SessionContext m
     -> SessionUpdateResult m
@@ -2257,6 +2247,259 @@ applyLog config log context =
 
         Core.Reload ->
             SessionExpired
+
+        Core.FocusNode rid id ->
+            let
+                (Model model) =
+                    context.model
+
+                html =
+                    config.view model.context.layer
+
+                hasElement =
+                    TestRunner.getFailureReason
+                        (TestQuery.fromHtml html
+                            |> TestQuery.findAll
+                                [ TestSelector.id id
+                                ]
+                            |> TestQuery.count (Expect.greaterThan 0)
+                        )
+                        == Nothing
+
+                resMsg =
+                    TestQuery.fromHtml html
+                        |> TestQuery.findAll
+                            [ TestSelector.id id
+                            ]
+                        |> TestQuery.first
+                        |> TestEvent.simulate TestEvent.focus
+                        |> TestEvent.toResult
+            in
+            applyMsgsTo config context <|
+                List.filterMap identity
+                    [ Just <|
+                        Core.FocusMsg
+                            { requestId = rid
+                            , targetId = id
+                            , response =
+                                if hasElement then
+                                    Ok ()
+
+                                else
+                                    Err <| BrowserDom.NotFound id
+                            }
+                    , Result.toMaybe resMsg
+                    ]
+
+        Core.BlurNode rid id ->
+            let
+                (Model model) =
+                    context.model
+
+                html =
+                    config.view model.context.layer
+
+                hasElement =
+                    TestRunner.getFailureReason
+                        (TestQuery.fromHtml html
+                            |> TestQuery.findAll
+                                [ TestSelector.id id
+                                ]
+                            |> TestQuery.count (Expect.greaterThan 0)
+                        )
+                        == Nothing
+
+                resMsg =
+                    TestQuery.fromHtml html
+                        |> TestQuery.findAll
+                            [ TestSelector.id id
+                            ]
+                        |> TestQuery.first
+                        |> TestEvent.simulate TestEvent.blur
+                        |> TestEvent.toResult
+            in
+            applyMsgsTo config context <|
+                List.filterMap identity
+                    [ Just <|
+                        Core.BlurMsg
+                            { requestId = rid
+                            , targetId = id
+                            , response =
+                                if hasElement then
+                                    Ok ()
+
+                                else
+                                    Err <| BrowserDom.NotFound id
+                            }
+                    , Result.toMaybe resMsg
+                    ]
+
+        Core.RequestViewport rid ->
+            update config
+                (Core.RequestViewportMsg
+                    { requestId = rid
+                    , response =
+                        { scene =
+                            { width = 0
+                            , height = 0
+                            }
+                        , viewport =
+                            { x = 0
+                            , y = 0
+                            , width = 0
+                            , height = 0
+                            }
+                        }
+                    }
+                )
+                context
+
+        Core.RequestViewportOf rid id ->
+            let
+                (Model model) =
+                    context.model
+
+                html =
+                    config.view model.context.layer
+
+                hasElement =
+                    TestRunner.getFailureReason
+                        (TestQuery.fromHtml html
+                            |> TestQuery.findAll
+                                [ TestSelector.id id
+                                ]
+                            |> TestQuery.count (Expect.greaterThan 0)
+                        )
+                        == Nothing
+            in
+            update config
+                (Core.RequestViewportOfMsg
+                    { requestId = rid
+                    , targetId = id
+                    , response =
+                        if hasElement then
+                            Ok
+                                { scene =
+                                    { width = 0
+                                    , height = 0
+                                    }
+                                , viewport =
+                                    { x = 0
+                                    , y = 0
+                                    , width = 0
+                                    , height = 0
+                                    }
+                                }
+
+                        else
+                            Err <| BrowserDom.NotFound id
+                    }
+                )
+                context
+
+        Core.SetViewport rid ->
+            update config
+                (Core.RequestSetViewportMsg
+                    { requestId = rid
+                    }
+                )
+                context
+
+        Core.SetViewportOf rid id ->
+            let
+                (Model model) =
+                    context.model
+
+                html =
+                    config.view model.context.layer
+
+                hasElement =
+                    TestRunner.getFailureReason
+                        (TestQuery.fromHtml html
+                            |> TestQuery.findAll
+                                [ TestSelector.id id
+                                ]
+                            |> TestQuery.count (Expect.greaterThan 0)
+                        )
+                        == Nothing
+
+                resMsg =
+                    TestQuery.fromHtml html
+                        |> TestQuery.findAll
+                            [ TestSelector.id id
+                            ]
+                        |> TestQuery.first
+                        |> TestEvent.simulate
+                            (TestEvent.custom
+                                "scroll"
+                                (JE.object [])
+                            )
+                        |> TestEvent.toResult
+            in
+            applyMsgsTo config context <|
+                List.filterMap identity
+                    [ Just <|
+                        Core.RequestSetViewportOfMsg
+                            { requestId = rid
+                            , targetId = id
+                            , response =
+                                if hasElement then
+                                    Ok ()
+
+                                else
+                                    Err <| BrowserDom.NotFound id
+                            }
+                    , Result.toMaybe resMsg
+                    ]
+
+        Core.RequestElement rid id ->
+            let
+                (Model model) =
+                    context.model
+
+                html =
+                    config.view model.context.layer
+
+                hasElement =
+                    TestRunner.getFailureReason
+                        (TestQuery.fromHtml html
+                            |> TestQuery.findAll
+                                [ TestSelector.id id
+                                ]
+                            |> TestQuery.count (Expect.greaterThan 0)
+                        )
+                        == Nothing
+            in
+            update config
+                (Core.RequestElementMsg
+                    { requestId = rid
+                    , targetId = id
+                    , response =
+                        if hasElement then
+                            Ok
+                                { scene =
+                                    { width = 0
+                                    , height = 0
+                                    }
+                                , viewport =
+                                    { x = 0
+                                    , y = 0
+                                    , width = 0
+                                    , height = 0
+                                    }
+                                , element =
+                                    { x = 0
+                                    , y = 0
+                                    , width = 0
+                                    , height = 0
+                                    }
+                                }
+
+                        else
+                            Err <| BrowserDom.NotFound id
+                    }
+                )
+                context
 
 
 putTimer : Timer -> List Timer -> List Timer
@@ -2868,10 +3111,7 @@ httpResponse (Session session) markup param =
                                         (\( msg, nextHttpRequests ) ->
                                             let
                                                 updateResult =
-                                                    update
-                                                        { currentTime = context.currentTime
-                                                        , zone = context.zone
-                                                        }
+                                                    update context
                                                         msg
                                                         { sessionContext
                                                             | httpRequests = nextHttpRequests
@@ -2977,10 +3217,7 @@ httpBytesResponse (Session session) markup param =
                                         (\( msg, nextHttpRequests ) ->
                                             let
                                                 updateResult =
-                                                    update
-                                                        { currentTime = context.currentTime
-                                                        , zone = context.zone
-                                                        }
+                                                    update context
                                                         msg
                                                         { sessionContext
                                                             | httpRequests = nextHttpRequests

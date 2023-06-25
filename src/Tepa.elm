@@ -811,8 +811,10 @@ type alias Program flags memory =
 
 {-| Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
 -}
-type alias Document a =
-    Browser.Document a
+type alias Document msg =
+    { title : String
+    , body : List (Html msg)
+    }
 
 
 {-| TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest).

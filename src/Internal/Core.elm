@@ -100,6 +100,7 @@ module Internal.Core exposing
 
 import AppUrl exposing (AppUrl)
 import Browser exposing (Document)
+import Browser.Dom as Dom
 import Browser.Navigation as Nav
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
@@ -259,6 +260,13 @@ type Log
     | Forward Int
     | LoadUrl
     | Reload
+    | FocusNode RequestId String
+    | BlurNode RequestId String
+    | RequestViewport RequestId
+    | RequestViewportOf RequestId String
+    | SetViewport RequestId
+    | SetViewportOf RequestId String
+    | RequestElement RequestId String
 
 
 {-| -}
@@ -317,6 +325,38 @@ type Msg
     | RandomResponseMsg
         { requestId : RequestId
         , response : RandomValue
+        }
+    | FocusMsg
+        { requestId : RequestId
+        , targetId : String
+        , response : Result Dom.Error ()
+        }
+    | BlurMsg
+        { requestId : RequestId
+        , targetId : String
+        , response : Result Dom.Error ()
+        }
+    | RequestViewportMsg
+        { requestId : RequestId
+        , response : Dom.Viewport
+        }
+    | RequestViewportOfMsg
+        { requestId : RequestId
+        , targetId : String
+        , response : Result Dom.Error Dom.Viewport
+        }
+    | RequestSetViewportMsg
+        { requestId : RequestId
+        }
+    | RequestSetViewportOfMsg
+        { requestId : RequestId
+        , targetId : String
+        , response : Result Dom.Error ()
+        }
+    | RequestElementMsg
+        { requestId : RequestId
+        , targetId : String
+        , response : Result Dom.Error Dom.Element
         }
     | CurrentTimeMsg
         { requestId : RequestId
@@ -1851,8 +1891,19 @@ setValue key val =
 
 {-| -}
 customRequest :
-    (RequestId -> Msg -> m -> Maybe ( a, List Log ))
+    (RequestId
+     -> Msg
+     -> m
+     ->
+        Maybe
+            ( a
+              -- Logs for free resources on scenario testing
+            , List Log
+            )
+    )
+    -- Real Command
     -> (RequestId -> Cmd Msg)
+    -- Log on start evaluation
     -> (RequestId -> LayerId -> Log)
     -> Promise m a
 customRequest newPromise_ realCmd log =
