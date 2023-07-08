@@ -2,7 +2,7 @@ module Widget.Toast exposing
     ( Memory
     , init
     , view
-    , Closed
+    , ClosedBy(..)
     , pushWarning
     , pushError
     , scenario
@@ -20,7 +20,7 @@ module Widget.Toast exposing
 @docs Memory
 @docs init
 @docs view
-@docs Closed
+@docs ClosedBy
 
 
 # Methods
@@ -48,7 +48,7 @@ import Expect
 import Html.Attributes as Attributes
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
-import Tepa exposing (Layer, Msg, Promise, Void)
+import Tepa exposing (Layer, Msg, Promise)
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Time as Time
 import Test.Html.Event as HtmlEvent
@@ -112,10 +112,17 @@ init =
             }
 
 
-{-| Represents that the popup is closed by user or timeout.
+{-| Represents the reason why the popup is closed.
+
+  - `ClosedByUser`: Uesr clicked the close button
+  - `ClosedByTimeout`: The popup was timed out
+  - `ClosedByLayer`: Layer has expired
+
 -}
-type Closed
-    = Closed
+type ClosedBy
+    = ClosedByUser
+    | ClosedByTimeout
+    | ClosedByLayer
 
 
 
@@ -125,7 +132,7 @@ type Closed
 {-| Show warning message.
 This promise blocks subsequent processes untill the item is closed.
 -}
-pushWarning : String -> Promise Memory Closed
+pushWarning : String -> Promise Memory ClosedBy
 pushWarning =
     pushItem WarningMessage
 
@@ -133,54 +140,65 @@ pushWarning =
 {-| Show error message.
 This promise blocks subsequent processes untill the item is closed.
 -}
-pushError : String -> Promise Memory Closed
+pushError : String -> Promise Memory ClosedBy
 pushError =
     pushItem ErrorMessage
 
 
-pushItem : MessageType -> String -> Promise Memory Closed
+pushItem : MessageType -> String -> Promise Memory ClosedBy
 pushItem type_ str =
-    Tepa.map (\_ -> Closed) <|
-        Tepa.bind
-            (Tepa.newLayer
-                { isHidden = False
-                , messageType = type_
-                , content = str
-                }
-            )
-        <|
-            \newItem ->
-                [ Tepa.modify <|
-                    \(Memory m) ->
-                        Memory { m | items = m.items ++ [ newItem ] }
-                , toastItemProcedure
-                    |> Tepa.onLayer
-                        { get =
-                            \(Memory m) ->
-                                List.filter (Tepa.isOnSameLayer newItem) m.items
-                                    |> List.head
-                        , set =
-                            \new (Memory m) ->
-                                Memory
-                                    { m
-                                        | items =
-                                            List.map
-                                                (\item ->
-                                                    if Tepa.isOnSameLayer newItem item then
-                                                        new
+    Tepa.bindAndThen
+        (Tepa.newLayer
+            { isHidden = False
+            , messageType = type_
+            , content = str
+            }
+        )
+    <|
+        \newItem ->
+            Tepa.modify
+                (\(Memory m) ->
+                    Memory { m | items = m.items ++ [ newItem ] }
+                )
+                |> Tepa.andThen
+                    (\_ ->
+                        toastItemProcedure
+                            |> Tepa.onLayer
+                                { get =
+                                    \(Memory m) ->
+                                        List.filter (Tepa.isOnSameLayer newItem) m.items
+                                            |> List.head
+                                , set =
+                                    \new (Memory m) ->
+                                        Memory
+                                            { m
+                                                | items =
+                                                    List.map
+                                                        (\item ->
+                                                            if Tepa.isOnSameLayer newItem item then
+                                                                new
 
-                                                    else
-                                                        item
-                                                )
-                                                m.items
-                                    }
-                        }
-                    |> Tepa.void
-                , Tepa.modify <|
-                    \(Memory m) ->
-                        Memory
-                            { m | items = List.filter (not << Tepa.isOnSameLayer newItem) m.items }
-                ]
+                                                            else
+                                                                item
+                                                        )
+                                                        m.items
+                                            }
+                                }
+                    )
+                |> Tepa.andThen
+                    (\layerResult ->
+                        case layerResult of
+                            Tepa.LayerOk closedBy ->
+                                Tepa.modify
+                                    (\(Memory m) ->
+                                        Memory
+                                            { m | items = List.filter (not << Tepa.isOnSameLayer newItem) m.items }
+                                    )
+                                    |> Tepa.map (\_ -> closedBy)
+
+                            _ ->
+                                Tepa.succeed ClosedByLayer
+                    )
 
 
 
@@ -194,18 +212,27 @@ type alias ToastItemMemory =
     }
 
 
-toastItemProcedure : Promise ToastItemMemory Void
+toastItemProcedure : Promise ToastItemMemory ClosedBy
 toastItemProcedure =
-    Tepa.sequence
-        [ Tepa.awaitViewEvent
+    Tepa.bindAndThen
+        (Tepa.awaitViewEvent
             { key = keys.toastItemClose
             , type_ = "click"
             }
-            |> Tepa.orFaster (Time.sleep toastTimeout)
-        , Tepa.modify
-            (\m -> { m | isHidden = True })
-        , Time.sleep toastFadeOutDuration
-        ]
+            |> Tepa.map (\_ -> ClosedByUser)
+            |> Tepa.orFaster
+                (Time.sleep toastTimeout
+                    |> Tepa.map (\_ -> ClosedByTimeout)
+                )
+        )
+    <|
+        \closedBy ->
+            Tepa.sequence
+                [ Tepa.modify
+                    (\m -> { m | isHidden = True })
+                , Time.sleep toastFadeOutDuration
+                ]
+                |> Tepa.map (\_ -> closedBy)
 
 
 

@@ -11,7 +11,7 @@ module Tepa exposing
     , orFaster
     , andThen, bindAndThen
     , sync
-    , Void, void
+    , void
     , sequence, andThenSequence, none
     , syncAll
     , race
@@ -75,9 +75,9 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 
 # Procedures
 
-Promises that returns `Void` are called as a _Procedure_.
+Promises that returns `()` are called as a _Procedure_.
 
-@docs Void, void
+@docs void
 @docs sequence, andThenSequence, none
 @docs syncAll
 @docs race
@@ -265,7 +265,7 @@ May you want to set timeout on your request:
                     |> map Err
                 )
 
-    sleep : Promise Memory Event Void
+    sleep : Promise Memory Event ()
     sleep =
         Debug.todo ""
 
@@ -276,7 +276,7 @@ orFaster =
 
 
 {-| -}
-race : List (Promise m Void) -> Promise m Void
+race : List (Promise m ()) -> Promise m ()
 race promises =
     case promises of
         [] ->
@@ -340,19 +340,14 @@ sync =
 
 
 {-| -}
-type alias Void =
-    Core.Void
-
-
-{-| -}
-void : Promise m a -> Promise m Void
+void : Promise m a -> Promise m ()
 void =
-    Core.void
+    map (\_ -> ())
 
 
 {-| Concatenate given sequence of Procedures.
 -}
-sequence : List (Promise m Void) -> Promise m Void
+sequence : List (Promise m ()) -> Promise m ()
 sequence =
     Core.sequence
 
@@ -363,7 +358,7 @@ sequence =
         andThen (f >> sequence)
 
 -}
-andThenSequence : (a -> List (Promise m Void)) -> Promise m a -> Promise m Void
+andThenSequence : (a -> List (Promise m ())) -> Promise m a -> Promise m ()
 andThenSequence f =
     andThen (f >> sequence)
 
@@ -378,14 +373,14 @@ You can use `bind` to bind some Promise result to a variable:
             ]
 
 -}
-bind : Promise m a -> (a -> List (Promise m Void)) -> Promise m Void
+bind : Promise m a -> (a -> List (Promise m ())) -> Promise m ()
 bind promise f =
     andThenSequence f promise
 
 
 {-| Run two Promises concurrently, and bind the results to variables when both are complete.
 -}
-bind2 : Promise m a -> Promise m b -> (a -> b -> List (Promise m Void)) -> Promise m Void
+bind2 : Promise m a -> Promise m b -> (a -> b -> List (Promise m ())) -> Promise m ()
 bind2 p1 p2 f =
     succeed Tuple.pair
         |> sync p1
@@ -403,8 +398,8 @@ bind3 :
     Promise m a
     -> Promise m b
     -> Promise m c
-    -> (a -> b -> c -> List (Promise m Void))
-    -> Promise m Void
+    -> (a -> b -> c -> List (Promise m ()))
+    -> Promise m ()
 bind3 p1 p2 p3 f =
     succeed (\a b c -> ( a, b, c ))
         |> sync p1
@@ -416,14 +411,14 @@ bind3 p1 p2 p3 f =
 
 {-| Procedure that does nothing.
 -}
-none : Promise m Void
+none : Promise m ()
 none =
     Core.none
 
 
 {-| Run Procedures concurrently, and await all to be completed.
 -}
-syncAll : List (Promise m Void) -> Promise m Void
+syncAll : List (Promise m ()) -> Promise m ()
 syncAll =
     Core.concurrent
 
@@ -433,7 +428,7 @@ syncAll =
 Note that the update operation, passed as the second argument, is performed atomically; it means the state of the Memory is not updated by another process during it is read and written by the `modify`.
 
 -}
-modify : (m -> m) -> Promise m Void
+modify : (m -> m) -> Promise m ()
 modify =
     Core.modify
 
@@ -449,13 +444,13 @@ If you think you need to use this function, please check the following points:
 3.  if you still want to use it, use it at your own risk and do not ask any questions or bother the TEPA developers.
 
 -}
-unsafePush : (m -> Cmd Msg) -> Promise m Void
+unsafePush : (m -> Cmd Msg) -> Promise m ()
 unsafePush =
     Core.push
 
 
 {-| -}
-lazy : (() -> Promise m Void) -> Promise m Void
+lazy : (() -> Promise m ()) -> Promise m ()
 lazy =
     Core.lazy
 
@@ -466,7 +461,7 @@ lazy =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `True`, otherwise same as `none`.
 -}
-when : Bool -> List (Promise m Void) -> Promise m Void
+when : Bool -> List (Promise m ()) -> Promise m ()
 when p ps =
     if p then
         sequence ps
@@ -477,14 +472,14 @@ when p ps =
 
 {-| Evaluate the sequence of Procedures only if the first argument is `False`, otherwise same as `none`.
 -}
-unless : Bool -> List (Promise m Void) -> Promise m Void
+unless : Bool -> List (Promise m ()) -> Promise m ()
 unless p =
     when (not p)
 
 
 {-| Evaluate the sequence of Procedures returned by the callback function only if the first argument is `Just`, otherwise same as `none`.
 -}
-withMaybe : Maybe a -> (a -> List (Promise m Void)) -> Promise m Void
+withMaybe : Maybe a -> (a -> List (Promise m ())) -> Promise m ()
 withMaybe ma f =
     case ma of
         Nothing ->
@@ -623,8 +618,8 @@ listenPortStream :
         }
     , requestBody : Value
     }
-    -> (Value -> List (Promise m Void))
-    -> Promise m Void
+    -> (Value -> List (Promise m ()))
+    -> Promise m ()
 listenPortStream =
     Core.listenPortStream
 
@@ -634,7 +629,7 @@ awaitViewEvent :
     { key : String
     , type_ : String
     }
-    -> Promise m Void
+    -> Promise m ()
 awaitViewEvent param =
     customViewEvent
         { key = param.key
@@ -664,13 +659,13 @@ justAwait :
     Decoder
         { stopPropagation : Bool
         , preventDefault : Bool
-        , value : Void
+        , value : ()
         }
 justAwait =
     JD.succeed
         { stopPropagation = False
         , preventDefault = False
-        , value = Core.OnGoingProcedure
+        , value = ()
         }
 
 
@@ -688,7 +683,7 @@ getValues =
 
 
 {-| -}
-setValue : String -> String -> Promise m Void
+setValue : String -> String -> Promise m ()
 setValue =
     Core.setValue
 
@@ -787,10 +782,10 @@ application props =
 {-| -}
 type alias ApplicationProps flags memory =
     { init : memory
-    , procedure : flags -> AppUrl -> NavKey -> Promise memory Void
+    , procedure : flags -> AppUrl -> NavKey -> Promise memory ()
     , view : Layer memory -> Document Msg
-    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory Void
-    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory Void
+    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory ()
+    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory ()
     }
 
 
@@ -878,9 +873,9 @@ subscriptions =
 init :
     memory
     ->
-        { procedure : Promise memory Void
-        , onUrlChange : AppUrl -> Promise memory Void
-        , onUrlRequest : UrlRequest -> Promise memory Void
+        { procedure : Promise memory ()
+        , onUrlChange : AppUrl -> Promise memory ()
+        , onUrlRequest : UrlRequest -> Promise memory ()
         }
     -> ( Model memory, Cmd Msg )
 init memory param =

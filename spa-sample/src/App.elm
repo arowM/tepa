@@ -27,7 +27,7 @@ import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
-import Tepa exposing (Document, Layer, Msg, NavKey, Promise, Void)
+import Tepa exposing (Document, Layer, Msg, NavKey, Promise)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
@@ -135,12 +135,12 @@ pageNotFoundView =
 
 
 {-| -}
-procedure : Value -> AppUrl -> NavKey -> Promise Memory Void
+procedure : Value -> AppUrl -> NavKey -> Promise Memory ()
 procedure _ url key =
     pageProcedure url key Nothing
 
 
-onUrlChange : flags -> AppUrl -> NavKey -> Promise Memory Void
+onUrlChange : flags -> AppUrl -> NavKey -> Promise Memory ()
 onUrlChange _ newUrl key =
     Tepa.bind Tepa.currentState <|
         \state ->
@@ -166,7 +166,7 @@ onUrlChange _ newUrl key =
                     ]
 
 
-onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Memory Void
+onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
 onUrlRequest _ urlRequest key =
     case urlRequest of
         Tepa.InternalPath url ->
@@ -184,10 +184,10 @@ pageProcedure :
     AppUrl
     -> NavKey
     -> Maybe Session
-    -> Promise Memory Void
+    -> Promise Memory ()
 pageProcedure url key msession =
     let
-        withSession : (Session -> Promise Memory Void) -> Promise Memory Void
+        withSession : (Session -> Promise Memory ()) -> Promise Memory ()
         withSession action =
             case msession of
                 Just session ->

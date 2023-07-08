@@ -43,7 +43,7 @@ See the `Browser.Dom` documentation for more detailed notes.
 import Browser.Dom as Dom
 import Internal.Core as Core
 import Task
-import Tepa exposing (Promise, Void)
+import Tepa exposing (Promise)
 
 
 
@@ -291,7 +291,7 @@ example, you could make a command to jump to the top of the page:
     import Tepa exposing (Promise)
     import Tepa.Dom as Dom
 
-    resetViewport : Promise m Void
+    resetViewport : Promise m ()
     resetViewport =
         Dom.setViewport 0 0
 
@@ -300,7 +300,7 @@ This sets the viewport offset to zero.
 In scenario testing, it has no effects.
 
 -}
-setViewport : Float -> Float -> Promise m Void
+setViewport : Float -> Float -> Promise m ()
 setViewport x y =
     Core.customRequest
         (\myRequestId msg _ ->
@@ -308,7 +308,7 @@ setViewport x y =
                 Core.RequestSetViewportMsg param ->
                     if param.requestId == myRequestId then
                         Just
-                            ( Core.OnGoingProcedure
+                            ( ()
                             , []
                             )
 

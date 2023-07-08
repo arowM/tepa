@@ -27,7 +27,7 @@ import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
-import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext, Void)
+import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
@@ -240,7 +240,7 @@ type alias Bucket =
 
 
 {-| -}
-procedure : NavKey -> AppUrl -> Promise Memory Void
+procedure : NavKey -> AppUrl -> Promise Memory ()
 procedure key url =
     let
         bucket =
@@ -254,7 +254,7 @@ procedure key url =
         ]
 
 
-loginFormProcedure : Bucket -> Promise Memory Void
+loginFormProcedure : Bucket -> Promise Memory ()
 loginFormProcedure bucket =
     let
         modifyLoginForm f =
@@ -292,7 +292,7 @@ loginFormProcedure bucket =
         ]
 
 
-submitLoginProcedure : Bucket -> Promise Memory Void
+submitLoginProcedure : Bucket -> Promise Memory ()
 submitLoginProcedure bucket =
     let
         modifyLoginForm f =

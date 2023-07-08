@@ -34,7 +34,7 @@ You should not use the `Time` module with TEPA because the functions that the mo
 -}
 
 import Internal.Core as Internal
-import Tepa exposing (Promise, Void)
+import Tepa exposing (Promise)
 import Time
 
 
@@ -56,7 +56,7 @@ type alias Posix =
 Block progress on the current procedure for the given number of milliseconds. The JavaScript equivalent of this is `setTimeout` which lets you delay work until later.
 
 -}
-sleep : Int -> Promise m Void
+sleep : Int -> Promise m ()
 sleep =
     Internal.sleep
 
@@ -78,8 +78,8 @@ Get the current time periodically at the specified interval in milliseconds (lik
 -}
 every :
     Int
-    -> (Posix -> List (Promise m Void))
-    -> Promise m Void
+    -> (Posix -> List (Promise m ()))
+    -> Promise m ()
 every =
     Internal.listenTimeEvery
 

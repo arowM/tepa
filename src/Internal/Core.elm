@@ -20,7 +20,6 @@ module Internal.Core exposing
     , ThisLayerEvents(..), ThisLayerValues(..)
     , layerView, keyedLayerView, layerDocument
     , none, sequence, concurrent
-    , Void(..), void
     , modify, push, currentState, lazy
     , sleep, listenTimeEvery, listenMsg
     , load, reload
@@ -70,7 +69,6 @@ module Internal.Core exposing
 
 # Primitive Procedures
 
-@docs Void, void
 @docs modify, push, currentState, lazy
 @docs sleep, listenTimeEvery, listenMsg
 @docs load, reload
@@ -917,13 +915,13 @@ liftPromiseMemory o (Promise prom1) =
 
 
 {-| -}
-none : Promise m Void
+none : Promise m ()
 none =
-    succeedPromise OnGoingProcedure
+    succeedPromise ()
 
 
 {-| -}
-sequence : List (Promise m Void) -> Promise m Void
+sequence : List (Promise m ()) -> Promise m ()
 sequence =
     List.foldl
         (\a acc ->
@@ -937,11 +935,11 @@ sequence =
 
 
 {-| -}
-concurrent : List (Promise m Void) -> Promise m Void
+concurrent : List (Promise m ()) -> Promise m ()
 concurrent =
     List.foldl
         (\a acc ->
-            succeedPromise (\_ _ -> OnGoingProcedure)
+            succeedPromise (\_ _ -> ())
                 |> syncPromise acc
                 |> syncPromise a
         )
@@ -980,18 +978,7 @@ genNewLayerId =
 
 
 {-| -}
-type Void
-    = OnGoingProcedure
-
-
-{-| -}
-void : Promise m a -> Promise m Void
-void =
-    andThenPromise (\_ -> none)
-
-
-{-| -}
-onGoingProcedure : (PromiseEffect m Void -> PromiseEffect m Void) -> Promise m Void
+onGoingProcedure : (PromiseEffect m () -> PromiseEffect m ()) -> Promise m ()
 onGoingProcedure f =
     Promise <|
         \context ->
@@ -999,12 +986,12 @@ onGoingProcedure f =
                 { newContext = context
                 , realCmds = []
                 , logs = []
-                , state = Resolved OnGoingProcedure
+                , state = Resolved ()
                 }
 
 
 {-| -}
-modify : (m -> m) -> Promise m Void
+modify : (m -> m) -> Promise m ()
 modify f =
     onGoingProcedure <|
         \eff ->
@@ -1025,7 +1012,7 @@ modify f =
 
 
 {-| -}
-push : (m -> Cmd Msg) -> Promise m Void
+push : (m -> Cmd Msg) -> Promise m ()
 push f =
     onGoingProcedure <|
         \eff ->
@@ -1033,7 +1020,7 @@ push f =
 
 
 {-| -}
-lazy : (() -> Promise m Void) -> Promise m Void
+lazy : (() -> Promise m ()) -> Promise m ()
 lazy f =
     Promise <|
         \context ->
@@ -1248,8 +1235,8 @@ listenPortStream :
         }
     , requestBody : Value
     }
-    -> (Value -> List (Promise m Void))
-    -> Promise m Void
+    -> (Value -> List (Promise m ()))
+    -> Promise m ()
 listenPortStream o handler =
     Promise <|
         \context ->
@@ -1266,7 +1253,7 @@ listenPortStream o handler =
                         (JD.field "id" RequestId.decoder)
                         (JD.field "body" JD.value)
 
-                awaitForever : Msg -> m -> Promise m Void
+                awaitForever : Msg -> m -> Promise m ()
                 awaitForever msg _ =
                     case msg of
                         PortResponseMsg streamMsg ->
@@ -1326,13 +1313,13 @@ listenPortStream o handler =
 
 {-| -}
 listenMsg :
-    (Msg -> List (Promise m Void))
-    -> Promise m Void
+    (Msg -> List (Promise m ()))
+    -> Promise m ()
 listenMsg handler =
     Promise <|
         \context ->
             let
-                awaitForever : Msg -> m -> Promise m Void
+                awaitForever : Msg -> m -> Promise m ()
                 awaitForever msg _ =
                     concurrent
                         [ justAwaitPromise awaitForever
@@ -1348,7 +1335,7 @@ listenMsg handler =
 
 
 {-| -}
-sleep : Int -> Promise m Void
+sleep : Int -> Promise m ()
 sleep msec =
     Promise <|
         \context ->
@@ -1359,12 +1346,12 @@ sleep msec =
                 thisLayerId =
                     unwrapThisLayerId context.layer.id
 
-                nextPromise : Msg -> m -> Promise m Void
+                nextPromise : Msg -> m -> Promise m ()
                 nextPromise msg _ =
                     case msg of
                         WakeUpMsg wakeUpMsg ->
                             if wakeUpMsg.requestId == myRequestId then
-                                succeedPromise OnGoingProcedure
+                                succeedPromise ()
 
                             else
                                 justAwaitPromise nextPromise
@@ -1389,7 +1376,7 @@ sleep msec =
 
 
 {-| -}
-load : String -> Promise m Void
+load : String -> Promise m ()
 load url =
     Promise <|
         \context ->
@@ -1400,12 +1387,12 @@ load url =
             , logs =
                 [ LoadUrl
                 ]
-            , state = Resolved OnGoingProcedure
+            , state = Resolved ()
             }
 
 
 {-| -}
-reload : Bool -> Promise m Void
+reload : Bool -> Promise m ()
 reload force =
     Promise <|
         \context ->
@@ -1420,15 +1407,15 @@ reload force =
             , logs =
                 [ Reload
                 ]
-            , state = Resolved OnGoingProcedure
+            , state = Resolved ()
             }
 
 
 {-| -}
 listenTimeEvery :
     Int
-    -> (Posix -> List (Promise m Void))
-    -> Promise m Void
+    -> (Posix -> List (Promise m ()))
+    -> Promise m ()
 listenTimeEvery interval handler =
     Promise <|
         \context ->
@@ -1459,7 +1446,7 @@ listenTimeEvery interval handler =
                         , timestamp = timestamp
                         }
 
-                awaitForever : Msg -> m -> Promise m Void
+                awaitForever : Msg -> m -> Promise m ()
                 awaitForever msg _ =
                     case msg of
                         IntervalMsg param ->
@@ -1865,7 +1852,7 @@ getValues =
 
 
 {-| -}
-setValue : String -> String -> Promise m Void
+setValue : String -> String -> Promise m ()
 setValue key val =
     Promise <|
         \context ->
@@ -1885,7 +1872,7 @@ setValue key val =
                 }
             , realCmds = []
             , logs = []
-            , state = Resolved OnGoingProcedure
+            , state = Resolved ()
             }
 
 
@@ -2019,7 +2006,7 @@ viewEvent param =
 {-| -}
 init :
     m
-    -> Promise m Void
+    -> Promise m ()
     -> NewState m
 init m prom =
     toModel (initContext m) prom
@@ -2039,7 +2026,7 @@ initContext memory =
     }
 
 
-toModel : Context m -> Promise m Void -> NewState m
+toModel : Context m -> Promise m () -> NewState m
 toModel context (Promise prom) =
     let
         eff =

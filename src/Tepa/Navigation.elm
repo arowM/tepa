@@ -32,7 +32,7 @@ Refer to the `Browser.Navigation` documentation for more detailed notes.
 import AppUrl exposing (AppUrl)
 import Browser.Navigation as Nav
 import Internal.Core as Core
-import Tepa exposing (NavKey, Promise, Void)
+import Tepa exposing (NavKey, Promise)
 
 
 
@@ -51,7 +51,7 @@ Refer to the `Browser.Navigation.pushUrl` documentation for more detailed notes.
 pushPath :
     NavKey
     -> AppUrl
-    -> Promise m Void
+    -> Promise m ()
 pushPath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -84,7 +84,7 @@ Refer to the `Browser.Navigation.replaceUrl` documentation for more detailed not
 replacePath :
     NavKey
     -> AppUrl
-    -> Promise m Void
+    -> Promise m ()
 replacePath navKey path =
     Core.onGoingProcedure
         (\eff ->
@@ -112,7 +112,7 @@ Go back some number of pages. So `back 1` goes back one page, and `back 2` goes 
 Refer to the `Browser.Navigation.back` documentation for more detailed notes.
 
 -}
-back : NavKey -> Int -> Promise m Void
+back : NavKey -> Int -> Promise m ()
 back navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -139,7 +139,7 @@ Go forward some number of pages. So `forward 1` goes forward one page, and `forw
 Refer to the `Browser.Navigation.back` documentation for more detailed notes.
 
 -}
-forward : NavKey -> Int -> Promise m Void
+forward : NavKey -> Int -> Promise m ()
 forward navKey steps =
     Core.onGoingProcedure
         (\eff ->
@@ -164,7 +164,7 @@ forward navKey steps =
 Leave the current page and load the given URL. **This always results in a
 page load**, even if the provided URL is the same as the current one.
 
-    gotoElmWebsite : Promise m Void
+    gotoElmWebsite : Promise m ()
     gotoElmWebsite =
         load "https://elm-lang.org"
 
@@ -173,7 +173,7 @@ Check out the [`lydell/elm-app-url`][app-url] package for help building URLs.
 [app-url]: /packages/lydell/elm-app-url/latest
 
 -}
-load : String -> Promise m Void
+load : String -> Promise m ()
 load =
     Core.load
 
@@ -186,7 +186,7 @@ This may grab resources from the browser cache, so use
 if you want to be sure that you are not loading any cached resources.
 
 -}
-reload : Promise m Void
+reload : Promise m ()
 reload =
     Core.reload False
 
@@ -197,6 +197,6 @@ Reload the current page without using the browser cache. **This always
 results in a page load!** It is more common to want [`reload`](#reload).
 
 -}
-reloadAndSkipCache : Promise m Void
+reloadAndSkipCache : Promise m ()
 reloadAndSkipCache =
     Core.reload True

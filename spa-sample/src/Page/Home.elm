@@ -31,7 +31,7 @@ import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
-import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext, Void)
+import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -335,7 +335,7 @@ type alias Bucket =
 
 
 {-| -}
-procedure : NavKey -> AppUrl -> Promise Memory Void
+procedure : NavKey -> AppUrl -> Promise Memory ()
 procedure key url =
     let
         bucket =
@@ -355,7 +355,7 @@ procedure key url =
         ]
 
 
-clockProcedure : Promise Memory Void
+clockProcedure : Promise Memory ()
 clockProcedure =
     let
         modifyClock f =
@@ -370,7 +370,7 @@ clockProcedure =
             ]
 
 
-editAccountFormProcedure : Bucket -> Promise Memory Void
+editAccountFormProcedure : Bucket -> Promise Memory ()
 editAccountFormProcedure bucket =
     Tepa.sequence
         [ Tepa.awaitViewEvent
@@ -381,7 +381,7 @@ editAccountFormProcedure bucket =
         ]
 
 
-submitAccountProcedure : Bucket -> Promise Memory Void
+submitAccountProcedure : Bucket -> Promise Memory ()
 submitAccountProcedure bucket =
     let
         modifyEditAccountForm f =
