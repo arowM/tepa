@@ -23,12 +23,11 @@ module Internal.Core exposing
     , modify, push, currentState, lazy
     , sleep, listenTimeEvery, listenMsg
     , load, reload
-    , RandomValue(..), RandomRequest(..), isRequestForSpec
+    , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
     , onGoingProcedure
     , newLayer, onLayer, LayerResult(..)
     , init, update, NewState, Log(..)
     , documentView, subscriptions
-    , RandomSpec(..)
     )
 
 {-|
@@ -37,7 +36,7 @@ module Internal.Core exposing
 # Core
 
 @docs Model, Model_, memoryState, layerState
-@docs Msg, rootLayerMsg
+@docs Msg
 
 
 # NavKey
@@ -63,7 +62,7 @@ module Internal.Core exposing
 @docs viewEvent
 @docs Layer, Layer_, ThisLayerId, mapLayer
 @docs ThisLayerEvents, ThisLayerValues
-@docs layerView, keyedLayerView, layerDocument, eventAttr, eventMixin
+@docs layerView, keyedLayerView, layerDocument
 @docs none, sequence, concurrent
 
 
@@ -76,7 +75,7 @@ module Internal.Core exposing
 
 # Random
 
-@docs RandomValue, RandomRequest, isRequestForSpec
+@docs RandomValue, RandomRequest, RandomSpec, isRequestForSpec
 
 
 # Helper Procedures
@@ -91,8 +90,8 @@ module Internal.Core exposing
 
 # TEA
 
-@docs init, update, NewState, Log, RandomRequest
-@docs elementView, documentView, subscriptions
+@docs init, update, NewState, Log
+@docs documentView, subscriptions
 
 -}
 
@@ -153,6 +152,7 @@ type alias Context m =
     }
 
 
+{-| -}
 type ThisLayerEvents m
     = ThisLayerEvents
         (Dict
@@ -188,6 +188,7 @@ unwrapThisLayerEvents (ThisLayerEvents dict) =
     dict
 
 
+{-| -}
 type ThisLayerValues m
     = ThisLayerValues
         (Dict
@@ -1218,6 +1219,7 @@ layerDocument f (Layer layer) =
            )
 
 
+{-| -}
 type ThisLayerId m
     = ThisLayerId LayerId
 

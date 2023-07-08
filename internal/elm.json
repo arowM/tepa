@@ -8,7 +8,6 @@
         "Internal.Core",
         "Internal.History",
         "Internal.LayerId",
-        "Internal.Origin",
         "Internal.RequestId",
         "Internal.SafeInt"
     ],
