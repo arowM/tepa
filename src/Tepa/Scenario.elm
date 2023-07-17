@@ -36,6 +36,8 @@ module Tepa.Scenario exposing
     , HttpRequestBody(..)
     , portResponse
     , randomResponse
+    , forward
+    , back
     , fromJust
     , fromOk
     , RenderConfig
@@ -132,6 +134,12 @@ module Tepa.Scenario exposing
 ## Random response Simulators
 
 @docs randomResponse
+
+
+## Browser Simulators
+
+@docs forward
+@docs back
 
 
 # Conditions
@@ -1753,6 +1761,168 @@ randomResponse (Session session) markup param =
                                             SeqTest.fail description <|
                                                 \_ -> Expect.fail err
                                         )
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processSystemScenario
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+{-| Simulate borwser forward event.
+
+If there are no pages to forward, the test fails.
+
+-}
+forward :
+    Session
+    -> Markup
+    -> Scenario flags m
+forward (Session session) markup =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "forward: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case History.forward 1 sessionContext.history of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Expect.fail
+                                            "forward: No pages to forward."
+
+                            Just newHistory ->
+                                let
+                                    updateResult =
+                                        update context
+                                            (Core.UrlChange <| History.current newHistory)
+                                            { sessionContext
+                                                | history = newHistory
+                                            }
+                                in
+                                case updateResult of
+                                    SessionExpired ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.remove session.uniqueName
+                                                        context.sessions
+                                            }
+
+                                    SessionUpdateFailed err ->
+                                        SeqTest.fail description <|
+                                            \_ -> Expect.fail err
+
+                                    SessionUpdated nextSessionContext ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.insert session.uniqueName
+                                                        nextSessionContext
+                                                        context.sessions
+                                            }
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processSystemScenario
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
+{-| Simulate borwser back event.
+
+If there are no pages to back, the test fails.
+
+-}
+back :
+    Session
+    -> Markup
+    -> Scenario flags m
+back (Session session) markup =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "back: The application is not active on the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case History.back 1 sessionContext.history of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Expect.fail
+                                            "back: No pages to back."
+
+                            Just newHistory ->
+                                let
+                                    updateResult =
+                                        update context
+                                            (Core.UrlChange <| History.current newHistory)
+                                            { sessionContext
+                                                | history = newHistory
+                                            }
+                                in
+                                case updateResult of
+                                    SessionExpired ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.remove session.uniqueName
+                                                        context.sessions
+                                            }
+
+                                    SessionUpdateFailed err ->
+                                        SeqTest.fail description <|
+                                            \_ -> Expect.fail err
+
+                                    SessionUpdated nextSessionContext ->
+                                        SeqTest.pass
+                                            { context
+                                                | sessions =
+                                                    Dict.insert session.uniqueName
+                                                        nextSessionContext
+                                                        context.sessions
+                                            }
         , markup =
             \config ->
                 let
