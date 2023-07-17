@@ -50,9 +50,7 @@ module Internal.Core exposing
 @docs Promise
 @docs PromiseState
 @docs succeedPromise
-@docs justAwaitPromise
 @docs mapPromise
-@docs andRacePromise
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseMemory
@@ -83,7 +81,7 @@ module Internal.Core exposing
 
 # Stream
 
-@docs Stream, StreamOperation, handleStream
+@docs Stream
 
 
 # Helper Procedures
