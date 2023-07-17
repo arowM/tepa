@@ -8,22 +8,21 @@ module Tepa exposing
     , Promise
     , map
     , liftMemory
-    , orFaster
     , andThen, bindAndThen
     , sync
     , void
     , sequence, andThenSequence, none
     , syncAll
-    , race
-    , bind, bind2, bind3
+    , bind, bind2, bind3, bindAll
     , modify, lazy
     , when
     , unless
     , withMaybe
     , succeed
     , currentState, layerState
-    , portRequest, listenPortStream
-    , awaitViewEvent, customViewEvent
+    , portRequest, portStream
+    , awaitViewEvent, awaitCustomViewEvent
+    , viewEventStream, customViewEventStream
     , getValue, getValues, setValue
     , Layer, onLayer, LayerResult(..)
     , newLayer, isOnSameLayer
@@ -68,7 +67,6 @@ The [low level API](#connect-to-tea-app) is also available for more advanced use
 
 # Composition
 
-@docs orFaster
 @docs andThen, bindAndThen
 @docs sync
 
@@ -80,8 +78,7 @@ Promises that returns `()` are called as a _Procedure_.
 @docs void
 @docs sequence, andThenSequence, none
 @docs syncAll
-@docs race
-@docs bind, bind2, bind3
+@docs bind, bind2, bind3, bindAll
 @docs modify, lazy
 
 
@@ -96,8 +93,9 @@ Promises that returns `()` are called as a _Procedure_.
 
 @docs succeed
 @docs currentState, layerState
-@docs portRequest, listenPortStream
-@docs awaitViewEvent, customViewEvent
+@docs portRequest, portStream
+@docs awaitViewEvent, awaitCustomViewEvent
+@docs viewEventStream, customViewEventStream
 @docs getValue, getValues, setValue
 
 
@@ -133,6 +131,7 @@ import Internal.Core as Core
     exposing
         ( Msg(..)
         , Promise(..)
+        , Stream
         )
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
@@ -250,40 +249,6 @@ type alias Layer m =
 
 
 -- Composition
-
-
-{-| Run another Promise concurrently to get the faster result.
-
-May you want to set timeout on your request:
-
-    requestWithTimeout : Promise Memory Event (Result () Response)
-    requestWithTimeout =
-        myRequest
-            |> map Ok
-            |> orFaster
-                (sleep 10000
-                    |> map Err
-                )
-
-    sleep : Promise Memory Event ()
-    sleep =
-        Debug.todo ""
-
--}
-orFaster : Promise m a -> Promise m a -> Promise m a
-orFaster =
-    Core.andRacePromise
-
-
-{-| -}
-race : List (Promise m ()) -> Promise m ()
-race promises =
-    case promises of
-        [] ->
-            none
-
-        p :: ps ->
-            List.foldl orFaster p ps
 
 
 {-| Build a new Promise that evaluate two Promises sequentially.
@@ -407,6 +372,24 @@ bind3 p1 p2 p3 f =
         |> sync p3
         |> andThenSequence
             (\( a, b, c ) -> f a b c)
+
+
+{-| Run Promises concurrently, and bind the results to variables when all are complete.
+-}
+bindAll :
+    List (Promise m a)
+    -> (List a -> List (Promise m ()))
+    -> Promise m ()
+bindAll ps f =
+    List.foldl
+        (\p pacc ->
+            succeed (\acc a -> a :: acc)
+                |> sync pacc
+                |> sync p
+        )
+        (succeed [])
+        ps
+        |> andThenSequence (f << List.reverse)
 
 
 {-| Procedure that does nothing.
@@ -601,27 +584,40 @@ portRequest =
     Core.portRequest
 
 
-{-| Similar to `portRequest`, but `listenPortStream` can receive many responses.
+{-| Similar to `portRequest`, but `portStream` can receive many responses.
 Say you have WebSocket API endpoint.
 
     TODO some sample codes
 
-Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer. If you call `listenPortStream` in recursive Promise, it spawns listeners many times!
+Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer. If you call `portStream` in recursive Promise, it spawns listeners many times!
 
     TODO some sample codes
 
 -}
-listenPortStream :
+portStream :
     { ports :
         { request : Value -> Cmd Msg
         , response : (Value -> Msg) -> Sub Msg
         }
     , requestBody : Value
     }
-    -> (Value -> List (Promise m ()))
-    -> Promise m ()
-listenPortStream =
-    Core.listenPortStream
+    -> Promise m (Stream Value)
+portStream =
+    Core.portStream
+
+
+{-| -}
+viewEventStream :
+    { key : String
+    , type_ : String
+    }
+    -> Promise m (Stream ())
+viewEventStream param =
+    customViewEventStream
+        { key = param.key
+        , type_ = param.type_
+        , decoder = justAwait
+        }
 
 
 {-| -}
@@ -631,7 +627,7 @@ awaitViewEvent :
     }
     -> Promise m ()
 awaitViewEvent param =
-    customViewEvent
+    awaitCustomViewEvent
         { key = param.key
         , type_ = param.type_
         , decoder = justAwait
@@ -639,7 +635,7 @@ awaitViewEvent param =
 
 
 {-| -}
-customViewEvent :
+awaitCustomViewEvent :
     { key : String
     , type_ : String
     , decoder :
@@ -650,8 +646,24 @@ customViewEvent :
             }
     }
     -> Promise m a
-customViewEvent =
-    Core.viewEvent
+awaitCustomViewEvent =
+    Core.awaitCustomViewEvent
+
+
+{-| -}
+customViewEventStream :
+    { key : String
+    , type_ : String
+    , decoder :
+        Decoder
+            { stopPropagation : Bool
+            , preventDefault : Bool
+            , value : a
+            }
+    }
+    -> Promise m (Stream a)
+customViewEventStream =
+    Core.customViewEventStream
 
 
 {-| -}

@@ -2,28 +2,29 @@ module Internal.Core exposing
     ( Model(..), Model_, memoryState, layerState
     , Msg(..)
     , NavKey(..)
-    , Promise
+    , Promise(..)
+    , PromiseState(..)
     , succeedPromise
     , mapPromise
-    , andRacePromise
     , andThenPromise
     , syncPromise
     , liftPromiseMemory
-    , portRequest, listenPortStream
+    , portRequest, portStream
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
     , now, here
     , getValue, getValues, setValue
     , customRequest
-    , viewEvent
+    , awaitCustomViewEvent, customViewEventStream
     , Layer(..), Layer_, ThisLayerId(..), mapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , layerView, keyedLayerView, layerDocument
     , none, sequence, concurrent
     , modify, push, currentState, lazy
-    , sleep, listenTimeEvery, listenMsg
+    , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
     , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
+    , Stream(..)
     , onGoingProcedure
     , newLayer, onLayer, LayerResult(..)
     , init, update, NewState, Log(..)
@@ -47,19 +48,21 @@ module Internal.Core exposing
 # Promise
 
 @docs Promise
+@docs PromiseState
 @docs succeedPromise
+@docs justAwaitPromise
 @docs mapPromise
 @docs andRacePromise
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseMemory
-@docs portRequest, listenPortStream
+@docs portRequest, portStream
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
 @docs now, here
 @docs getValue, getValues, setValue
 @docs customRequest
-@docs viewEvent
+@docs awaitCustomViewEvent, customViewEventStream
 @docs Layer, Layer_, ThisLayerId, mapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs layerView, keyedLayerView, layerDocument
@@ -69,13 +72,18 @@ module Internal.Core exposing
 # Primitive Procedures
 
 @docs modify, push, currentState, lazy
-@docs sleep, listenTimeEvery, listenMsg
+@docs sleep, listenTimeEvery, tick, listenMsg
 @docs load, reload
 
 
 # Random
 
 @docs RandomValue, RandomRequest, RandomSpec, isRequestForSpec
+
+
+# Stream
+
+@docs Stream, StreamOperation, handleStream
 
 
 # Helper Procedures
@@ -417,6 +425,18 @@ isRequestForSpec spec req =
 
         _ ->
             False
+
+
+
+-- Stream
+
+
+{-| -}
+type Stream a
+    = ActiveStream
+        { unwrapMsg : Msg -> ( List a, Stream a )
+        }
+    | EndOfStream
 
 
 
@@ -1230,16 +1250,15 @@ unwrapThisLayerId (ThisLayerId lid) =
 
 
 {-| -}
-listenPortStream :
+portStream :
     { ports :
         { request : Value -> Cmd Msg
         , response : (Value -> Msg) -> Sub Msg
         }
     , requestBody : Value
     }
-    -> (Value -> List (Promise m ()))
-    -> Promise m ()
-listenPortStream o handler =
+    -> Promise m (Stream Value)
+portStream o =
     Promise <|
         \context ->
             let
@@ -1255,22 +1274,24 @@ listenPortStream o handler =
                         (JD.field "id" RequestId.decoder)
                         (JD.field "body" JD.value)
 
-                awaitForever : Msg -> m -> Promise m ()
-                awaitForever msg _ =
+                nextStream : Msg -> ( List Value, Stream Value )
+                nextStream msg =
                     case msg of
                         PortResponseMsg streamMsg ->
                             if streamMsg.requestId == myRequestId then
-                                concurrent
-                                    [ justAwaitPromise awaitForever
-                                    , handler streamMsg.response
-                                        |> sequence
-                                    ]
+                                ( [ streamMsg.response ]
+                                , ActiveStream { unwrapMsg = nextStream }
+                                )
 
                             else
-                                justAwaitPromise awaitForever
+                                ( []
+                                , ActiveStream { unwrapMsg = nextStream }
+                                )
 
                         _ ->
-                            justAwaitPromise awaitForever
+                            ( []
+                            , ActiveStream { unwrapMsg = nextStream }
+                            )
             in
             { newContext =
                 { context
@@ -1309,7 +1330,11 @@ listenPortStream o handler =
             , logs =
                 [ HandshakePortStream myRequestId thisLayerId o.requestBody
                 ]
-            , state = AwaitMsg awaitForever
+            , state =
+                Resolved <|
+                    ActiveStream
+                        { unwrapMsg = nextStream
+                        }
             }
 
 
@@ -1472,6 +1497,69 @@ listenTimeEvery interval handler =
                 [ StartTimeEvery myRequestId thisLayerId interval
                 ]
             , state = AwaitMsg awaitForever
+            }
+
+
+{-| -}
+tick : Int -> Promise m (Stream Posix)
+tick interval =
+    Promise <|
+        \context ->
+            let
+                myRequestId =
+                    context.nextRequestId
+
+                thisLayerId =
+                    unwrapThisLayerId
+                        context.layer.id
+
+                newContext =
+                    { context
+                        | nextRequestId = RequestId.inc context.nextRequestId
+                        , subs =
+                            (\_ ->
+                                Just
+                                    ( myRequestId
+                                    , Time.every (toFloat interval) toIntervalMsg
+                                    )
+                            )
+                                :: context.subs
+                    }
+
+                toIntervalMsg timestamp =
+                    IntervalMsg
+                        { requestId = myRequestId
+                        , timestamp = timestamp
+                        }
+
+                nextStream : Msg -> ( List Posix, Stream Posix )
+                nextStream msg =
+                    case msg of
+                        IntervalMsg param ->
+                            if param.requestId == myRequestId then
+                                ( [ param.timestamp ]
+                                , ActiveStream { unwrapMsg = nextStream }
+                                )
+
+                            else
+                                ( []
+                                , ActiveStream { unwrapMsg = nextStream }
+                                )
+
+                        _ ->
+                            ( []
+                            , ActiveStream { unwrapMsg = nextStream }
+                            )
+            in
+            { newContext =
+                newContext
+            , realCmds = []
+            , logs =
+                [ StartTimeEvery myRequestId thisLayerId interval
+                ]
+            , state =
+                Resolved <|
+                    ActiveStream { unwrapMsg = nextStream }
             }
 
 
@@ -1931,7 +2019,7 @@ customRequest newPromise_ realCmd log =
 
 
 {-| -}
-viewEvent :
+awaitCustomViewEvent :
     { key : String
     , type_ : String
     , decoder :
@@ -1942,7 +2030,7 @@ viewEvent :
             }
     }
     -> Promise m a
-viewEvent param =
+awaitCustomViewEvent param =
     Promise <|
         \context ->
             let
@@ -1998,6 +2086,77 @@ viewEvent param =
             , realCmds = []
             , logs = []
             , state = AwaitMsg state
+            }
+
+
+{-| -}
+customViewEventStream :
+    { key : String
+    , type_ : String
+    , decoder :
+        Decoder
+            { stopPropagation : Bool
+            , preventDefault : Bool
+            , value : a
+            }
+    }
+    -> Promise m (Stream a)
+customViewEventStream param =
+    Promise <|
+        \context ->
+            let
+                thisLayerId =
+                    unwrapThisLayerId
+                        context.layer.id
+
+                nextStream : Msg -> ( List a, Stream a )
+                nextStream msg =
+                    case msg of
+                        ViewMsg r ->
+                            if r.layerId == thisLayerId && r.type_ == param.type_ then
+                                case JD.decodeValue param.decoder r.value of
+                                    Err _ ->
+                                        ( [], ActiveStream { unwrapMsg = nextStream } )
+
+                                    Ok { value } ->
+                                        ( [ value ], ActiveStream { unwrapMsg = nextStream } )
+
+                            else
+                                ( [], ActiveStream { unwrapMsg = nextStream } )
+
+                        _ ->
+                            ( [], ActiveStream { unwrapMsg = nextStream } )
+            in
+            { newContext =
+                { context
+                    | layer =
+                        let
+                            layer =
+                                context.layer
+                        in
+                        { layer
+                            | events =
+                                unwrapThisLayerEvents layer.events
+                                    |> Dict.update param.key
+                                        (\mdict ->
+                                            Maybe.withDefault Dict.empty mdict
+                                                |> Dict.insert param.type_
+                                                    (param.decoder
+                                                        |> JD.map
+                                                            (\{ stopPropagation, preventDefault } ->
+                                                                { stopPropagation = stopPropagation
+                                                                , preventDefault = preventDefault
+                                                                }
+                                                            )
+                                                    )
+                                                |> Just
+                                        )
+                                    |> ThisLayerEvents
+                        }
+                }
+            , realCmds = []
+            , logs = []
+            , state = Resolved <| ActiveStream { unwrapMsg = nextStream }
             }
 
 

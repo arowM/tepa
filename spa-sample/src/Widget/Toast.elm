@@ -50,6 +50,7 @@ import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
 import Tepa exposing (Layer, Msg, Promise)
 import Tepa.Scenario as Scenario exposing (Scenario)
+import Tepa.Stream as Stream
 import Tepa.Time as Time
 import Test.Html.Event as HtmlEvent
 import Test.Html.Query as HtmlQuery
@@ -215,14 +216,20 @@ type alias ToastItemMemory =
 toastItemProcedure : Promise ToastItemMemory ClosedBy
 toastItemProcedure =
     Tepa.bindAndThen
-        (Tepa.awaitViewEvent
+        (Tepa.viewEventStream
             { key = keys.toastItemClose
             , type_ = "click"
             }
-            |> Tepa.map (\_ -> ClosedByUser)
-            |> Tepa.orFaster
-                (Time.sleep toastTimeout
-                    |> Tepa.map (\_ -> ClosedByTimeout)
+            |> Tepa.andThen
+                (Stream.firstWithTimeout toastTimeout)
+            |> Tepa.map
+                (\ma ->
+                    case ma of
+                        Nothing ->
+                            ClosedByTimeout
+
+                        Just () ->
+                            ClosedByUser
                 )
         )
     <|

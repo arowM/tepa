@@ -32,6 +32,7 @@ import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
 import Tepa.Scenario as Scenario exposing (Scenario)
+import Tepa.Stream as Stream
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
@@ -262,30 +263,39 @@ loginFormProcedure bucket =
                 \m -> { m | loginForm = f m.loginForm }
     in
     Tepa.sequence
-        [ Tepa.race
-            [ Tepa.sequence
-                [ Tepa.awaitViewEvent
+        [ Stream.race
+            [ Stream.bind
+                (Tepa.viewEventStream
                     { key = Login.keys.loginFormId
                     , type_ = "change"
                     }
-                , modifyLoginForm <|
-                    \m -> { m | incorrectIdOrPass = False }
-                ]
-            , Tepa.sequence
-                [ Tepa.awaitViewEvent
+                )
+              <|
+                \_ ->
+                    [ modifyLoginForm <|
+                        \m -> { m | incorrectIdOrPass = False }
+                    ]
+            , Stream.bind
+                (Tepa.viewEventStream
                     { key = Login.keys.loginFormPassword
                     , type_ = "change"
                     }
-                , modifyLoginForm <|
-                    \m -> { m | incorrectIdOrPass = False }
-                ]
-            , Tepa.sequence
-                [ Tepa.awaitViewEvent
+                )
+              <|
+                \_ ->
+                    [ modifyLoginForm <|
+                        \m -> { m | incorrectIdOrPass = False }
+                    ]
+            , Stream.bind
+                (Tepa.viewEventStream
                     { key = keys.loginFormLoginButton
                     , type_ = "click"
                     }
-                , submitLoginProcedure bucket
-                ]
+                )
+              <|
+                \_ ->
+                    [ submitLoginProcedure bucket
+                    ]
             ]
         , Tepa.lazy <|
             \_ -> loginFormProcedure bucket

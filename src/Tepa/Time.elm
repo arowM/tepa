@@ -1,5 +1,5 @@
 module Tepa.Time exposing
-    ( Posix, sleep, now, every, posixToMillis, millisToPosix
+    ( Posix, sleep, now, every, tick, posixToMillis, millisToPosix
     , Zone, utc, here
     , toYear, toMonth, toDay, toWeekday, toHour, toMinute, toSecond, toMillis
     , Weekday(..), Month(..)
@@ -14,7 +14,7 @@ You should not use the `Time` module with TEPA because the functions that the mo
 
 # Time
 
-@docs Posix, sleep, now, every, posixToMillis, millisToPosix
+@docs Posix, sleep, now, every, tick, posixToMillis, millisToPosix
 
 
 # Time Zones
@@ -35,6 +35,7 @@ You should not use the `Time` module with TEPA because the functions that the mo
 
 import Internal.Core as Internal
 import Tepa exposing (Promise)
+import Tepa.Stream exposing (Stream)
 import Time
 
 
@@ -82,6 +83,16 @@ every :
     -> Promise m ()
 every =
     Internal.listenTimeEvery
+
+
+{-| Similar to `every`, but returns `Stream`.
+
+The Stream produces current time periodically at the specified interval in milliseconds (like `1000` for a second or `60 * 1000` for a minute or `60 * 60 * 1000` for an hour).
+
+-}
+tick : Int -> Promise m (Stream Posix)
+tick =
+    Internal.tick
 
 
 {-| Same as [`Time.posixToMillis`](https://package.elm-lang.org/packages/elm/time/latest/Time#posixToMillis).
