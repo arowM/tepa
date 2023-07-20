@@ -37,14 +37,10 @@ module Tepa exposing
     , unsafePush
     )
 
-{-|
+{-| This module provides core functionality for TEPA.
 
 
-# Application Entry points
-
-[Browser](https://package.elm-lang.org/packages/elm/browser/latest/Browser) alternatives to build your apps.
-
-The [low level API](#connect-to-tea-app) is also available for more advanced use cases, which enables you to introduce TEPA partially into your existing TEA app.
+# Application Entry point
 
 @docs application
 @docs ApplicationProps
@@ -764,7 +760,10 @@ layerDocument =
 -- Browser alternatives
 
 
-{-| Procedure version of [Browser.application](https://package.elm-lang.org/packages/elm/browser/latest/Browser#application).
+{-| Entry point for building your applications.
+
+If you have an existing TEA app, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into the TEA app.
+
 -}
 application :
     ApplicationProps flags memory
@@ -791,7 +790,41 @@ application props =
         }
 
 
-{-| -}
+{-| Property values for your application.
+
+    - `init`: Initial Memory state of your application.
+
+        TEPA has a **Memory** that holds all the application state. This property specifies the state of the Memory when the application is loaded.
+
+    - `procedure`: How your application processes.
+
+        It takes three arguments:
+
+        - flags: JavaScript can pass in data when starting your program.
+        - app URL: Initial URL requested by a user.
+        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+
+    - `view`: How your application looks.
+
+        It is determined only by current Memory state.
+
+    - `onUrlRequest`: How to handle page transition requests.
+
+        It takes three arguments:
+
+        - flags: JavaScript can pass in data when starting your program.
+        - URL request: Requested URL.
+        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+
+    - `onUrlChange`: What to do after page load or transition.
+
+        It takes three arguments:
+
+        - flags: JavaScript can pass in data when starting your program.
+        - app URL: Loaded new URL.
+        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+
+-}
 type alias ApplicationProps flags memory =
     { init : memory
     , procedure : flags -> AppUrl -> NavKey -> Promise memory ()
@@ -801,22 +834,30 @@ type alias ApplicationProps flags memory =
     }
 
 
-{-| Alternative to [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
+{-| A navigation key is needed to create navigation procedures exposed by the [Tepa.Navigation](./Navigation) module.
 
-Navigation keys are required for navigation procedures exposed by the [Tepa.Navigation](./Navigation) module.
+You only get access to a `NavKey` when you create your program with `application`, guaranteeing that your program is equipped to detect these URL changes. If `NavKey` values were available in other kinds of programs, unsuspecting programmers would be sure to run into some [annoying bugs](https://github.com/elm/browser/blob/1.0.2/notes/navigation-in-elements.md) and learn a bunch of techniques the hard way!
+
+This is the TEPA version of [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
 
 -}
 type alias NavKey =
     Core.NavKey
 
 
-{-| An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).
+{-| A `Program` describes an TEPA program.
+
+An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).
+
 -}
 type alias Program flags memory =
     Platform.Program flags (Model memory) Msg
 
 
-{-| Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
+{-| This data specifies the `<title>` and all of the nodes that should go in the `<body>`. This means you can update the title as your application changes. Maybe your "single-page app" navigates to a "different page", maybe a calendar app shows an accurate date in the title, etc.
+
+Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
+
 -}
 type alias Document msg =
     { title : String
@@ -824,12 +865,11 @@ type alias Document msg =
     }
 
 
-{-| TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest).
-
-All links in an [`application`](#application) create a `UrlRequest`. So
+{-| All links in an [`application`](#application) create a `UrlRequest`. So
 when you click `<a href="/home">Home</a>`, it does not just navigate! It
 notifies `onUrlRequest` that the user wants to change the URL.
 
+This is the TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest).
 Refer to the `Browser.UrlRequest` documentation for more detailed notes.
 
 -}
@@ -852,7 +892,7 @@ fromBrowserUrlRequest req =
 -- Connect to TEA app
 
 
-{-| TEA update function implementation for running your Procedures.
+{-| TEA update function to execute your Procedures.
 -}
 update : Msg -> Model memory -> ( Model memory, Cmd Msg )
 update msg model =
@@ -866,21 +906,20 @@ update msg model =
     )
 
 
-{-| Just like `Procedure.documentView`.
--}
+{-| -}
 documentView : (Layer memory -> Document Msg) -> Model memory -> Document Msg
 documentView =
     Core.documentView
 
 
-{-| TEA subscriptions function implementation for running your Procedures.
+{-| TEA subscriptions function to execute your Procedures.
 -}
 subscriptions : Model memory -> Sub Msg
 subscriptions =
     Core.subscriptions
 
 
-{-| Construct the initial TEA data from `Procedure`s.
+{-| Construct the initial TEA data from Procedures.
 -}
 init :
     memory
@@ -919,14 +958,12 @@ init memory param =
     )
 
 
-{-| TEA Message that wraps your events.
--}
+{-| -}
 type alias Msg =
     Core.Msg
 
 
-{-| TEA Model that stores your Procedure state.
--}
+{-| -}
 type alias Model m =
     Core.Model m
 
