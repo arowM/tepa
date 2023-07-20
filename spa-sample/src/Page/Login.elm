@@ -320,18 +320,16 @@ loginFormProcedure bucket =
                                         ]
 
                                     Login.IncorrectIdOrPasswordResponse ->
-                                        [ Tepa.syncAll
-                                            [ Tepa.sequence
-                                                [ modifyLoginForm <|
-                                                    \m ->
-                                                        { m
-                                                            | isBusy = False
-                                                            , incorrectIdOrPass = True
-                                                            , showError = True
-                                                        }
-                                                , Tepa.lazy <|
-                                                    \_ -> loginFormProcedure bucket
-                                                ]
+                                        [ modifyLoginForm <|
+                                            \m ->
+                                                { m
+                                                    | isBusy = False
+                                                    , incorrectIdOrPass = True
+                                                    , showError = True
+                                                }
+                                        , Tepa.syncAll
+                                            [ Tepa.lazy <|
+                                                \_ -> loginFormProcedure bucket
 
                                             -- Remove "IncorrectIdOrPassword" error message when ID or password is changed.
                                             , Tepa.bind
