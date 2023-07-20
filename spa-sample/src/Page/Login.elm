@@ -263,55 +263,11 @@ loginFormProcedure bucket =
                 \m -> { m | loginForm = f m.loginForm }
     in
     Tepa.sequence
-        [ Stream.race
-            [ Stream.bind
-                (Tepa.viewEventStream
-                    { key = Login.keys.loginFormId
-                    , type_ = "change"
-                    }
-                )
-              <|
-                \_ ->
-                    [ modifyLoginForm <|
-                        \m -> { m | incorrectIdOrPass = False }
-                    ]
-            , Stream.bind
-                (Tepa.viewEventStream
-                    { key = Login.keys.loginFormPassword
-                    , type_ = "change"
-                    }
-                )
-              <|
-                \_ ->
-                    [ modifyLoginForm <|
-                        \m -> { m | incorrectIdOrPass = False }
-                    ]
-            , Stream.bind
-                (Tepa.viewEventStream
-                    { key = keys.loginFormLoginButton
-                    , type_ = "click"
-                    }
-                )
-              <|
-                \_ ->
-                    [ submitLoginProcedure bucket
-                    ]
-            ]
-        , Tepa.lazy <|
-            \_ -> loginFormProcedure bucket
-        ]
-
-
-submitLoginProcedure : Bucket -> Promise Memory ()
-submitLoginProcedure bucket =
-    let
-        modifyLoginForm f =
-            Tepa.modify <|
-                \m ->
-                    { m | loginForm = f m.loginForm }
-    in
-    Tepa.sequence
-        [ modifyLoginForm <|
+        [ Tepa.awaitViewEvent
+            { key = keys.loginFormLoginButton
+            , type_ = "click"
+            }
+        , modifyLoginForm <|
             \m -> { m | isBusy = True }
         , Tepa.bind Tepa.getValues <|
             \form ->
@@ -323,6 +279,8 @@ submitLoginProcedure bucket =
                                     | isBusy = False
                                     , showError = True
                                 }
+                        , Tepa.lazy <|
+                            \_ -> loginFormProcedure bucket
                         ]
 
                     Ok login ->
@@ -339,6 +297,8 @@ submitLoginProcedure bucket =
                                                 [ modifyLoginForm <|
                                                     \m ->
                                                         { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ -> loginFormProcedure bucket
                                                 ]
                                             ]
                                         ]
@@ -353,18 +313,52 @@ submitLoginProcedure bucket =
                                                 [ modifyLoginForm <|
                                                     \m ->
                                                         { m | isBusy = False }
+                                                , Tepa.lazy <|
+                                                    \_ -> loginFormProcedure bucket
                                                 ]
                                             ]
                                         ]
 
                                     Login.IncorrectIdOrPasswordResponse ->
-                                        [ modifyLoginForm <|
-                                            \m ->
-                                                { m
-                                                    | isBusy = False
-                                                    , incorrectIdOrPass = True
-                                                    , showError = True
-                                                }
+                                        [ Tepa.syncAll
+                                            [ Tepa.sequence
+                                                [ modifyLoginForm <|
+                                                    \m ->
+                                                        { m
+                                                            | isBusy = False
+                                                            , incorrectIdOrPass = True
+                                                            , showError = True
+                                                        }
+                                                , Tepa.lazy <|
+                                                    \_ -> loginFormProcedure bucket
+                                                ]
+
+                                            -- Remove "IncorrectIdOrPassword" error message when ID or password is changed.
+                                            , Stream.race
+                                                [ Stream.bind
+                                                    (Tepa.viewEventStream
+                                                        { key = Login.keys.loginFormId
+                                                        , type_ = "change"
+                                                        }
+                                                    )
+                                                  <|
+                                                    \_ ->
+                                                        [ modifyLoginForm <|
+                                                            \m -> { m | incorrectIdOrPass = False }
+                                                        ]
+                                                , Stream.bind
+                                                    (Tepa.viewEventStream
+                                                        { key = Login.keys.loginFormPassword
+                                                        , type_ = "change"
+                                                        }
+                                                    )
+                                                  <|
+                                                    \_ ->
+                                                        [ modifyLoginForm <|
+                                                            \m -> { m | incorrectIdOrPass = False }
+                                                        ]
+                                                ]
+                                            ]
                                         ]
 
                                     Login.GoodResponse resp ->

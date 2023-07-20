@@ -260,25 +260,25 @@ introduction1 config =
             , appear = config.dev
             }
         , onSakuraChanMainSession.login.expectAvailable <|
-            Scenario.textContent "Displays login page."
+            Scenario.textContent "Display login page."
         , userComment sakuraChan
-            "I see I need to log in! I remember my dad gave me the account information in advance."
+            "I see I have to log in! I remember my dad gave me the account information beforehand."
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors <|
             Scenario.textContent "The login form shows no errors at first."
         , userComment yabugarashiKun
-            "I'm Yabugarashi-kun. I'm going play a prank on Sakura-chan. Muahahahahaha! 😈"
+            "I'm Yabugarashi-kun. I'm going to play a prank on Sakura-chan. Muahahahahaha! 😈"
         , userComment yabugarashiKun
             "Sakura-chan, here is the account information note your father gave you. 😈"
         , userComment sakuraChan
-            "Thanks, Yabugarashi-kun. 🌸"
+            "Thank you, Yabugarashi-kun. 🌸"
         , onSakuraChanMainSession.login.changeLoginId
             { value = "guest"
             }
-            (Scenario.textContent "Entered login ID.")
+            (Scenario.textContent "Login ID entered.")
         , userComment sakuraChan
             "The note says that the password can be left blank."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked login button.")
+            (Scenario.textContent "Clicked the login button.")
         , let
             error =
                 "Password is required."
@@ -286,13 +286,13 @@ introduction1 config =
           onSakuraChanMainSession.login.expectLoginFormShowError
             { error = error
             }
-            (Scenario.textContent <| "The form shows error: " ++ error)
+            (Scenario.textContent <| "Form shows error: " ++ error)
         , userComment sakuraChan
             "Oh my goat, I got an error..."
         , userComment yabugarashiKun
             "Sorry, sorry, I just got a little naughty. Here's the real note."
         , userComment sakuraChan
-            "OK, I'll try again."
+            "Okay, I'll try again."
         , let
             value =
                 "fuestPass"
@@ -300,13 +300,13 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Changed password to \"" ++ value ++ "\"")
+            (Scenario.textContent <| "Password changed to \"" ++ value ++ "\"")
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors
-            (Scenario.textContent "The login form shows no errors at this point.")
+            (Scenario.textContent "Login form shows no errors at the time.")
         , userComment sakuraChan
             "It looks good."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked login button.")
+            (Scenario.textContent "Clicked the login button.")
         , let
             requestBody =
                 JE.object
@@ -375,8 +375,8 @@ introduction1 config =
             }
             (Scenario.textContent <| "The form shows error: " ++ error)
         , userComment sakuraChan "Oops!"
-        , userComment yabugarashiKun "Maybe you typed the password wrong."
-        , userComment sakuraChan "That may be true. It's hard to type with my two-fingered hooves..."
+        , userComment yabugarashiKun "Maybe you mistyped the password."
+        , userComment sakuraChan "That might be true. It's hard to type with my two-fingered hooves..."
         , let
             value =
                 "guestPass"
@@ -414,7 +414,7 @@ introduction1 config =
           else
             Scenario.none
         , Scenario.sleep
-            (Scenario.textContent <| "Passing 5000 milliseconds.")
+            (Scenario.textContent <| "5000 milliseconds have passed.")
             5000
         , let
             currentTime =
@@ -437,7 +437,7 @@ introduction1 config =
         , onSakuraChanMainSession.login.toast.expectErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "A toast pops up: \"Network error, please try again.\"")
+            (Scenario.textContent "A toast popup appears: \"Network error, please try again.\"")
         , userComment sakuraChan "Oops!"
         ]
     }
@@ -451,13 +451,13 @@ introduction1_sub1 config =
         [ onSakuraChanMainSession.login.toast.closeErrorsByMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "Click close button on the popup.")
+            (Scenario.textContent "Click the close button on the popup.")
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "The popup begin to disappear.")
+            (Scenario.textContent "The popup begins to disappear.")
         , Scenario.sleep
-            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastFadeOutDuration ++ " milliseconds.")
+            (Scenario.textContent <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
             (Scenario.textContent "No toast popups now.")
@@ -471,20 +471,20 @@ introduction1_1 config =
     , dependency = Scenario.RunAfter (introduction1 config).title
     , content =
         [ Scenario.sleep
-            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastTimeout ++ " milliseconds.")
+            (Scenario.textContent <| String.fromInt Toast.toastTimeout ++ " milliseconds passes.")
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "The popup begin to disappear.")
+            (Scenario.textContent "The popup begins to disappear.")
         , Scenario.sleep
-            (Scenario.textContent <| "Passing " ++ String.fromInt Toast.toastFadeOutDuration ++ " milliseconds.")
+            (Scenario.textContent <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
             (Scenario.textContent "No toast popups now.")
         , userComment sakuraChan "Try again."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked login button.")
+            (Scenario.textContent "Clicked the login button.")
         , let
             requestBody =
                 JE.object
@@ -556,7 +556,7 @@ introduction1_1 config =
             { value = Session.LuckyHayAlfalfa
             }
             { content =
-                [ Markdown.PlainText "Client receives random response for lucky hay: Alfalfa"
+                [ Markdown.PlainText "Client receives random value for lucky hay: Alfalfa"
                 ]
             , detail = []
             , appear = config.dev
@@ -607,7 +607,7 @@ pageHomeCase1 config =
             }
             (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the name input field.")
         , onSakuraChanMainSession.home.clickSubmitEditAccount
-            (Scenario.textContent "Click save button.")
+            (Scenario.textContent "Click the save button.")
         , let
             requestBody =
                 JE.object
@@ -759,7 +759,7 @@ pageHomeCase1 config =
             { value = Session.LuckyHayTimothy
             }
             { content =
-                [ Markdown.PlainText "Client receives random response for lucky hay: Timothy"
+                [ Markdown.PlainText "Client receives a random response for lucky hay: Timothy"
                 ]
             , detail = []
             , appear = config.dev
