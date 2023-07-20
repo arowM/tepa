@@ -12,6 +12,7 @@ module Tepa.Stream exposing
     , Control
     , continue
     , break
+    , firstOfAll
     , bind
     , race
     )
@@ -40,8 +41,9 @@ module Tepa.Stream exposing
 @docs break
 
 
-# Helper Functions for Procedure
+# Helper Functions
 
+@docs firstOfAll
 @docs bind
 @docs race
 
@@ -413,7 +415,28 @@ all stream =
 
 
 
--- Procedures
+-- Helper functions
+
+
+{-| -}
+firstOfAll :
+    List (Promise m (Stream a))
+    -> Promise m a
+firstOfAll ps =
+    List.foldl
+        (\p pacc ->
+            Tepa.succeed (\acc a -> a :: acc)
+                |> Tepa.sync pacc
+                |> Tepa.sync p
+        )
+        (Tepa.succeed [])
+        ps
+        |> Tepa.andThen
+            (\streams ->
+                List.reverse streams
+                    |> union
+                    |> first
+            )
 
 
 {-| -}

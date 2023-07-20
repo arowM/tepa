@@ -334,30 +334,24 @@ loginFormProcedure bucket =
                                                 ]
 
                                             -- Remove "IncorrectIdOrPassword" error message when ID or password is changed.
-                                            , Stream.race
-                                                [ Stream.bind
-                                                    (Tepa.viewEventStream
+                                            , Tepa.bind
+                                                (Stream.firstOfAll
+                                                    [ Tepa.viewEventStream
                                                         { key = Login.keys.loginFormId
                                                         , type_ = "change"
                                                         }
-                                                    )
-                                                  <|
-                                                    \_ ->
-                                                        [ modifyLoginForm <|
-                                                            \m -> { m | incorrectIdOrPass = False }
-                                                        ]
-                                                , Stream.bind
-                                                    (Tepa.viewEventStream
+                                                    , Tepa.viewEventStream
                                                         { key = Login.keys.loginFormPassword
                                                         , type_ = "change"
                                                         }
-                                                    )
-                                                  <|
-                                                    \_ ->
-                                                        [ modifyLoginForm <|
-                                                            \m -> { m | incorrectIdOrPass = False }
-                                                        ]
-                                                ]
+                                                    ]
+                                                    |> Tepa.void
+                                                )
+                                              <|
+                                                \_ ->
+                                                    [ modifyLoginForm <|
+                                                        \m -> { m | incorrectIdOrPass = False }
+                                                    ]
                                             ]
                                         ]
 
