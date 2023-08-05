@@ -55,6 +55,16 @@ module Tepa exposing
 @docs Promise
 
 
+# Primitive Promises
+
+@docs succeed
+@docs currentState
+@docs portRequest, portStream
+@docs awaitViewEvent, awaitCustomViewEvent
+@docs viewEventStream, customViewEventStream
+@docs getValue, getValues, setValue
+
+
 # Transformers
 
 @docs map
@@ -71,33 +81,19 @@ module Tepa exposing
 
 Promises that returns `()` are called as a _Procedure_.
 
-@docs void
-@docs sequence, andThenSequence, none
-@docs syncAll
-@docs bind, bind2, bind3, bindAll
 @docs modify, lazy
-
-
-# Helper Procedures
-
+@docs void
 @docs when
 @docs unless
 @docs withMaybe
-
-
-# Primitive Promises
-
-@docs succeed
-@docs currentState, layerState
-@docs portRequest, portStream
-@docs awaitViewEvent, awaitCustomViewEvent
-@docs viewEventStream, customViewEventStream
-@docs getValue, getValues, setValue
-
+@docs sequence, andThenSequence, none
+@docs syncAll
+@docs bind, bind2, bind3, bindAll
 
 # Layer
 
 @docs Layer, onLayer, LayerResult
+@docs layerState
 @docs newLayer, isOnSameLayer
 @docs ViewContext, mapViewContext, layerView, keyedLayerView, layerDocument
 
@@ -136,7 +132,7 @@ import Url exposing (Url)
 
 {-| The Promise represents the eventual completion of an operation and its resulting value. Similar to [Promise in JavaScript](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise).
 
-The main difference from Promise in JavaScript is that Promise in TEPA does not be rejected. When you represent rejected state, just return `Result` value as its result.
+The main difference from Promise in JavaScript is that Promise in TEPA does not be rejected. When you represent rejected state, just return [`Result`](https://package.elm-lang.org/packages/elm/core/latest/Result#Result) value as its result.
 
 -}
 type alias Promise memory result =
@@ -300,46 +296,55 @@ sync =
 -- Procedures
 
 
-{-| -}
+{-| Wait for a promise to be resolved and just ignore the result.
+-}
 void : Promise m a -> Promise m ()
 void =
     map (\_ -> ())
 
 
-{-| Concatenate given sequence of Procedures.
+{-| Sequentially process Procedures.
+
+    sample : Promise m ()
+    sample =
+        sequence
+            [ execultedFirst
+            , executedAfterFirstIsResolved
+            ]
+
 -}
 sequence : List (Promise m ()) -> Promise m ()
 sequence =
     Core.sequence
 
 
-{-| Evaluate sequence of Procedures that depend on the result of a Promise.
+{-| Helper function to *bind* the result of a promise.
 
-    andThenSequence f =
-        andThen (f >> sequence)
+    import Tepa exposing (Promise)
+    import Tepa.Time as Time
 
--}
-andThenSequence : (a -> List (Promise m ())) -> Promise m a -> Promise m ()
-andThenSequence f =
-    andThen (f >> sequence)
-
-
-{-| Flipped version of `andThenSequence`.
-
-You can use `bind` to bind some Promise result to a variable:
-
-    bind somePromise <|
-        \result ->
-            [ yourProcedure result
+    sample : Promise m ()
+    sample =
+        Tepa.bind Time.now <| \now ->
+            [ yourProcedure now
             ]
 
 -}
 bind : Promise m a -> (a -> List (Promise m ())) -> Promise m ()
 bind promise f =
-    andThenSequence f promise
+    andThen (f >> sequence) promise
 
 
 {-| Run two Promises concurrently, and bind the results to variables when both are complete.
+
+    import Tepa exposing (Promise)
+    import Tepa.Time as Time
+
+    sample : Promise m ()
+    sample =
+        Tepa.bind2 Time.now Time.here <| \now here ->
+            [ yourProcedure now here
+            ]
 -}
 bind2 : Promise m a -> Promise m b -> (a -> b -> List (Promise m ())) -> Promise m ()
 bind2 p1 p2 f =
@@ -473,39 +478,20 @@ withMaybe ma f =
 
 
 {-| Promise that requests current Memory state.
-
-Note that this returns the Memory state when it is resolved:
-
-    type alias Response =
-        { memoryOnRequest : Memory
-        , response1 : Response1
-        }
-
-    -- The `currentState` in this Promise returns the memory state when it called,
-    -- i.e., when the `request1` is called, but not when the `request1` receives response.
-    myPromise : Promise Memory Event Response
-    myPromise =
-        succeed Response
-            (async currentState)
-            (async request1)
-
-    request1 : Promise Common Memory Event Response1
-    request1 =
-        Debug.todo ""
-
 -}
 currentState : Promise m m
 currentState =
     Core.currentState
 
 
-{-| -}
+{-| Promise that requests the current Memory state of a Layer.
+-}
 layerState : Layer m1 -> Promise m m1
 layerState (Core.Layer layer) =
     succeed layer.state
 
 
-{-| Build a Promise to send one outgoing port Message and receive the corresponding incoming port Message only once.
+{-| Build a Promise to send one outgoing [port](https://guide.elm-lang.org/interop/ports) Message and receive the corresponding incoming port Message only once.
 
 For example, we can use `portRequest` to get localStorage value safely.
 
@@ -549,8 +535,7 @@ In Elm side:
     requestLocalName : String -> Promise Memory Event LocalNameResponse
     requestLocalName userId =
         portRequest
-            { name = "Request for localStorage value"
-            , ports =
+            { ports =
                 { request = requestGetLocalName
                 , response = receiveGetLocalName
                 }
@@ -762,7 +747,7 @@ layerDocument =
 
 {-| Entry point for building your applications.
 
-If you have an existing TEA app, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into the TEA app.
+_For TEA users: If you have an existing TEA application, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into your TEA application._
 
 -}
 application :
@@ -792,37 +777,37 @@ application props =
 
 {-| Property values for your application.
 
-    - `init`: Initial Memory state of your application.
+  - `init`: Initial Memory state of your application.
 
-        TEPA has a **Memory** that holds all the application state. This property specifies the state of the Memory when the application is loaded.
+    TEPA has a single *Memory* that holds all the application state. This property specifies the state of the Memory when the application is loaded.
 
-    - `procedure`: How your application processes.
+  - `procedure`: How your application processes.
 
-        It takes three arguments:
+    It takes three arguments:
 
-        - flags: JavaScript can pass in data when starting your program.
-        - app URL: Initial URL requested by a user.
-        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+      - Flags: JavaScript can pass in data when starting your program.
+      - App URL: Initial URL requested by a user.
+      - Navigation key: Required by functions exposed by `Tepa.Navigation`.
 
-    - `view`: How your application looks.
+  - `view`: How your application looks.
 
-        It is determined only by current Memory state.
+    The *View* is determined only by current Memory state.
 
-    - `onUrlRequest`: How to handle page transition requests.
+  - `onUrlRequest`: How to handle page transition requests.
 
-        It takes three arguments:
+    It takes three arguments:
 
-        - flags: JavaScript can pass in data when starting your program.
-        - URL request: Requested URL.
-        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+      - flags: JavaScript can pass in data when starting your program.
+      - URL request: Requested URL.
+      - navigation key: Required by functions exposed by `Tepa.Navigation`.
 
-    - `onUrlChange`: What to do after page load or transition.
+  - `onUrlChange`: What to do after page load or transition.
 
-        It takes three arguments:
+    It takes three arguments:
 
-        - flags: JavaScript can pass in data when starting your program.
-        - app URL: Loaded new URL.
-        - navigation key: Required by functions exposed by `Tepa.Navigation`.
+      - flags: JavaScript can pass in data when starting your program.
+      - app URL: Loaded new URL.
+      - navigation key: Required by functions exposed by `Tepa.Navigation`.
 
 -}
 type alias ApplicationProps flags memory =
@@ -838,7 +823,7 @@ type alias ApplicationProps flags memory =
 
 You only get access to a `NavKey` when you create your program with `application`, guaranteeing that your program is equipped to detect these URL changes. If `NavKey` values were available in other kinds of programs, unsuspecting programmers would be sure to run into some [annoying bugs](https://github.com/elm/browser/blob/1.0.2/notes/navigation-in-elements.md) and learn a bunch of techniques the hard way!
 
-This is the TEPA version of [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key).
+_This is the TEPA version of [Browser.Navigation.Key](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Navigation#Key)._
 
 -}
 type alias NavKey =
@@ -847,7 +832,7 @@ type alias NavKey =
 
 {-| A `Program` describes an TEPA program.
 
-An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program).
+_An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program)._
 
 -}
 type alias Program flags memory =
@@ -856,7 +841,7 @@ type alias Program flags memory =
 
 {-| This data specifies the `<title>` and all of the nodes that should go in the `<body>`. This means you can update the title as your application changes. Maybe your "single-page app" navigates to a "different page", maybe a calendar app shows an accurate date in the title, etc.
 
-Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience.
+_Reexport [Browser.Document](https://package.elm-lang.org/packages/elm/browser/latest/Browser#Document) for convenience._
 
 -}
 type alias Document msg =
@@ -869,8 +854,7 @@ type alias Document msg =
 when you click `<a href="/home">Home</a>`, it does not just navigate! It
 notifies `onUrlRequest` that the user wants to change the URL.
 
-This is the TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest).
-Refer to the `Browser.UrlRequest` documentation for more detailed notes.
+_This is the TEPA version of [Browser.UrlRequest](https://package.elm-lang.org/packages/elm/browser/latest/Browser#UrlRequest). Refer to the documentation for more detailed notes._
 
 -}
 type UrlRequest
