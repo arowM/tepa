@@ -8,13 +8,7 @@ See below for various commands related to development.
 $ npm i
 ```
 
-## Format files
-
-```sh
-$ npm run format
-```
-
-## Run doc server
+## Run document server
 
 ```sh
 $ npm start
@@ -24,6 +18,12 @@ $ npm start
 
 ```sh
 $ npm run start:internal
+```
+
+## Format files
+
+```sh
+$ npm run format
 ```
 
 ## Fix warnings
