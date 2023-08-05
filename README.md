@@ -5,220 +5,39 @@
 
 ![logo](https://user-images.githubusercontent.com/1481749/115139779-de382400-a06e-11eb-80e7-22af97774bfa.jpg)
 
-TEPA is a framework for building user-centric web applications through scenario-driven development.
+TEPA (pronounced /tíːpə/) is a framework for building robust, user-centric Web applications.
 
-## What TEPA can do?
+## No exceptions
 
-TEPA has three main features:
+Exceptions are evil inventions that impede the development and prosperity of humanity. We painfully understand that you certainly do not want to think about the unexpected. You must want to put it off. But it is you who will get into trouble later.
+Suppose you are building an airplane. Wouldn't you carefully inspect every single screw and replace it right away if it was defective? If the airplane fell down after it was all assembled, you would never know what actually caused the problem. Exception handling is such a bad technique.
 
-* Generate scenario document
-* Generate scenario test
-* Develop robust web application with chronological description
+Another evil of exceptions is that they mess with static types. Even though TypeScript introduces static types to JavaScript, you still have to deal with values of `unknown` types that you have no way of knowing what they are at compile time.
 
-### Generate Scenario Document
+TEPA uses an exception-free language called Elm. With Elm, you are forced by the compiler to handle all unexpected things on the fly. It may seem rigid and depressing at first. But one day you will be grateful for this nagging compiler.
 
-The `Tepa.Scenario` module allows you to programmatically describe scenario documents.
-The resulting document can be viewed in real time in a web browser as a document server, or saved as a markdown file.
+## No gap between scenario and implementation
 
-Sample Scenario:
+Web applications should be user-centric, not developer-centric. If an application is not easy to use, users will leave. Without users, you cannot continue to develop applications. Eventually, your company will go out of business and you will lose your job.
+So, no matter what kind of application you are developing, you must consider your users' point of view. Of course, if your company is spending its resources on creating a deeply brainwashed customer base, and no one complains that the application is impossibly difficult to use, then you can create an application that ignores the user in order to reduce development costs. However, it does not make sense to ignore the user and give priority to the convenience of the developer. It is necessary to think about the users and how an appropriate application should be.
 
-```elm
-...
-, onSakuraChanMainSession.login.expectAvailable <|
-    Scenario.textContent "Display login page."
-, userComment sakuraChan
-    "I see I have to log in! I remember my dad gave me the account information beforehand."
-, onSakuraChanMainSession.login.expectLoginFormShowNoErrors <|
-    Scenario.textContent "The login form shows no errors at first."
-, userComment yabugarashiKun
-    "I'm Yabugarashi-kun. I'm going to play a prank on Sakura-chan. Muahahahahaha! 😈"
-, userComment yabugarashiKun
-    "Sakura-chan, here is the account information note your father gave you. 😈"
-, userComment sakuraChan
-    "Thank you, Yabugarashi-kun. 🌸"
-, onSakuraChanMainSession.login.changeLoginId
-    { value = "guest"
-    }
-    (Scenario.textContent "Login ID entered.")
-, userComment sakuraChan
-    "The note says that the password can be left blank."
-, onSakuraChanMainSession.login.clickSubmitLogin
-    (Scenario.textContent "Clicked the login button.")
-, let
-    error =
-        "Password is required."
-  in
-  onSakuraChanMainSession.login.expectLoginFormShowError
-    { error = error
-    }
-    (Scenario.textContent <| "Form shows error: " ++ error)
-, userComment sakuraChan
-    "Oh my goat, I got an error..."
-, userComment yabugarashiKun
-    "Sorry, sorry, I just got a little naughty. Here's the real note."
-, userComment sakuraChan
-    "Okay, I'll try again."
-, let
-    value =
-        "fuestPass"
-  in
-  onSakuraChanMainSession.login.changeLoginPass
-    { value = value
-    }
-    (Scenario.textContent <| "Password changed to \"" ++ value ++ "\"")
-, onSakuraChanMainSession.login.expectLoginFormShowNoErrors
-    (Scenario.textContent "Login form shows no errors at the time.")
-, userComment sakuraChan
-    "It looks good."
-, onSakuraChanMainSession.login.clickSubmitLogin
-    (Scenario.textContent "Clicked the login button.")
-...
-```
+An essential part of creating such a user-friendly application is the *user scenario*. The user scenario is a scenario of how a particular user would feel and operate the application, and what kind of feedback the application should provide in response to that operation.
+Sometimes this is clearly written down and shared with the team, and sometimes it happens subconsciously in the designer's brain. Either way, it is important to be able to describe the behavior of the application in a way that closely resembles this scenario. Otherwise, "translation" work will be required to fill the gap between the two, and many bugs will be introduced in the process.
+But for some reason, people pretend to be smart by using methods such as data-centric descriptions that put components in the lead role, or Reducer, which is stateless and eliminates even the context of a series of temporal operations, and so on, and instead increase the number of bugs caused by "translation". By the way, Sakura-chan, the developer of TEPA, is a goat🐐
 
-Generated markdown:
+TEPA allows you to develop applications in a scenario-like format by writing along a timeline.
 
-```elm
-...
-* **\[Sakura\-chan's main session\]** **System**: Display login page.
-* **Sakura\-chan**: I see I have to log in\! I remember my dad gave me the account information beforehand.
-* **\[Sakura\-chan's main session\]** **System**: The login form shows no errors at first.
-* **Yabugarashi\-kun**: I'm Yabugarashi\-kun. I'm going to play a prank on Sakura\-chan. Muahahahahaha\! 😈
-* **Yabugarashi\-kun**: Sakura\-chan, here is the account information note your father gave you. 😈
-* **Sakura\-chan**: Thank you, Yabugarashi\-kun. 🌸
-* **\[Sakura\-chan's main session\]** **Sakura\-chan**: Login ID entered.
-* **Sakura\-chan**: The note says that the password can be left blank.
-* **\[Sakura\-chan's main session\]** **Sakura\-chan**: Clicked the login button.
-* **\[Sakura\-chan's main session\]** **System**: Form shows error: Password is required.
-* **Sakura\-chan**: Oh my goat, I got an error...
-* **Yabugarashi\-kun**: Sorry, sorry, I just got a little naughty. Here's the real note.
-* **Sakura\-chan**: Okay, I'll try again.
-* **\[Sakura\-chan's main session\]** **Sakura\-chan**: Password changed to "fuestPass"
-* **\[Sakura\-chan's main session\]** **System**: Login form shows no errors at the time.
-* **Sakura\-chan**: It looks good.
-* **\[Sakura\-chan's main session\]** **Sakura\-chan**: Clicked the login button.
-...
-```
+## Automatically test your scenarios.
 
-In scenario-driven development, which TEPA advocates, the first step is to imagine a concrete use case and create a scenario, and in team development using GitHub, etc., the markdown output of the scenario can be included in pull requests so that reviewers can compare it to the current scenario and see what has changed. Reviewers can easily see what has changed from the current scenario.
+As mentioned earlier, scenario creation is essential for user-centric applications, so TEPA provides a scenario creation feature. This feature allows you to create scenarios programmatically. The scenario can then be displayed in a browser in a nice format or output as a Markdown file.
 
-### Generating Scenario Tests
+Even more amazing is that the scenario can be turned directly into a lightweight test: write an application and a scenario in TEPA, and you can test whether it behaves as described in the scenario by emulating the behavior of the application. This testing is instantaneous because it is not done using a real web browser. For example, if you have a process that sleeps for 500 million years, you don't have to go into a cold sleep betting that the Earth will still be around in 500 million years. There is also no need to prepare mocks. Even for processes that depend on external conditions at runtime, such as requests to back-end servers or random number generation within the application, you can write the expected behavior in a scenario, and the automatically generated test will pass the results to the application for further testing.
+Of course, being an emulator has its drawbacks. It does not actually render the screen, so visual regression testing is not possible. For the important parts, you should use something like Playwright or something similar.
 
-By describing scenarios with the `Tepa.Scenario` module, you can automatically test that your TEPA application behaves as described in the scenario. All real world effects like HTTP responses, random numbers, and passage of time, e.t.c., will be simulated as described in the scenario.
+## How to get started
 
-### Develop robust web application with chronological description
+Although tutorials for TEPA are currently under construction, a sample application is already available. Please see the contents of the [spa-sample directory](https://github.com/arowM/tepa/tree/main/spa-sample).
 
-Static analysis is an essential technique for building reliable and robust applications. To make static analysis more powerful, strong static types are used. However, some languages with strong static types have a feature known as exceptions. This feature negates the benefits of static typing.
+The [Elm language specification](https://guide.elm-lang.jp/core_language.html) is very small and easy to learn, and TEPA's [API documentation](https://package.elm-lang.org/packages/arowM/tepa/latest/) is self-documented by its types, so you won't get lost.
 
-One way to enable strong, statically typed, exception-free programming is [The Elm Architecture](https://guide.elm-lang.org/architecture/)(TEA).
-The basic design of TEA is great, but using TEA as it is, it is difficult to create user-centric design applications. This is because TEA describes the application by data-centric design, which determines the next process and state based only on the current state of the application when some events (such as user operation) have occurred. On the other hand, real user behavior is an extension of their previous operations, so creating a user-centric application requires a framework that wraps TEA to make it specialized for that use.
-
-TEPA provides such a dedicated framework, which is closer to a scenario because it allows applications to be described in chronological order. As a result, it inherits the features of imperative programming, which facilitates user-centered design, and the features of functional programming, which facilitates static analysis.
-
-```elm
-submitLoginProcedure : Bucket -> Promise Memory ()
-submitLoginProcedure bucket =
-    let
-        modifyLoginForm f =
-            Tepa.modify <|
-                \m ->
-                    { m | loginForm = f m.loginForm }
-    in
-    Tepa.sequence
-        [ modifyLoginForm <|
-            \m -> { m | isBusy = True }
-        , Tepa.bind Tepa.getValues <|
-            \form ->
-                case Login.fromForm form of
-                    Err _ ->
-                        [ modifyLoginForm <|
-                            \m ->
-                                { m
-                                    | isBusy = False
-                                    , showError = True
-                                }
-                        ]
-
-                    Ok login ->
-                        [ Tepa.bind (Login.request login) <|
-                            \response ->
-                                case response of
-                                    Login.TemporaryErrorResponse ->
-                                        [ Tepa.syncAll
-                                            [ Toast.pushError
-                                                "Network error, please check your network and try again."
-                                                |> runToastPromise
-                                                |> Tepa.void
-                                            , Tepa.sequence
-                                                [ modifyLoginForm <|
-                                                    \m ->
-                                                        { m | isBusy = False }
-                                                ]
-                                            ]
-                                        ]
-
-                                    Login.FatalErrorResponse ->
-                                        [ Tepa.syncAll
-                                            [ Toast.pushError
-                                                "Internal error, please contact our support team."
-                                                |> runToastPromise
-                                                |> Tepa.void
-                                            , Tepa.sequence
-                                                [ modifyLoginForm <|
-                                                    \m ->
-                                                        { m | isBusy = False }
-                                                ]
-                                            ]
-                                        ]
-
-                                    Login.IncorrectIdOrPasswordResponse ->
-                                        [ modifyLoginForm <|
-                                            \m ->
-                                                { m
-                                                    | isBusy = False
-                                                    , incorrectIdOrPass = True
-                                                    , showError = True
-                                                }
-                                        ]
-
-                                    Login.GoodResponse resp ->
-                                        [ Tepa.bind (Random.request Session.randomLuckyHay) <|
-                                            \luckyHay ->
-                                                [ Tepa.modify <|
-                                                    \m ->
-                                                        { m
-                                                            | msession =
-                                                                Just
-                                                                    { profile = resp.profile
-                                                                    , luckyHay = luckyHay
-                                                                    }
-                                                            , loginForm =
-                                                                let
-                                                                    loginForm =
-                                                                        m.loginForm
-                                                                in
-                                                                { loginForm
-                                                                    | isBusy = False
-                                                                }
-                                                        }
-                                                ]
-                                        , Nav.pushPath bucket.key
-                                            (bucket.requestPath.queryParameters
-                                                |> Dict.get "back"
-                                                |> Maybe.andThen List.head
-                                                |> Maybe.andThen Path.toAppUrl
-                                                |> Maybe.withDefault
-                                                    { path =
-                                                        [ Path.prefix
-                                                        ]
-                                                    , queryParameters = Dict.empty
-                                                    , fragment = Nothing
-                                                    }
-                                            )
-                                        ]
-                        ]
-        ]
-```
-
-## Getting started
-
-We are preparing a tutorial. You can check a sample application in the `spa-sample` directory.
+From the horizontal eyes of Sakura-chan, the goat, it seems that humans are creatures desperate to gain an advantage over others. Don't wait for the tutorial to be prepared, master TEPA before other humans do!

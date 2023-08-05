@@ -1,7 +1,7 @@
 {
     "type": "package",
     "name": "arowM/tepa",
-    "summary": "Framework for building user-centric apps through scenario-deriven development",
+    "summary": "Framework for building robust, user-centric Web apps",
     "license": "MIT",
     "version": "1.0.0",
     "exposed-modules": [
