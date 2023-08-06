@@ -445,6 +445,12 @@ For more precise control, you can use [`Stream`](./Tepa-Stream) versions.
 Note that the Procedure can only capture events in Views on the same Layer that the Procedure is executed.
 
 
+### Freshness of input values
+
+The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
+Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/Element/input/search) or capture the `input` event with `awaitCustomViewEvent` to handle this situation.
+
+
 ### Advanced functions
 
 @docs mapViewContext, keyedLayerView
