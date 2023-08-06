@@ -23,7 +23,7 @@ So, no matter what kind of application you are developing, you must consider you
 
 An essential part of creating such a user-friendly application is the *user scenario*. The user scenario is a scenario of how a particular user would feel and operate the application, and what kind of feedback the application should provide in response to that operation.
 Sometimes this is clearly written down and shared with the team, and sometimes it happens subconsciously in the designer's brain. Either way, it is important to be able to describe the behavior of the application in a way that closely resembles this scenario. Otherwise, "translation" work will be required to fill the gap between the two, and many bugs will be introduced in the process.
-But for some reason, people pretend to be smart by using methods such as data-centric descriptions that put components in the lead role, or Reducer, which is stateless and eliminates even the context of a series of temporal operations, and so on, and instead increase the number of bugs caused by "translation". By the way, Sakura-chan, the developer of TEPA, is a goat🐐
+But for some reason, people pretend to be smart by using methods such as data-centric descriptions that put components in the lead role, or Reducer, which is stateless and eliminates even the context of a series of temporal operations, and so on, and instead increase the number of bugs caused by "translation". I don't know why they do so because I, Sakura-chan, the developer of TEPA, am a goat🐐
 
 TEPA allows you to develop applications in a scenario-like format by writing along a timeline.
 
