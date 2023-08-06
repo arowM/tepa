@@ -43,6 +43,6 @@ TEPAでは、シナリオと近い時系列に沿った記述でアプリケー�
 
 TEPAのチュートリアルは現在作成中です。でも、サンプルアプリケーションはすでに用意してあります。[spa-sampleディレクトリー](https://github.com/arowM/tepa/tree/main/spa-sample)の中身を参照してください。
 
-[Elmの言語仕様](https://guide.elm-lang.jp/core_language.html)はすご〜く小さいのですぐに覚えられますし、TEPAの[APIドキュメント](https://package.elm-lang.org/packages/arowM/tepa/latest/)は型が雄弁なドキュメントとなっていてあまり迷うことがありません。
+[Elmの言語仕様](https://guide.elm-lang.jp/core_language.html)はすご〜く小さいのですぐに覚えられますし、型の助けを借りながらTEPAの[モジュールドキュメント](https://package.elm-lang.org/packages/arowM/tepa/latest/Tepa)を読めば `spa-sample` の構造が理解できるようになるはずです。
 
 人間さんっていう生き物は、最新の技術ばかり追いかけて消耗するのが大好きですよね？ チュートリアルなんか待たずに早く手を出して他のプログラマーと差をつけましょう！

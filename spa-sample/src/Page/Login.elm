@@ -412,41 +412,41 @@ runToastPromise prom =
 
 
 {-| -}
-type alias ScenarioSet flags m =
+type alias ScenarioSet m =
     { layer : Layer m -> Maybe (Layer Memory)
     , changeLoginId :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , changeLoginPass :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , clickSubmitLogin :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , receiveLoginResp :
         (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , receiveRandomLuckyHay :
         { value : Session.LuckyHay
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , expectAvailable :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , expectLoginFormShowNoErrors :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , expectLoginFormShowError :
         { error : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , expectRequestLogin :
-        Value -> Scenario.Markup -> Scenario flags m
-    , toast : Toast.ScenarioSet flags m
+        Value -> Scenario.Markup -> Scenario m
+    , toast : Toast.ScenarioSet m
     , loginEndpoint :
         { method : String
         , url : String
@@ -461,7 +461,7 @@ type alias ScenarioProps m =
 
 
 {-| -}
-scenario : ScenarioProps m -> ScenarioSet flags m
+scenario : ScenarioProps m -> ScenarioSet m
 scenario props =
     { layer = props.querySelf
     , changeLoginId = changeLoginId props
@@ -487,7 +487,7 @@ scenario props =
     }
 
 
-changeLoginId : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario flags m
+changeLoginId : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario m
 changeLoginId props { value } markup =
     Scenario.userOperation props.session
         markup
@@ -499,7 +499,7 @@ changeLoginId props { value } markup =
         }
 
 
-changeLoginPass : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario flags m
+changeLoginPass : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario m
 changeLoginPass props { value } markup =
     Scenario.userOperation props.session
         markup
@@ -511,7 +511,7 @@ changeLoginPass props { value } markup =
         }
 
 
-clickSubmitLogin : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+clickSubmitLogin : ScenarioProps m -> Scenario.Markup -> Scenario m
 clickSubmitLogin props markup =
     Scenario.userOperation props.session
         markup
@@ -529,7 +529,7 @@ receiveLoginResp :
     ScenarioProps m
     -> (Value -> Maybe ( Http.Metadata, String ))
     -> Scenario.Markup
-    -> Scenario flags m
+    -> Scenario m
 receiveLoginResp props toResponse markup =
     Scenario.httpResponse props.session
         markup
@@ -553,7 +553,7 @@ receiveRandomLuckyHay :
     ScenarioProps m
     -> { value : Session.LuckyHay }
     -> Scenario.Markup
-    -> Scenario flags m
+    -> Scenario m
 receiveRandomLuckyHay props { value } markup =
     Scenario.randomResponse props.session
         markup
@@ -563,7 +563,7 @@ receiveRandomLuckyHay props { value } markup =
         }
 
 
-expectRequestLogin : ScenarioProps m -> Value -> Scenario.Markup -> Scenario flags m
+expectRequestLogin : ScenarioProps m -> Value -> Scenario.Markup -> Scenario m
 expectRequestLogin props requestBody markup =
     Scenario.expectHttpRequest props.session
         markup
@@ -584,7 +584,7 @@ expectRequestLogin props requestBody markup =
         }
 
 
-expectLoginFormShowNoErrors : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+expectLoginFormShowNoErrors : ScenarioProps m -> Scenario.Markup -> Scenario m
 expectLoginFormShowNoErrors props markup =
     Scenario.expectAppView props.session
         markup
@@ -601,7 +601,7 @@ expectLoginFormShowNoErrors props markup =
         }
 
 
-expectAvailable : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+expectAvailable : ScenarioProps m -> Scenario.Markup -> Scenario m
 expectAvailable props markup =
     Scenario.expectMemory props.session
         markup
@@ -610,7 +610,7 @@ expectAvailable props markup =
         }
 
 
-expectLoginFormShowError : ScenarioProps m -> { error : String } -> Scenario.Markup -> Scenario flags m
+expectLoginFormShowError : ScenarioProps m -> { error : String } -> Scenario.Markup -> Scenario m
 expectLoginFormShowError props { error } markup =
     Scenario.expectAppView props.session
         markup

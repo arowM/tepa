@@ -18,7 +18,7 @@ import Expect
 import Html
 import Html.Attributes as Attributes
 import Html.Events as Events
-import Json.Encode as JE exposing (Value)
+import Json.Encode as JE
 import MarkdownAst as Markdown
 import Tepa.Scenario as Scenario exposing (userComment)
 import Tepa.Time as Time
@@ -143,18 +143,18 @@ sakuraChanSecondSession =
 -- # Scenarios
 
 
-onSakuraChanMainSession : App.ScenarioSet flags
+onSakuraChanMainSession : App.ScenarioSet
 onSakuraChanMainSession =
     App.scenario sakuraChanMainSession
 
 
-onSakuraChanSecondSession : App.ScenarioSet flags
+onSakuraChanSecondSession : App.ScenarioSet
 onSakuraChanSecondSession =
     App.scenario sakuraChanSecondSession
 
 
 type alias Section =
-    Scenario.Section Value Memory
+    Scenario.Section Memory
 
 
 {-| -}

@@ -6,7 +6,6 @@ module Tepa.Dom exposing
     )
 
 {-| This module allows you to manipulate the DOM in various ways.
-TEPA version of [Browser.Dom module](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom).
 
 It covers:
 
@@ -50,9 +49,7 @@ import Tepa exposing (Promise)
 -- Focus
 
 
-{-| TEPA version of [`Browser.Dom.focus`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#focus).
-
-Find a DOM node by `id` and focus on it. So if you wanted to focus a node like `<input type="text" id="search-box">` you could say:
+{-| Find a DOM node by `id` and focus on it. So if you wanted to focus a node like `<input type="text" id="search-box">` you could say:
 
     import Tepa exposing (Promise)
     import Tepa.Dom as Dom
@@ -62,6 +59,8 @@ Find a DOM node by `id` and focus on it. So if you wanted to focus a node like `
         Dom.focus "search-box"
 
 In scenario testing, it also simulates the focus event with an empty event object.
+
+_This is the TEPA version of [`Browser.Dom.focus`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#focus)._
 
 -}
 focus : String -> Promise m (Result Error ())
@@ -100,9 +99,7 @@ focus str =
         )
 
 
-{-| TEPA version of [`Browser.Dom.blur`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#blur).
-
-Find a DOM node by `id` and make it lose focus. So if you wanted a node
+{-| Find a DOM node by `id` and make it lose focus. So if you wanted a node
 like `<input type="text" id="search-box">` to lose focus you could say:
 
     import Tepa exposing (Promise)
@@ -113,6 +110,8 @@ like `<input type="text" id="search-box">` to lose focus you could say:
         Dom.blur "search-box"
 
 In scenario testing, it also simulates the blur event with an empty event object.
+
+_This is the TEPA version of [`Browser.Dom.blur`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#blur)._
 
 -}
 blur : String -> Promise m (Result Error ())
@@ -151,10 +150,10 @@ blur str =
         )
 
 
-{-| TEPA version of [`Browser.Dom.Error`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#Error).
-
-Many functions in this module look up DOM nodes up by their `id`. If you
+{-| Many functions in this module look up DOM nodes up by their `id`. If you
 ask for an `id` that is not in the DOM, you will get this error.
+
+_This is the TEPA version of [`Browser.Dom.Error`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#Error)._
 
 -}
 type Error
@@ -165,9 +164,7 @@ type Error
 -- Get Viewport
 
 
-{-| TEPA version of [`Browser.Dom.getViewport`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getViewport).
-
-Get information on the current viewport of the browser.
+{-| Get information on the current viewport of the browser.
 
 ![getViewport](https://elm.github.io/browser/v1/getViewport.svg)
 
@@ -178,6 +175,8 @@ can use [`setViewport`](#setViewport) which change the `x` and `y` of the
 viewport.
 
 In scenario testing, it always resolves to Viewport of all values zero.
+
+_This is the TEPA version of [`Browser.Dom.getViewport`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getViewport)._
 
 -}
 currentViewport : Promise m Viewport
@@ -236,11 +235,11 @@ type alias Viewport =
     }
 
 
-{-| TEPA version of [`Browser.Dom.getViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getViewportOf).
-
-Just like `currentViewport`, but for any scrollable DOM node.
+{-| Just like `currentViewport`, but for any scrollable DOM node.
 
 See [`Browser.Dom.getViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getViewportOf) for detail and real use cases.
+
+_This is the TEPA version of [`Browser.Dom.getViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getViewportOf)._
 
 -}
 currentViewportOf : String -> Promise m (Result Error Viewport)
@@ -283,9 +282,7 @@ currentViewportOf str =
 -- Set Viewport
 
 
-{-| TEPA version of [`Browser.Dom.setViewport`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#setViewport).
-
-Change the `x` and `y` offset of the browser viewport immediately. For
+{-| Change the `x` and `y` offset of the browser viewport immediately. For
 example, you could make a command to jump to the top of the page:
 
     import Tepa exposing (Promise)
@@ -298,6 +295,8 @@ example, you could make a command to jump to the top of the page:
 This sets the viewport offset to zero.
 
 In scenario testing, it has no effects.
+
+_This is the TEPA version of [`Browser.Dom.setViewport`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#setViewport)._
 
 -}
 setViewport : Float -> Float -> Promise m ()
@@ -332,9 +331,7 @@ setViewport x y =
         )
 
 
-{-| TEPA version of [`Browser.Dom.setViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#setViewportOf).
-
-Change the `x` and `y` offset of a DOM node&rsquo;s viewport by ID. This
+{-| Change the `x` and `y` offset of a DOM node&rsquo;s viewport by ID. This
 is common in text messaging and chat rooms, where once the messages fill the
 screen, you want to always be at the very bottom of the message chain. This
 way the latest message is always on screen! You could do this:
@@ -358,6 +355,8 @@ So you could call `jumpToBottom "chat-box"` whenever you add a new message.
 See [`Browser.Dom.setViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#setViewportOf) for more detailed notes.
 
 In scenario testing, it also simulates the scroll event with an empty event object on the target node.
+
+_This is the TEPA version of [`Browser.Dom.setViewportOf`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#setViewportOf)._
 
 -}
 setViewportOf : String -> Float -> Float -> Promise m (Result Error ())
@@ -396,13 +395,13 @@ setViewportOf id x y =
         )
 
 
-{-| TEPA version of [`Browser.Dom.getElement`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getElement).
-
-Get position information about specific elements.
+{-| Get position information about specific elements.
 
 See [`Browser.Dom.getElement`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getElement) for detail and real use cases.
 
 In scenario testing, it always resolves to Element of all values zero.
+
+_This is the TEPA version of [`Browser.Dom.getElement`](https://package.elm-lang.org/packages/elm/browser/latest/Browser-Dom#getElement)._
 
 -}
 element : String -> Promise m (Result Error Element)

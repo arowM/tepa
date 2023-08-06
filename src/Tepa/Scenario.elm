@@ -157,7 +157,7 @@ module Tepa.Scenario exposing
 -}
 
 import AppUrl exposing (AppUrl)
-import Browser exposing (Document)
+import Browser
 import Browser.Dom as BrowserDom
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
@@ -193,9 +193,9 @@ import Test.Sequence as SeqTest
 The Scenario you built can be converted to tests with `toTest`, and to documents with `toHtml` or `toMarkdown`.
 
 -}
-type Scenario flags memory
+type Scenario memory
     = Scenario
-        { test : TestConfig flags memory -> TestContext memory -> SeqTest.Sequence (TestContext memory)
+        { test : TestConfig memory -> TestContext memory -> SeqTest.Sequence (TestContext memory)
         , markup :
             RenderConfig -> ListBlock -> Result InvalidMarkup ListBlock
         }
@@ -213,9 +213,9 @@ type alias ListBlock =
         MdBuilder.ListBlock
 
 
-type alias TestConfig flags m =
-    { view : m -> Document Msg
-    , init : flags -> AppUrl -> SessionUpdateResult m
+type alias TestConfig m =
+    { view : m -> Tepa.Document
+    , init : Value -> AppUrl -> SessionUpdateResult m
     }
 
 
@@ -259,7 +259,7 @@ type InvalidMarkup
 
 {-| A Scenario that does nothing.
 -}
-none : Scenario flags m
+none : Scenario m
 none =
     Scenario
         { test = noneTest
@@ -268,14 +268,14 @@ none =
 
 
 {-| -}
-noneTest : TestConfig flags m -> TestContext m -> SeqTest.Sequence (TestContext m)
+noneTest : TestConfig m -> TestContext m -> SeqTest.Sequence (TestContext m)
 noneTest _ =
     SeqTest.pass
 
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
 -}
-sequence : List (Scenario flags m) -> Scenario flags m
+sequence : List (Scenario m) -> Scenario m
 sequence =
     List.foldl
         (\a acc ->
@@ -284,7 +284,7 @@ sequence =
         none
 
 
-mappend : Scenario flags m -> Scenario flags m -> Scenario flags m
+mappend : Scenario m -> Scenario m -> Scenario m
 mappend (Scenario s1) (Scenario s2) =
     Scenario
         { test =
@@ -362,9 +362,9 @@ In such case, you can declare common section, and refer to the title in `depende
         }
 
 -}
-type alias Section flags memory =
+type alias Section memory =
     { title : String
-    , content : List (Scenario flags memory)
+    , content : List (Scenario memory)
     , dependency : Dependency
     }
 
@@ -461,7 +461,7 @@ This Scenario only affects document generation, and is ignored for scenario test
 You can start with `userComment` and `systemComment` to build the skeleton of your scenario, and gradually replace `userComment` with Event Simulator and `systemComment` with Expectation.
 
 -}
-userComment : User -> String -> Scenario flags m
+userComment : User -> String -> Scenario m
 userComment (User user) commentText =
     comment
         { content =
@@ -478,7 +478,7 @@ userComment (User user) commentText =
 This Scenario only affects document generation, and is ignored for scenario test generation.
 
 -}
-systemComment : Session -> String -> Scenario flags m
+systemComment : Session -> String -> Scenario m
 systemComment (Session session) commentText =
     comment
         { content =
@@ -497,7 +497,7 @@ systemComment (Session session) commentText =
 
 {-| Lower level function to add detailed comments.
 -}
-comment : Markup -> Scenario flags m
+comment : Markup -> Scenario m
 comment markup =
     Scenario
         { test = noneTest
@@ -515,7 +515,7 @@ comment markup =
 You can create a scenario first with `todo` and later replace that `todo` with an actual test, which is the scenario driven development.
 
 -}
-todo : Session -> Markup -> Scenario flags m
+todo : Session -> Markup -> Scenario m
 todo (Session session) markup =
     let
         description =
@@ -683,7 +683,7 @@ expectMemory :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : m1 -> Expectation
         }
-    -> Scenario flags m
+    -> Scenario m
 expectMemory (Session session) markup param =
     let
         description =
@@ -811,9 +811,9 @@ expectAppView :
     Session
     -> Markup
     ->
-        { expectation : Document Msg -> Expectation
+        { expectation : Tepa.Document -> Expectation
         }
-    -> Scenario flags m
+    -> Scenario m
 expectAppView (Session session) markup { expectation } =
     let
         description =
@@ -894,7 +894,7 @@ expectCurrentTime :
     ->
         { expectation : Posix -> Expectation
         }
-    -> Scenario flags m
+    -> Scenario m
 expectCurrentTime markup { expectation } =
     let
         description =
@@ -931,7 +931,7 @@ expectHttpRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List HttpRequest -> Expectation
         }
-    -> Scenario flags m
+    -> Scenario m
 expectHttpRequest (Session session) markup param =
     let
         description =
@@ -1001,7 +1001,7 @@ expectPortRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List Value -> Expectation
         }
-    -> Scenario flags m
+    -> Scenario m
 expectPortRequest (Session session) markup param =
     let
         description =
@@ -1071,7 +1071,7 @@ expectRandomRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , spec : Random.Spec a
         }
-    -> Scenario flags m
+    -> Scenario m
 expectRandomRequest (Session session) markup param =
     let
         description =
@@ -1237,9 +1237,9 @@ loadApp :
     -> Markup
     ->
         { path : AppUrl
-        , flags : flags
+        , flags : Value
         }
-    -> Scenario flags m
+    -> Scenario m
 loadApp (Session session) markup o =
     let
         description =
@@ -1308,7 +1308,7 @@ userOperation :
         { query : Single Msg -> Single Msg
         , operation : ( String, Value )
         }
-    -> Scenario flags m
+    -> Scenario m
 userOperation (Session session) markup param =
     let
         (User user) =
@@ -1405,7 +1405,7 @@ It only affects Promises defined in `Tepa.Time`, so you should not use [`Time` m
 sleep :
     Markup
     -> Int
-    -> Scenario flags m
+    -> Scenario m
 sleep markup msec =
     let
         description =
@@ -1544,7 +1544,7 @@ portResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : Value -> Maybe Value
         }
-    -> Scenario flags m
+    -> Scenario m
 portResponse (Session session) markup param =
     let
         description =
@@ -1653,7 +1653,7 @@ Suppose your application requests random integer:
     oneToTen =
         Random.int 1 10
 
-    respondToOneToTenInt : Scenario flags m
+    respondToOneToTenInt : Scenario m
     respondToOneToTenInt =
         Scenario.randomResponse
             mySession
@@ -1676,7 +1676,7 @@ randomResponse :
         , spec : Random.Spec a
         , response : a
         }
-    -> Scenario flags m
+    -> Scenario m
 randomResponse (Session session) markup param =
     let
         description =
@@ -1788,7 +1788,7 @@ If there are no pages to forward, the test fails.
 forward :
     Session
     -> Markup
-    -> Scenario flags m
+    -> Scenario m
 forward (Session session) markup =
     let
         description =
@@ -1869,7 +1869,7 @@ If there are no pages to back, the test fails.
 back :
     Session
     -> Markup
-    -> Scenario flags m
+    -> Scenario m
 back (Session session) markup =
     let
         description =
@@ -1977,7 +1977,7 @@ If the given value is `Nothing`, document generation and tests fails.
         ]
 
 -}
-fromJust : String -> Maybe a -> (a -> List (Scenario flags m)) -> Scenario flags m
+fromJust : String -> Maybe a -> (a -> List (Scenario m)) -> Scenario m
 fromJust description ma f =
     case ma of
         Nothing ->
@@ -2000,7 +2000,7 @@ fromJust description ma f =
 
 {-| Similar to `fromJust`, but extract `Ok` valur from `Result`.
 -}
-fromOk : String -> Result err a -> (a -> List (Scenario flags m)) -> Scenario flags m
+fromOk : String -> Result err a -> (a -> List (Scenario m)) -> Scenario m
 fromOk description res f =
     case res of
         Err _ ->
@@ -2028,8 +2028,8 @@ fromOk description res f =
 {-| Generate scenario tests.
 -}
 toTest :
-    { props : ApplicationProps flags memory
-    , sections : List (Section flags memory)
+    { props : ApplicationProps memory
+    , sections : List (Section memory)
     }
     -> Test
 toTest o =
@@ -2690,7 +2690,7 @@ putTimer new timers =
 -}
 toHtml :
     { title : String
-    , sections : List (Section flags m)
+    , sections : List (Section m)
     , config : RenderConfig
     }
     -> Html msg
@@ -2767,7 +2767,7 @@ renderInvalidMarkdown reason =
 -}
 toMarkdown :
     { title : String
-    , sections : List (Section flags m)
+    , sections : List (Section m)
     , config : RenderConfig
     }
     -> Result InvalidMarkup String
@@ -2778,7 +2778,7 @@ toMarkdown o =
 
 buildMarkdown :
     { title : String
-    , sections : List (Section flags m)
+    , sections : List (Section m)
     , config : RenderConfig
     }
     -> Result InvalidMarkup MdAst.Section
@@ -3237,7 +3237,7 @@ httpResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, String )
         }
-    -> Scenario flags m
+    -> Scenario m
 httpResponse (Session session) markup param =
     let
         description =
@@ -3343,7 +3343,7 @@ httpBytesResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
         }
-    -> Scenario flags m
+    -> Scenario m
 httpBytesResponse (Session session) markup param =
     let
         description =

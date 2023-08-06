@@ -504,38 +504,38 @@ runToastPromise prom =
 
 
 {-| -}
-type alias ScenarioSet flags m =
+type alias ScenarioSet m =
     { layer : Layer m -> Maybe (Layer Memory)
     , changeEditAccountFormAccountId :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , clickSubmitEditAccount :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , receiveEditAccountResp :
         (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , expectAvailable :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , expectEditAccountFormShowNoErrors :
-        Scenario.Markup -> Scenario flags m
+        Scenario.Markup -> Scenario m
     , expectGreetingMessage :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , expectClockMessage :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , expectLuckyHayMessage :
         { value : String
         }
         -> Scenario.Markup
-        -> Scenario flags m
+        -> Scenario m
     , editAccountEndpoint :
         { method : String
         , url : String
@@ -551,7 +551,7 @@ type alias ScenarioProps m =
 
 
 {-| -}
-scenario : ScenarioProps m -> ScenarioSet flags m
+scenario : ScenarioProps m -> ScenarioSet m
 scenario props =
     { layer = props.querySelf
     , changeEditAccountFormAccountId = changeEditAccountFormAccountId props
@@ -569,7 +569,7 @@ scenario props =
     }
 
 
-changeEditAccountFormAccountId : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario flags m
+changeEditAccountFormAccountId : ScenarioProps m -> { value : String } -> Scenario.Markup -> Scenario m
 changeEditAccountFormAccountId props { value } markup =
     Scenario.userOperation props.session
         markup
@@ -581,7 +581,7 @@ changeEditAccountFormAccountId props { value } markup =
         }
 
 
-clickSubmitEditAccount : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+clickSubmitEditAccount : ScenarioProps m -> Scenario.Markup -> Scenario m
 clickSubmitEditAccount props markup =
     Scenario.userOperation props.session
         markup
@@ -595,7 +595,7 @@ clickSubmitEditAccount props markup =
         }
 
 
-receiveEditAccountResp : ScenarioProps m -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags m
+receiveEditAccountResp : ScenarioProps m -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario m
 receiveEditAccountResp props toResponse markup =
     Scenario.httpResponse props.session
         markup
@@ -615,7 +615,7 @@ receiveEditAccountResp props toResponse markup =
         }
 
 
-expectAvailable : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+expectAvailable : ScenarioProps m -> Scenario.Markup -> Scenario m
 expectAvailable props markup =
     Scenario.expectMemory props.session
         markup
@@ -624,7 +624,7 @@ expectAvailable props markup =
         }
 
 
-expectEditAccountFormShowNoErrors : ScenarioProps m -> Scenario.Markup -> Scenario flags m
+expectEditAccountFormShowNoErrors : ScenarioProps m -> Scenario.Markup -> Scenario m
 expectEditAccountFormShowNoErrors props markup =
     Scenario.expectAppView props.session
         markup
@@ -647,7 +647,7 @@ expectGreetingMessage :
         { value : String
         }
     -> Scenario.Markup
-    -> Scenario flags m
+    -> Scenario m
 expectGreetingMessage props { value } markup =
     Scenario.expectAppView props.session
         markup
@@ -670,7 +670,7 @@ expectClockMessage :
         { value : String
         }
     -> Scenario.Markup
-    -> Scenario flags m
+    -> Scenario m
 expectClockMessage props { value } markup =
     Scenario.expectAppView props.session
         markup
@@ -692,7 +692,7 @@ expectLuckyHayMessage :
         { value : String
         }
     -> Scenario.Markup
-    -> Scenario flags m
+    -> Scenario m
 expectLuckyHayMessage props { value } markup =
     Scenario.expectAppView props.session
         markup

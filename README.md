@@ -38,6 +38,6 @@ Of course, being an emulator has its drawbacks. It does not actually render the 
 
 Although tutorials for TEPA are currently under construction, a sample application is already available. Please see the contents of the [spa-sample directory](https://github.com/arowM/tepa/tree/main/spa-sample).
 
-The [Elm language specification](https://guide.elm-lang.jp/core_language.html) is very small and easy to learn, and TEPA's [API documentation](https://package.elm-lang.org/packages/arowM/tepa/latest/) is self-documented by its types, so you won't get lost.
+The [Elm language specification](https://guide.elm-lang.jp/core_language.html) is very small and easy to learn, and with the help of type annotations, reading TEPA's [module documentation](https://package.elm-lang.org/packages/arowM/tepa/latest/Tepa) makes it easy to understand `spa-sample` codes.
 
 From the horizontal eyes of Sakura-chan, the goat, it seems that humans are creatures desperate to gain an advantage over others. Don't wait for the tutorial to be prepared, master TEPA before other humans do!

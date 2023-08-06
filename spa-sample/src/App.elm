@@ -27,7 +27,7 @@ import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
 import Page.Home as PageHome
 import Page.Login as PageLogin
-import Tepa exposing (Document, Layer, Msg, NavKey, Promise)
+import Tepa exposing (Document, Layer, NavKey, Promise)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
@@ -39,13 +39,13 @@ import Tepa.Scenario as Scenario exposing (Scenario)
 
 
 {-| -}
-main : Tepa.Program Value Memory
+main : Tepa.Program Memory
 main =
     Tepa.application props
 
 
 {-| -}
-props : Tepa.ApplicationProps Value Memory
+props : Tepa.ApplicationProps Memory
 props =
     { init = init
     , procedure = procedure
@@ -89,7 +89,7 @@ type Page
 -- View
 
 
-view : Layer Memory -> Document Msg
+view : Layer Memory -> Document
 view =
     Tepa.layerDocument <|
         \{ state } ->
@@ -140,7 +140,7 @@ procedure _ url key =
     pageProcedure url key Nothing
 
 
-onUrlChange : flags -> AppUrl -> NavKey -> Promise Memory ()
+onUrlChange : Value -> AppUrl -> NavKey -> Promise Memory ()
 onUrlChange _ newUrl key =
     Tepa.bind Tepa.currentState <|
         \state ->
@@ -166,7 +166,7 @@ onUrlChange _ newUrl key =
                     ]
 
 
-onUrlRequest : flags -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
+onUrlRequest : Value -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
 onUrlRequest _ urlRequest key =
     case urlRequest of
         Tepa.InternalPath url ->
@@ -293,19 +293,19 @@ pageProcedure url key msession =
 
 
 {-| -}
-type alias ScenarioSet flags =
-    { login : PageLogin.ScenarioSet flags Memory
-    , home : PageHome.ScenarioSet flags Memory
+type alias ScenarioSet =
+    { login : PageLogin.ScenarioSet Memory
+    , home : PageHome.ScenarioSet Memory
     , app :
         { receiveProfile :
             (() -> Maybe ( Http.Metadata, String ))
             -> Scenario.Markup
-            -> Scenario flags Memory
+            -> Scenario Memory
         , receiveRandomLuckyHay :
             { value : Session.LuckyHay
             }
             -> Scenario.Markup
-            -> Scenario flags Memory
+            -> Scenario Memory
         , fetchProfileEndpoint :
             { method : String
             , url : String
@@ -315,7 +315,7 @@ type alias ScenarioSet flags =
 
 
 {-| -}
-scenario : Scenario.Session -> ScenarioSet flags
+scenario : Scenario.Session -> ScenarioSet
 scenario session =
     { login =
         PageLogin.scenario
@@ -358,7 +358,7 @@ scenario session =
     }
 
 
-receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario flags Memory
+receiveProfile : Scenario.Session -> (() -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario Memory
 receiveProfile session toResponse markup =
     Scenario.httpResponse session
         markup
@@ -373,7 +373,7 @@ receiveProfile session toResponse markup =
         }
 
 
-receiveRandomLuckyHay : Scenario.Session -> { value : Session.LuckyHay } -> Scenario.Markup -> Scenario flags Memory
+receiveRandomLuckyHay : Scenario.Session -> { value : Session.LuckyHay } -> Scenario.Markup -> Scenario Memory
 receiveRandomLuckyHay session { value } markup =
     Scenario.randomResponse session
         markup

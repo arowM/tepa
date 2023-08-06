@@ -6,8 +6,6 @@ module Tepa.Random exposing
 
 {-| This library helps you request pseudo-random values.
 
-TEPA version of [Random](https://package.elm-lang.org/packages/elm/random/latest/Random).
-
 It is an implementation of [Permuted Congruential Generators][pcg]
 by M. E. O'Neil. It is not cryptographically secure.
 
@@ -217,9 +215,7 @@ request spec =
                 )
 
 
-{-| TEPA version of [int](https://package.elm-lang.org/packages/elm/random/latest/Random#int).
-
-Request 32-bit integers in a given range.
+{-| Request 32-bit integers in a given range.
 
     import Tepa exposing (Promise)
     import Tepa.Random as Random
@@ -242,6 +238,8 @@ same layer.
 
 This promise _can_ produce values outside of the range [[`minInt`](#minInt),
 [`maxInt`](#maxInt)] but sufficient randomness is not guaranteed.
+
+_This is the TEPA version of [int](https://package.elm-lang.org/packages/elm/random/latest/Random#int)._
 
 -}
 int : String -> Int -> Int -> Spec Int
@@ -281,7 +279,7 @@ int id min max =
         }
 
 
-{-| TEPA version of [float](https://package.elm-lang.org/packages/elm/random/latest/Random#float).
+{-|
 
     import Tepa.Random as Random
 
@@ -296,6 +294,8 @@ a uniform distribution. Say it requests a value `p`. We can then check if
 The string argument is the ID of the `Spec`, and is used to check the equivalence
 of the two `Specs` in scenario testing. Be sure to specify unique IDs within the
 same layer.
+
+_This is the TEPA version of [float](https://package.elm-lang.org/packages/elm/random/latest/Random#float)._
 
 -}
 float : String -> Float -> Float -> Spec Float

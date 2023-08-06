@@ -17,8 +17,6 @@ module Tepa.Http exposing
 
 {-| Send HTTP requests.
 
-TEPA version of [Http module](https://package.elm-lang.org/packages/elm/http/latest/Http).
-
 
 # Requests
 

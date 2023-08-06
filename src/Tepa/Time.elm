@@ -7,8 +7,6 @@ module Tepa.Time exposing
 
 {-| Library for working with time and time zones.
 
-TEPA version of [Time module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep).
-
 You should not use the `Time` module with TEPA because the functions that the module exposes cannot recognize the emulated time lapse during Scenario testing.
 
 
@@ -52,9 +50,9 @@ type alias Posix =
     Time.Posix
 
 
-{-| TEPA version of [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep).
+{-| Block progress on the current procedure for the given number of milliseconds. The JavaScript equivalent of this is `setTimeout` which lets you delay work until later.
 
-Block progress on the current procedure for the given number of milliseconds. The JavaScript equivalent of this is `setTimeout` which lets you delay work until later.
+_This is the TEPA version of [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep)._
 
 -}
 sleep : Int -> Promise m ()
@@ -62,9 +60,9 @@ sleep =
     Internal.sleep
 
 
-{-| TEPA version of [`Time.now`](https://package.elm-lang.org/packages/elm/time/latest/Time#now).
+{-| Get the POSIX time at the moment when this Promise is evaluated.
 
-Get the POSIX time at the moment when this Promise is evaluated.
+_This is the TEPA version of [`Time.now`](https://package.elm-lang.org/packages/elm/time/latest/Time#now)._
 
 -}
 now : Promise m Posix
@@ -72,9 +70,9 @@ now =
     Internal.now
 
 
-{-| TEPA version of [`Time.every`](https://package.elm-lang.org/packages/elm/time/latest/Time#every).
+{-| Get the current time periodically at the specified interval in milliseconds (like `1000` for a second or `60 * 1000` for a minute or `60 * 60 * 1000` for an hour).
 
-Get the current time periodically at the specified interval in milliseconds (like `1000` for a second or `60 * 1000` for a minute or `60 * 60 * 1000` for an hour).
+_This is the TEPA version of [`Time.every`](https://package.elm-lang.org/packages/elm/time/latest/Time#every)._
 
 -}
 every :
@@ -148,9 +146,7 @@ utc =
     Time.utc
 
 
-{-| TEPA version of [here](https://package.elm-lang.org/packages/elm/time/latest/Time#here).
-
-    Produce a `Zone` based on the current UTC offset. You can use this to figure
+{-| Produce a `Zone` based on the current UTC offset. You can use this to figure
 
 out what day it is where you are:
 
@@ -164,6 +160,8 @@ out what day it is where you are:
             |> Tepa.sync Time.now
 
 Refer to the `Time.here` documentation for more detailed notes.
+
+_This is the TEPA version of [here](https://package.elm-lang.org/packages/elm/time/latest/Time#here)._
 
 -}
 here : Promise m Zone
@@ -261,9 +259,7 @@ toDay =
     Time.toDay
 
 
-{-| TEPA version of [`Time.toWeekday`](https://package.elm-lang.org/packages/elm/time/latest/Time#toWeekday).
-
-What day of the week is it?
+{-| What day of the week is it?
 
     import Tepa.Time exposing (toWeekday, utc, millisToPosix)
 
@@ -271,6 +267,8 @@ What day of the week is it?
     toWeekday nyc (millisToPosix 0) == Wed
 
     -- pretend `nyc` is the `Zone` for America/New_York.
+
+_This is the TEPA version of [`Time.toWeekday`](https://package.elm-lang.org/packages/elm/time/latest/Time#toWeekday)._
 
 -}
 toWeekday : Zone -> Posix -> Weekday
@@ -366,9 +364,7 @@ toMillis =
 -- WEEKDAYS AND MONTHS
 
 
-{-| TEPA version of [Time.Weekday](https://package.elm-lang.org/packages/elm/time/latest/Time#Weekday).
-
-Represents a `Weekday` so that you can convert it to a `String` or `Int`
+{-| Represents a `Weekday` so that you can convert it to a `String` or `Int`
 however you please. For example, if you need the Japanese representation, you
 can say:
 
@@ -396,6 +392,8 @@ can say:
             Sun ->
                 "日"
 
+_This is the TEPA version of [Time.Weekday](https://package.elm-lang.org/packages/elm/time/latest/Time#Weekday)._
+
 -}
 type Weekday
     = Mon
@@ -407,9 +405,7 @@ type Weekday
     | Sun
 
 
-{-| TEPA version of [Time.Month](https://package.elm-lang.org/packages/elm/time/latest/Time#Month).
-
-Represents a `Month` so that you can convert it to a `String` or `Int`
+{-| Represents a `Month` so that you can convert it to a `String` or `Int`
 however you please. For example, if you need the Danish representation, you
 can say:
 
@@ -451,6 +447,8 @@ can say:
 
             Dec ->
                 "december"
+
+_This is the TEPA version of [Time.Month](https://package.elm-lang.org/packages/elm/time/latest/Time#Month)._
 
 -}
 type Month
