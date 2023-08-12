@@ -1,4 +1,5 @@
 import express from "express";
+import WebSocket, { WebSocketServer } from "ws";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import z from "zod";
@@ -160,8 +161,186 @@ app.post("/api/edit-profile-name", (req, res) => {
   return;
 });
 
-console.log(`\x1b[35mBackend server running at http://localhost:8007`);
+console.log(`\x1b[35mBackend API server running at http://localhost:8007`);
 app.listen(8007);
+
+/* ========
+ * WS App
+ * ======== */
+
+type ChatProfile = {
+  displayName: string;
+};
+
+const ChatProfile: () => z.ZodType<ChatProfile> = () =>
+  z.object({
+    displayName: z.string(),
+  });
+
+type WsReceive =
+  | {
+      action: "push-message";
+      message: string;
+    }
+  | {
+      action: "init";
+      profile: ChatProfile;
+    };
+
+const WsReceive: z.ZodType<WsReceive> = z.union([
+  z.object({
+    action: z.literal("push-message"),
+    message: z.string(),
+  }),
+  z.object({
+    action: z.literal("init"),
+    profile: ChatProfile(),
+  }),
+]);
+
+type WsSend =
+  | {
+      message: "connected";
+      users: ChatProfile[];
+    }
+  | {
+      message: "new-message";
+      user: ChatProfile;
+      value: string;
+    }
+  | {
+      message: "new-user";
+      user: ChatProfile;
+      users: ChatProfile[];
+    }
+  | {
+      message: "user-left";
+      user: ChatProfile | undefined;
+      users: ChatProfile[];
+    };
+
+const wss = new WebSocketServer({
+  port: 8008,
+});
+const decodeMessage: (raw: WebSocket.RawData) =>
+  | {
+      result: "Succeed";
+      value: WsReceive;
+    }
+  | {
+      result: "InvalidJSON";
+      value: string;
+    }
+  | {
+      result: "InvalidMessage";
+      value: object;
+    } = (raw) => {
+  const rawStr = raw.toString();
+  try {
+    const rawJson = JSON.parse(rawStr);
+    const resMessage = WsReceive.safeParse(rawJson);
+    if (!resMessage.success) {
+      return {
+        result: "InvalidMessage",
+        value: rawJson,
+      };
+    }
+    return {
+      result: "Succeed",
+      value: resMessage.data,
+    };
+  } catch (e) {
+    return {
+      result: "InvalidJSON",
+      value: rawStr,
+    };
+  }
+};
+
+const wsClients: Map<WebSocket, ChatProfile> = new Map();
+wss.on("connection", (ws) => {
+  ws.on("message", (raw: WebSocket.RawData) => {
+    const resDecode = decodeMessage(raw);
+    if (
+      resDecode.result === "InvalidJSON" ||
+      resDecode.result === "InvalidMessage"
+    ) {
+      return;
+    }
+    const message: WsReceive = resDecode.value;
+
+    if (message.action === "init") {
+      wsClients.set(ws, message.profile);
+      for (const client of wss.clients) {
+        const prof: ChatProfile | undefined = wsClients.get(client);
+        if (prof === void 0) {
+          ws.close();
+          continue;
+        }
+        if (client === ws || client.readyState !== WebSocket.OPEN) continue;
+        client.send(
+          JSON.stringify(
+            ensureTypeOf<WsSend>({
+              message: "new-user",
+              user: message.profile,
+              users: Array.from(wsClients.values()),
+            })
+          )
+        );
+      }
+      ws.send(
+        JSON.stringify(
+          ensureTypeOf<WsSend>({
+            message: "connected",
+            users: Array.from(wsClients.values()),
+          })
+        )
+      );
+    }
+    if (message.action === "push-message") {
+      const profile = wsClients.get(ws);
+      if (profile === void 0) {
+        ws.close();
+        return;
+      }
+      for (const client of wss.clients) {
+        if (client.readyState !== WebSocket.OPEN) continue;
+        client.send(
+          JSON.stringify(
+            ensureTypeOf<WsSend>({
+              message: "new-message",
+              user: profile,
+              value: message.message,
+            })
+          )
+        );
+      }
+    }
+  });
+  ws.on("close", () => {
+    wsClients.delete(ws);
+    for (const client of wss.clients) {
+      if (client === ws || client.readyState !== WebSocket.OPEN) continue;
+      const profile = wsClients.get(ws);
+      wsClients.delete(ws);
+      client.send(
+        JSON.stringify(
+          ensureTypeOf<WsSend>({
+            message: "user-left",
+            user: profile,
+            users: Array.from(wsClients.values()),
+          })
+        )
+      );
+    }
+  });
+});
+console.log(
+  `\x1b[35mBackend WebSocket server running at http://localhost:8008`
+);
 
 // eslint-disable-next-line @typescript-eslint/no-empty-function
 function ensureType<T>(_: T) {}
+function ensureTypeOf<T>(a: T) {
+  return a;
+}
