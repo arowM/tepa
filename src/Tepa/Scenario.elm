@@ -18,6 +18,7 @@ module Tepa.Scenario exposing
     , systemComment
     , comment
     , todo
+    , userTodo
     , expectMemory
     , expectAppView
     , expectCurrentTime
@@ -28,6 +29,7 @@ module Tepa.Scenario exposing
     , childLayer
     , mapLayer
     , loadApp
+    , closeApp
     , userOperation
     , sleep
     , httpResponse
@@ -92,6 +94,7 @@ module Tepa.Scenario exposing
 ## Stubs
 
 @docs todo
+@docs userTodo
 
 
 ## Expectations
@@ -114,6 +117,7 @@ module Tepa.Scenario exposing
 ## Event Simulators
 
 @docs loadApp
+@docs closeApp
 @docs userOperation
 @docs sleep
 
@@ -542,6 +546,43 @@ todo (Session session) markup =
         }
 
 
+{-| Similar `todo`, but for user actions.
+
+It prepends the username to the markup.
+
+-}
+userTodo : Session -> Markup -> Scenario m
+userTodo (Session session) markup =
+    let
+        (User user) =
+            session.user
+
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ _ ->
+                SeqTest.fail description <|
+                    \_ ->
+                        Expect.fail "todo"
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processUserScenario
+                            { uniqueSessionName = session.uniqueName
+                            , userName = user.name
+                            }
+                            markup
+                in
+                MdBuilder.appendListItem markup_.content
+                    >> MdBuilder.appendBlocks markup_.detail
+                    >> MdBuilder.break
+                    >> Ok
+        }
+
+
 {-| Represents markup for a scenario.
 
 Suppose you have the following `Markup`, which uses [arowM/elm-markdown-ast](https://package.elm-lang.org/packages/arowM/elm-markdown-ast/latest/):
@@ -697,7 +738,7 @@ expectMemory (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectMemory: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectMemory: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -827,7 +868,7 @@ expectAppView (Session session) markup { expectation } =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectAppView: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectAppView: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         SeqTest.pass
@@ -945,7 +986,7 @@ expectHttpRequest (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectHttpRequest: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectHttpRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1015,7 +1056,7 @@ expectPortRequest (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectPortRequest: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectPortRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1085,7 +1126,7 @@ expectRandomRequest (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "expectRandomRequest: The application is not active on the session. Use `loadApp` beforehand."
+                                    "expectRandomRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1288,6 +1329,51 @@ loadApp (Session session) markup o =
         }
 
 
+{-| Close the app.
+-}
+closeApp :
+    Session
+    -> Markup
+    -> Scenario m
+closeApp (Session session) markup =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ -> Expect.fail "The application is already not active in the session."
+
+                    Just _ ->
+                        SeqTest.pass
+                            { context
+                                | sessions =
+                                    Dict.remove session.uniqueName
+                                        context.sessions
+                            }
+        , markup =
+            \config ->
+                let
+                    markup_ =
+                        config.processSessionScenario
+                            { uniqueSessionName = session.uniqueName }
+                            markup
+                in
+                if markup_.appear then
+                    MdBuilder.appendListItem markup_.content
+                        >> MdBuilder.appendBlocks markup_.detail
+                        >> MdBuilder.break
+                        >> Ok
+
+                else
+                    Ok
+        }
+
+
 {-| About options:
 
   - layer: Query to specify the event target element from your current page HTML.
@@ -1325,7 +1411,7 @@ userOperation (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "userOperation: The application is not active on the session. Use `loadApp` beforehand."
+                                    "userOperation: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         let
@@ -1558,7 +1644,7 @@ portResponse (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "portResponse: The application is not active on the session. Use `loadApp` beforehand."
+                                    "portResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1690,7 +1776,7 @@ randomResponse (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "randomResponse: The application is not active on the session. Use `loadApp` beforehand."
+                                    "randomResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -1802,7 +1888,7 @@ forward (Session session) markup =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "forward: The application is not active on the session. Use `loadApp` beforehand."
+                                    "forward: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case History.forward 1 sessionContext.history of
@@ -1883,7 +1969,7 @@ back (Session session) markup =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "back: The application is not active on the session. Use `loadApp` beforehand."
+                                    "back: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case History.back 1 sessionContext.history of
@@ -3251,7 +3337,7 @@ httpResponse (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
+                                    "httpResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of
@@ -3357,7 +3443,7 @@ httpBytesResponse (Session session) markup param =
                         SeqTest.fail description <|
                             \_ ->
                                 Expect.fail
-                                    "httpResponse: The application is not active on the session. Use `loadApp` beforehand."
+                                    "httpResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
                         case param.layer <| Core.layerState sessionContext.model of

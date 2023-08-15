@@ -112,11 +112,16 @@ sakuraChanName =
     "Sakura-chan"
 
 
-yabugarashiKun : Scenario.User
-yabugarashiKun =
+warunasubiKun : Scenario.User
+warunasubiKun =
     Scenario.defineUser
-        { name = "Yabugarashi-kun"
+        { name = warunasubiKunName
         }
+
+
+warunasubiKunName : String
+warunasubiKunName =
+    "Warunasubi-kun"
 
 
 
@@ -139,6 +144,14 @@ sakuraChanSecondSession =
         }
 
 
+warunasubiKunMainSession : Scenario.Session
+warunasubiKunMainSession =
+    Scenario.defineSession
+        { uniqueName = "Warunasubi-kun's main session"
+        , user = warunasubiKun
+        }
+
+
 
 -- # Scenarios
 
@@ -151,6 +164,11 @@ onSakuraChanMainSession =
 onSakuraChanSecondSession : App.ScenarioSet
 onSakuraChanSecondSession =
     App.scenario sakuraChanSecondSession
+
+
+onWarunasubiKunMainSession : App.ScenarioSet
+onWarunasubiKunMainSession =
+    App.scenario warunasubiKunMainSession
 
 
 type alias Section =
@@ -184,7 +202,7 @@ introduction1 config =
     -- 2023-01-01 09:00:00 in Asia_Tokyo
     , content =
         [ userComment sakuraChan "Hi. I'm Sakura-chan, the cutest goat girl in the world."
-        , userComment sakuraChan "Today I'm going to try a goat management service."
+        , userComment sakuraChan "Today I'm going to try a chat application."
         , userComment sakuraChan "I'm trying to access the URL."
         , Scenario.loadApp sakuraChanMainSession
             { content =
@@ -265,20 +283,24 @@ introduction1 config =
             "I see I have to log in! I remember my dad gave me the account information beforehand."
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors <|
             Scenario.textContent "The login form shows no errors at first."
-        , userComment yabugarashiKun
-            "I'm Yabugarashi-kun. I'm going to play a prank on Sakura-chan. Muahahahahaha! 😈"
-        , userComment yabugarashiKun
+        , userComment warunasubiKun
+            "I'm Warunasubi-kun. I'm going to play a prank on Sakura-chan. Muahahahahaha! 🍆😈"
+        , userComment warunasubiKun
             "Sakura-chan, here is the account information note your father gave you. 😈"
         , userComment sakuraChan
-            "Thank you, Yabugarashi-kun. 🌸"
-        , onSakuraChanMainSession.login.changeLoginId
-            { value = "guest"
+            "Thank you, Warunasubi-kun. 🌸"
+        , let
+            value =
+                "guest"
+          in
+          onSakuraChanMainSession.login.changeLoginId
+            { value = value
             }
-            (Scenario.textContent "Login ID entered.")
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the login ID.")
         , userComment sakuraChan
             "The note says that the password can be left blank."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked the login button.")
+            (Scenario.textContent "Click the login button.")
         , let
             error =
                 "Password is required."
@@ -289,7 +311,7 @@ introduction1 config =
             (Scenario.textContent <| "Form shows error: " ++ error)
         , userComment sakuraChan
             "Oh my goat, I got an error..."
-        , userComment yabugarashiKun
+        , userComment warunasubiKun
             "Sorry, sorry, I just got a little naughty. Here's the real note."
         , userComment sakuraChan
             "Okay, I'll try again."
@@ -300,13 +322,13 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Password changed to \"" ++ value ++ "\"")
+            (Scenario.textContent <| "Change the password to \"" ++ value ++ "\"")
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors
             (Scenario.textContent "Login form shows no errors at the time.")
         , userComment sakuraChan
             "It looks good."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked the login button.")
+            (Scenario.textContent "Click the login button.")
         , let
             requestBody =
                 JE.object
@@ -375,7 +397,7 @@ introduction1 config =
             }
             (Scenario.textContent <| "The form shows error: " ++ error)
         , userComment sakuraChan "Oops!"
-        , userComment yabugarashiKun "Maybe you mistyped the password."
+        , userComment warunasubiKun "Maybe you mistyped the password."
         , userComment sakuraChan "That might be true. It's hard to type with my two-fingered hooves..."
         , let
             value =
@@ -384,7 +406,7 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field")
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field.")
         , onSakuraChanMainSession.login.clickSubmitLogin
             (Scenario.textContent "Click login button.")
         , let
@@ -445,7 +467,7 @@ introduction1 config =
 
 introduction1_sub1 : MarkupConfig -> Section
 introduction1_sub1 config =
-    { title = "Introduction Scenario #1 (Sub Episode #1)"
+    { title = "Introduction Scenario #1-0"
     , dependency = Scenario.RunAfter (introduction1 config).title
     , content =
         [ onSakuraChanMainSession.login.toast.closeErrorsByMessage
@@ -484,7 +506,7 @@ introduction1_1 config =
             (Scenario.textContent "No toast popups now.")
         , userComment sakuraChan "Try again."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Clicked the login button.")
+            (Scenario.textContent "Click the login button.")
         , let
             requestBody =
                 JE.object
@@ -605,7 +627,7 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.changeEditAccountFormAccountId
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the name input field.")
+            (Scenario.textContent <| "Change the name input field value to \"" ++ value ++ "\".")
         , onSakuraChanMainSession.home.clickSubmitEditAccount
             (Scenario.textContent "Click the save button.")
         , let
@@ -789,8 +811,778 @@ pageHomeCase2 config =
     { title = "Home page #2"
     , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
-        [ onSakuraChanMainSession.home.expectAvailable
-            (Scenario.textContent "TODO2")
+        [ Scenario.todo sakuraChanMainSession
+            (Scenario.textContent "Click the \"Start Chat\" button.")
+        , Scenario.todo sakuraChanMainSession
+            (Scenario.textContent "Redirect to chat page.")
+        , let
+            userNames =
+                [ "Sakura-chan"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field says:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Sakura-chan has entered."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , userComment sakuraChan "Warunasubi-kun, shall we chat?"
+        , userComment warunasubiKun "It sounds good!"
+        , Scenario.loadApp sakuraChanMainSession
+            { content =
+                [ Markdown.StrongEmphasis warunasubiKunName
+                , Markdown.PlainText ": Enter the chat page URL in the address bar."
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.InlineCode "https://example.com/chat/"
+                    ]
+                ]
+            , appear = True
+            }
+            { path =
+                { path = [ pathPrefix, "chat" ]
+                , queryParameters = Dict.empty
+                , fragment = Nothing
+                }
+            , flags = JE.object []
+            }
+        , onWarunasubiKunMainSession.login.expectAvailable <|
+            Scenario.textContent "Display login page."
+        , userComment sakuraChan
+            "I see the note also contains other account information."
+        , let
+            value =
+                "guest2"
+          in
+          onWarunasubiKunMainSession.login.changeLoginId
+            { value = value
+            }
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the login ID.")
+        , let
+            value =
+                "guestPass2"
+          in
+          onWarunasubiKunMainSession.login.changeLoginPass
+            { value = value
+            }
+            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field.")
+        , onWarunasubiKunMainSession.login.clickSubmitLogin
+            (Scenario.textContent "Click the login button.")
+        , let
+            requestBody =
+                JE.object
+                    [ ( "id", JE.string "guest2" )
+                    , ( "pass", JE.string "guestPass2" )
+                    ]
+
+            responseMeta =
+                { url = "https://example.com/api/login"
+                , statusCode = 200
+                , statusText = "OK"
+                , headers =
+                    Dict.fromList
+                        [ ( "Set-Cookie"
+                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          )
+                        ]
+                }
+
+            responseBody =
+                """
+                {
+                    "profile": {
+                        "id": "guest2",
+                        "name": "Guest2"
+                    }
+                }
+                """
+          in
+          onWarunasubiKunMainSession.login.receiveLoginResp
+            (\body ->
+                if body == requestBody then
+                    Just ( responseMeta, responseBody )
+
+                else
+                    Nothing
+            )
+            { content =
+                [ Markdown.PlainText "The backend responds to the login request."
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onSakuraChanMainSession.login.loginEndpoint
+                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
+                ]
+            , appear = config.dev
+            }
+        , onWarunasubiKunMainSession.login.receiveRandomLuckyHay
+            { value = Session.LuckyHayTimothy
+            }
+            { content =
+                [ Markdown.PlainText "Client receives random value for lucky hay: Timothy"
+                ]
+            , detail = []
+            , appear = config.dev
+            }
+        , Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent "Redirect to the chat page.")
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Guest2"
+                ]
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field says:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2 has entered."
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Guest2"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field is changed:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2 has entered."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Welcome, Warunasubi-kun!"
+          in
+          Scenario.userTodo sakuraChanMainSession
+            (Scenario.textContent <| "Enter \"" ++ message ++ "\" in the message input field.")
+        , Scenario.userTodo sakuraChanMainSession
+            (Scenario.textContent <| "Enter \"Submit\" button.")
+        , let
+            message =
+                "Sakura-chan: Welcome, Warunasubi-kun!"
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Sakura-chan: Welcome, Warunasubi-kun!"
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Hi, Sakura-"
+          in
+          Scenario.userTodo warunasubiKunMainSession
+            (Scenario.textContent <| "Refresh the page accidentally in the middle of writing \"" ++ message ++ "\" in the message input field.")
+        , Scenario.closeApp warunasubiKunMainSession
+            (Scenario.textContent "The page is reloading.")
+        , let
+            message =
+                "Guest2 has left."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            userNames =
+                [ "Sakura-chan"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field is changed:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , Scenario.loadApp warunasubiKunMainSession
+            (Scenario.textContent "The page is reloaded.")
+            { path =
+                { path = [ pathPrefix, "chat" ]
+                , queryParameters = Dict.empty
+                , fragment = Nothing
+                }
+            , flags = JE.object []
+            }
+        , let
+            responseMeta =
+                { url = "https://example.com/api/profile"
+                , statusCode = 200
+                , statusText = "OK"
+                , headers =
+                    Dict.fromList
+                        [ ( "Set-Cookie"
+                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          )
+                        ]
+                }
+
+            responseBody =
+                """
+                {
+                  "profile": {
+                    "id": "guest2",
+                    "name": "Guest2"
+                  }
+                }
+                """
+          in
+          onWarunasubiKunMainSession.app.receiveProfile
+            (\_ ->
+                Just ( responseMeta, responseBody )
+            )
+            { content =
+                [ Markdown.PlainText "The backend responds to the profile request."
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onWarunasubiKunMainSession.app.fetchProfileEndpoint
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
+                ]
+            , appear = config.dev
+            }
+        , onWarunasubiKunMainSession.app.receiveRandomLuckyHay
+            { value = Session.LuckyHayOrchard
+            }
+            { content =
+                [ Markdown.PlainText "Client receives a random response for lucky hay: Orchard"
+                ]
+            , detail = []
+            , appear = config.dev
+            }
+        , Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent "Display the chat page.")
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Guest2"
+                ]
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field says:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2 has entered."
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The Message Timeline area displayes only one system message:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Hi, Sakura-"
+          in
+          Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent <| "The previous message \"" ++ message ++ "\" remains in the message input field.")
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Guest2"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field is changed:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2 has entered."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Hi, Sakura-chan."
+          in
+          Scenario.userTodo warunasubiKunMainSession
+            (Scenario.textContent <| "Change the message input field value to \"" ++ message ++ "\".")
+        , Scenario.userTodo warunasubiKunMainSession
+            (Scenario.textContent <| "Enter \"Submit\" button.")
+        , let
+            message =
+                "Guest2: Hi, Sakura-chan."
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2: Hi, Sakura-chan."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , userComment sakuraChan "Looks good!"
+        , userComment warunasubiKun "I just thought of a fun prank. 😈"
+        , Scenario.userTodo warunasubiKunMainSession
+            (Scenario.textContent <| "Click header.")
+        , Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent "Redirect to the home page.")
+        , let
+            message =
+                "Guest2 has left."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            userNames =
+                [ "Sakura-chan"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field is changed:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            value =
+                "Sakura-chan"
+          in
+          onWarunasubiKunMainSession.home.changeEditAccountFormAccountId
+            { value = value
+            }
+            (Scenario.textContent <| "Change the name input field value to \"" ++ value ++ "\".")
+        , onWarunasubiKunMainSession.home.clickSubmitEditAccount
+            (Scenario.textContent "Click the save button.")
+        , let
+            requestBody =
+                JE.object
+                    [ ( "name", JE.string "Sakura-chan" )
+                    ]
+
+            responseMeta =
+                { url = "https://example.com/api/edit-account"
+                , statusCode = 200
+                , statusText = "OK"
+                , headers =
+                    Dict.fromList
+                        [ ( "Set-Cookie"
+                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          )
+                        ]
+                }
+
+            responseBody =
+                """
+                {
+                    "profile": {
+                        "name": "Sakura-chan"
+                    }
+                }
+                """
+          in
+          onWarunasubiKunMainSession.home.receiveEditAccountResp
+            (\body ->
+                if body == requestBody then
+                    Just ( responseMeta, responseBody )
+
+                else
+                    Nothing
+            )
+            { content =
+                [ Markdown.PlainText "The backend responds to the edit account request."
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = False
+                    , items =
+                        [ { content =
+                                [ Markdown.PlainText "Request:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <|
+                                    ppr
+                                        onWarunasubiKunMainSession.home.editAccountEndpoint
+                                ]
+                          }
+                        , { content =
+                                [ Markdown.PlainText "Response:"
+                                ]
+                          , children =
+                                [ Markdown.CodeBlock <| ppr responseMeta
+                                , Markdown.CodeBlock <| "json" ++ responseBody
+                                ]
+                          }
+                        ]
+                    }
+                ]
+            , appear = config.dev
+            }
+        , Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent "Click the \"Start Chat\" button.")
+        , Scenario.todo warunasubiKunMainSession
+            (Scenario.textContent "Redirect to chat page.")
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Sakura-chan"
+                ]
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field says:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Sakura-chan has entered."
+          in
+          Scenario.todo warunasubiKunMainSession
+            { content =
+                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            userNames =
+                [ "Sakura-chan"
+                , "Sakura-chan"
+                ]
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The \"Active users\" field is changed:"
+                ]
+            , detail =
+                [ Markdown.ListBlock
+                    { ordered = True
+                    , items =
+                        List.map
+                            (\userName ->
+                                { content = [ Markdown.PlainText userName ]
+                                , children = []
+                                }
+                            )
+                            userNames
+                    }
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Sakura-chan has entered."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Guest2: Hi, Sakura-chan."
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "The display name of existing messages remain unchanged:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , let
+            message =
+                "Warunasubi-kun is smart and cool.🥰"
+          in
+          Scenario.userTodo sakuraChanMainSession
+            (Scenario.textContent <| "Enter \"" ++ message ++ "\" in the message input field.")
+        , Scenario.userTodo sakuraChanMainSession
+            (Scenario.textContent <| "Enter \"Submit\" button.")
+        , let
+            message =
+                "Sakura-chan: Warunasubi-kun is smart and cool.🥰"
+          in
+          Scenario.todo sakuraChanMainSession
+            { content =
+                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
+                ]
+            , detail =
+                [ Markdown.ParagraphBlock
+                    [ Markdown.PlainText message
+                    ]
+                ]
+            , appear = True
+            }
+        , userComment sakuraChan "Hey Warnusbi-kun, I know you posted it. The display name is also Sakura-chan, but with a different color."
+        , userComment warunasubiKun "😋"
         ]
     }
 
