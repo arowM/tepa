@@ -237,10 +237,12 @@ run stream =
                     let
                         nextPromise : Core.Msg -> m -> Promise m ()
                         nextPromise msg _ =
-                            case param.unwrapMsg msg of
-                                ( promises, nextStream ) ->
-                                    Tepa.syncAll
-                                        (promises ++ [ run nextStream ])
+                            let
+                                ( promises, nextStream ) =
+                                    param.unwrapMsg msg
+                            in
+                            Tepa.syncAll
+                                (promises ++ [ run nextStream ])
                     in
                     { newContext = context
                     , realCmds = []

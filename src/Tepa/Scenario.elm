@@ -3,7 +3,6 @@ module Tepa.Scenario exposing
     , none
     , sequence
     , toTest
-    , toHtml
     , toMarkdown
     , InvalidMarkup(..)
     , Section
@@ -13,7 +12,9 @@ module Tepa.Scenario exposing
     , Session
     , defineSession
     , Markup
-    , textContent
+    , markup
+    , hide
+    , setParam
     , userComment
     , systemComment
     , comment
@@ -56,7 +57,6 @@ module Tepa.Scenario exposing
 @docs none
 @docs sequence
 @docs toTest
-@docs toHtml
 @docs toMarkdown
 @docs InvalidMarkup
 @docs Section
@@ -78,7 +78,9 @@ module Tepa.Scenario exposing
 # Markup
 
 @docs Markup
-@docs textContent
+@docs markup
+@docs hide
+@docs setParam
 
 
 # Primitives
@@ -170,11 +172,10 @@ import File exposing (File)
 import Http
 import Internal.Core as Core exposing (Model(..))
 import Internal.History as History exposing (History)
-import Internal.LayerId as LayerId exposing (LayerId)
+import Internal.LayerId exposing (LayerId)
 import Internal.RequestId exposing (RequestId)
+import Internal.Template as Template
 import Json.Encode as JE exposing (Value)
-import MarkdownAst as MdAst
-import MarkdownBuilder as MdBuilder
 import Mixin.Html as Html exposing (Html)
 import Set
 import Tepa exposing (ApplicationProps, Layer, Msg)
@@ -194,7 +195,7 @@ import Test.Sequence as SeqTest
 
 {-| Scenario describes how the application reacts to the user operations along the time line.
 
-The Scenario you built can be converted to tests with `toTest`, and to documents with `toHtml` or `toMarkdown`.
+The Scenario you built can be converted to tests with `toTest`, and to documents with `toMarkdown`.
 
 -}
 type Scenario memory
@@ -206,15 +207,11 @@ type Scenario memory
 
 
 type alias ListBlock =
-    MdBuilder.Builder
-        (MdBuilder.Builder
-            (MdBuilder.Builder
-                MdBuilder.Root
-                MdBuilder.Section
-            )
-            (MdBuilder.AppendMode MdBuilder.Section)
-        )
-        MdBuilder.ListBlock
+    ( Int, List ( Int, String ) )
+
+
+
+-- reversed
 
 
 type alias TestConfig m =
@@ -259,6 +256,7 @@ type InvalidMarkup
     | InvalidFromOk String
     | NoDependentSection String
     | DuplicatedSection String
+    | ParameterNotFound String String
 
 
 {-| A Scenario that does nothing.
@@ -468,13 +466,12 @@ You can start with `userComment` and `systemComment` to build the skeleton of yo
 userComment : User -> String -> Scenario m
 userComment (User user) commentText =
     comment
-        { content =
-            [ MdAst.StrongEmphasis user.name
-            , MdAst.PlainText <| ": " ++ commentText
-            ]
-        , detail = []
-        , appear = True
-        }
+        (markup """
+          **{{name}}**: {{comment}}
+          """
+            |> setParam "name" user.name
+            |> setParam "comment" commentText
+        )
 
 
 {-| System comment.
@@ -485,32 +482,23 @@ This Scenario only affects document generation, and is ignored for scenario test
 systemComment : Session -> String -> Scenario m
 systemComment (Session session) commentText =
     comment
-        { content =
-            [ MdAst.StrongEmphasis <|
-                "["
-                    ++ session.uniqueName
-                    ++ "]"
-            , MdAst.PlainText " "
-            , MdAst.StrongEmphasis "System"
-            , MdAst.PlainText <| ": " ++ commentText
-            ]
-        , detail = []
-        , appear = True
-        }
+        (markup """
+          **[{{session}}]** **System**: {{comment}}
+          """
+            |> setParam "session" session.uniqueName
+            |> setParam "comment" commentText
+        )
 
 
 {-| Lower level function to add detailed comments.
 -}
 comment : Markup -> Scenario m
-comment markup =
+comment markup_ =
     Scenario
         { test = noneTest
         , markup =
             \_ ->
-                MdBuilder.appendListItem markup.content
-                    >> MdBuilder.appendBlocks markup.detail
-                    >> MdBuilder.break
-                    >> Ok
+                appendMarkup markup_
         }
 
 
@@ -520,10 +508,10 @@ You can create a scenario first with `todo` and later replace that `todo` with a
 
 -}
 todo : Session -> Markup -> Scenario m
-todo (Session session) markup =
+todo (Session session) (Markup markup_) =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -533,16 +521,10 @@ todo (Session session) markup =
                         Expect.fail "todo"
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                MdBuilder.appendListItem markup_.content
-                    >> MdBuilder.appendBlocks markup_.detail
-                    >> MdBuilder.break
-                    >> Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -552,13 +534,13 @@ It prepends the username to the markup.
 
 -}
 userTodo : Session -> Markup -> Scenario m
-userTodo (Session session) markup =
+userTodo (Session session) (Markup markup_) =
     let
         (User user) =
             session.user
 
         description =
-            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ markup_.content
     in
     Scenario
         { test =
@@ -568,18 +550,12 @@ userTodo (Session session) markup =
                         Expect.fail "todo"
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processUserScenario
-                            { uniqueSessionName = session.uniqueName
-                            , userName = user.name
-                            }
-                            markup
-                in
-                MdBuilder.appendListItem markup_.content
-                    >> MdBuilder.appendBlocks markup_.detail
-                    >> MdBuilder.break
-                    >> Ok
+                appendMarkup <|
+                    config.processUserScenario
+                        { uniqueSessionName = session.uniqueName
+                        , userName = user.name
+                        }
+                        (Markup markup_)
         }
 
 
@@ -587,28 +563,19 @@ userTodo (Session session) markup =
 
 Suppose you have the following `Markup`, which uses [arowM/elm-markdown-ast](https://package.elm-lang.org/packages/arowM/elm-markdown-ast/latest/):
 
-    import MarkdownAst as Markdown
-
     sample : Markup
     sample =
-        { content =
-            [ Markdown.InlineCode "content"
-            , Markdown.PlainText " for the list item"
-            ]
-        , detail =
-            [ Markdown.ParagraphBlock
-                [ Markdown.InlineCode "detail"
-                , Markdown.PlainText " for the list item"
-                ]
-            , Markdown.CodeBlock
-                """json
-                {
-                  "code": "Next `detail` for the list item"
-                }
-                """
-            ]
-        , appear = True
+        markup """
+        `content` for the list item
+
+        `detail` for the list item
+
+        ```json
+        {
+          "code": "Next `detail` for the list item"
         }
+        ```
+        """
 
 The `sample` represents the bellow markdown list item:
 
@@ -622,66 +589,225 @@ The `sample` represents the bellow markdown list item:
         }
         ```
 
-You can set the `appear` field `False` to skip the item from appearing up in the document, which allows you to generate documents for various targets:
-
-    import MarkdownAst as Markdown
+You can use `hide` to skip the item from appearing up in the document, which allows you to generate documents for various targets:
 
     type DocTarget
         = Developer
         | Manager
         | Customer
 
-    docLevelDev : DocTarget -> Bool
+    docLevelDev : DocTarget -> Markup -> Markup
     docLevelDev target =
-        case target of
-            Developer ->
-                True
+        hide <|
+            case target of
+                Developer ->
+                    False
 
-            Manager ->
-                False
+                Manager ->
+                    True
 
-            Customer ->
-                False
+                Customer ->
+                    True
 
     myScenario : DocTarget -> Scenario Flags Command Memory Event
     myScenario target =
         [ Debug.todo "After some operations..."
         , expectEvents sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "Requests user profile to the server."
-                ]
-            , detail = []
-            , appear = docLevelDev target
-            }
+            (markup """
+              Requests user profile to the server.
+              """
+                |> docLevelDev
+            )
             (Debug.todo "Expectation Here")
         , Debug.todo "..."
         ]
 
 -}
-type alias Markup =
-    { content : List MdAst.InlineElement
-    , detail : List MdAst.BlockElement
+type Markup
+    = Markup Markup_
+
+
+type alias Markup_ =
+    { content : String
+    , details : List ( Int, String )
     , appear : Bool
+    , params : Dict String String
     }
 
 
-{-| Helper function to construct text only markup.
+{-| Constructor for `Markup`.
 
-    import MarkdownAst as Markdown
+Markup:
 
-    textContent "Only text here."
-    --> { content = [ Markdown.PlainText "Only text here." ]
-    --> , detail = []
-    --> , appear = True
-    --> }
+    markup "No detail"
+
+Rendered to:
+
+    - No detail
+
+Markup:
+
+    markup """
+    This is **content**.
+    You can also provide detail informations.
+
+    ```json
+    {
+      "foo": 3
+    }
+    ```
+    """
+
+Rendered:
+
+    - This is **content**.
+
+        You can also provide detail informations.
+
+        ```json
+        {
+          "foo": 3
+        }
+        ```
+
+Markup:
+
+    markup """
+    You can interpolate value by `\\{{key}}` syntax.
+    Here is the sample: {{message}}
+    By appending `|raw`, you can avoid sanitizing: {{message|raw}}
+
+    The `\\{{key|json}}` syntax can embed the JSON structure from a string generated by `Debug.toString`.
+    Sample:
+
+    {{sampleStructure|json}}
+    """
+    |> setParam "message" "Hello!"
+    |> setParam "sampleStructure"
+        ( Debug.toString <|
+            { "foo": 3
+            , "bar": "baz"
+            }
+        )
+
+Rendered:
+
+    - You can interpolate value by `{{key}}` syntax.
+
+        Here is the sample: Hello\!
+        By appending `|raw`, you can avoid sanitizing: Hello!
+
+        The `{{key|json}}` syntax can embed the JSON structure from a string generated by `Debug.toString`.
+        Sample:
+
+        ```json
+        {
+            "foo": 3,
+            "bar": "baz"
+        }
+        ```
 
 -}
-textContent : String -> Markup
-textContent str =
-    { content = [ MdAst.PlainText str ]
-    , detail = []
-    , appear = True
-    }
+markup : String -> Markup
+markup str =
+    let
+        tmp =
+            String.lines str
+                |> List.map reduceIndent
+                |> dropBlanks
+    in
+    case tmp of
+        [] ->
+            Markup
+                { content = ""
+                , details = []
+                , appear = True
+                , params = Dict.empty
+                }
+
+        ( _, content ) :: rawDetails ->
+            let
+                noBlanks =
+                    dropBlanks rawDetails
+
+                minLevel =
+                    List.foldl
+                        (\( level, str_ ) n ->
+                            if str_ == "" then
+                                n
+
+                            else if level < n then
+                                level
+
+                            else
+                                n
+                        )
+                        2147483647
+                        noBlanks
+
+                details =
+                    List.map
+                        (\( level, str_ ) ->
+                            if str_ == "" then
+                                ( 0, "" )
+
+                            else
+                                ( level - minLevel, str_ )
+                        )
+                        noBlanks
+            in
+            Markup
+                { content = content
+                , details = details
+                , appear = True
+                , params = Dict.empty
+                }
+
+
+reduceIndent : String -> ( Int, String )
+reduceIndent str =
+    case String.uncons str of
+        Nothing ->
+            ( 0, "" )
+
+        Just ( ' ', s ) ->
+            let
+                ( level, res ) =
+                    reduceIndent s
+            in
+            ( level + 1, res )
+
+        Just _ ->
+            ( 0, str )
+
+
+dropBlanks : List ( Int, String ) -> List ( Int, String )
+dropBlanks list =
+    case list of
+        [] ->
+            []
+
+        ( _, "" ) :: xs ->
+            dropBlanks xs
+
+        _ ->
+            list
+
+
+{-| Hide the Markup from rendered scenario document.
+-}
+hide : Bool -> Markup -> Markup
+hide p (Markup markup_) =
+    Markup
+        { markup_ | appear = not p }
+
+
+{-| Specify values for embedded variables.
+-}
+setParam : String -> String -> Markup -> Markup
+setParam k v (Markup markup_) =
+    Markup
+        { markup_ | params = Dict.insert k v markup_.params }
 
 
 
@@ -693,17 +819,11 @@ textContent str =
 Suppose your application has a counter:
 
     import Expect
-    import MarkdownAst as Markdown
 
     myScenario =
         [ Debug.todo "After some operations..."
         , expectMemory sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The counter must be less than four."
-                ]
-            , detail = []
-            , appear = True
-            }
+            (markup "The counter must be less than four.")
             { layer =
                 pageHomeLayer
             , expectation =
@@ -725,10 +845,10 @@ expectMemory :
         , expectation : m1 -> Expectation
         }
     -> Scenario m
-expectMemory (Session session) markup param =
+expectMemory (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -756,53 +876,82 @@ expectMemory (Session session) markup param =
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
-stringifyInlineItems : List MdAst.InlineElement -> String
-stringifyInlineItems =
-    List.map
-        (\item ->
-            case item of
-                MdAst.PlainText str ->
-                    str
+appendMarkup :
+    Markup
+    -> ( Int, List ( Int, String ) )
+    -> Result InvalidMarkup ( Int, List ( Int, String ) )
+appendMarkup (Markup markup_) ( level, acc ) =
+    let
+        resolvedContent : Result Template.Error String
+        resolvedContent =
+            Template.resolveInline markup_.params markup_.content
 
-                MdAst.Link o ->
-                    o.text
+        resolvedDetails : Result ( Template.Error, String ) (List ( Int, String ))
+        resolvedDetails =
+            -- reversed
+            List.foldl
+                (\( thisLevel, str ) res ->
+                    res
+                        |> Result.andThen
+                            (\accDetails ->
+                                Template.resolveInline markup_.params str
+                                    |> Result.andThen (Template.resolveBlock markup_.params)
+                                    |> Result.map
+                                        (\block ->
+                                            (String.lines block
+                                                |> List.reverse
+                                                |> List.map (\x -> ( thisLevel, x ))
+                                            )
+                                                ++ accDetails
+                                        )
+                                    |> Result.mapError (\e -> ( e, str ))
+                            )
+                )
+                (Ok [])
+                markup_.details
+    in
+    case ( resolvedContent, resolvedDetails ) of
+        ( Err (Template.ParameterNotFound name), _ ) ->
+            Err <| ParameterNotFound name markup_.content
 
-                MdAst.Image o ->
-                    o.alt
+        ( _, Err ( Template.ParameterNotFound name, str ) ) ->
+            Err <| ParameterNotFound name str
 
-                MdAst.InlineCode str ->
-                    str
+        ( Ok content, Ok details ) ->
+            Ok <|
+                if markup_.appear then
+                    ( level
+                    , acc
+                        |> List.append
+                            [ ( level
+                              , "1. "
+                                    ++ content
+                                    ++ (if List.isEmpty details then
+                                            ""
 
-                MdAst.Emphasis str ->
-                    str
+                                        else
+                                            "\n"
+                                       )
+                              )
+                            ]
+                        |> List.append
+                            (details
+                                |> List.map
+                                    (\( l, s ) ->
+                                        ( l + level + 4, s )
+                                    )
+                            )
+                    )
 
-                MdAst.StrongEmphasis str ->
-                    str
-
-                MdAst.Strikethrough str ->
-                    str
-
-                MdAst.LineBreak ->
-                    " "
-        )
-        >> String.concat
+                else
+                    ( level, acc )
 
 
 {-| Describe your expectations for the application's view at the point.
@@ -816,7 +965,7 @@ Suppose your application has a popup:
     myScenario =
         [ Debug.todo "After some operations..."
         , expectAppView sakuraChanMainSession
-            (textContent "Show popup message.")
+            (markup "Show popup message.")
             { expectation =
                 \{ body } ->
                     Query.fromHtml (Html.div [] body)
@@ -833,12 +982,9 @@ You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/lat
 
 Note that the `expectation` field takes page whole view even if you use it in `onLayer` function.
 
-    import MarkdownAst as Markdown
-
     onLayer popup
         [ expectAppView sakuraChanMainSession
-            (textContent "expectation about the whole application view"
-            )
+            (markup "expectation about the whole application view")
             { expectation =
                 \html ->
                     Debug.todo
@@ -855,10 +1001,10 @@ expectAppView :
         { expectation : Tepa.Document -> Expectation
         }
     -> Scenario m
-expectAppView (Session session) markup { expectation } =
+expectAppView (Session session) (Markup markup_) { expectation } =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -879,20 +1025,10 @@ expectAppView (Session session) markup { expectation } =
                             |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -915,13 +1051,13 @@ Suppose you want to check current time after `sleep`.
                 (Time.millisToPosix 1672531200000)
         , content =
             [ userComment sakuraChan "I'm trying to access the Goat SNS."
-            , Scenario.sleep (Scenario.textContent "Passing one minutes.")
+            , Scenario.sleep (Scenario.markup "Passing one minutes.")
             , userComment sakuraChan "Oops, I've slept a little."
             , let
                 curr = Time.millisToPosix <| 1672531200000 + 1 * 60 * 1000
               in
               Scenario.expectCurrentTime
-                (Scenario.textContent <| "Current time is: " ++ formatPosix curr ++ ".")
+                (Scenario.markup <| "Current time is: " ++ formatPosix curr ++ ".")
                 { expectation =
                     Expect.equal curr
                 }
@@ -936,10 +1072,10 @@ expectCurrentTime :
         { expectation : Posix -> Expectation
         }
     -> Scenario m
-expectCurrentTime markup { expectation } =
+expectCurrentTime (Markup markup_) { expectation } =
     let
         description =
-            stringifyInlineItems markup.content
+            markup_.content
     in
     Scenario
         { test =
@@ -949,14 +1085,7 @@ expectCurrentTime markup { expectation } =
                     |> SeqTest.map (\_ -> context)
         , markup =
             \_ ->
-                if markup.appear then
-                    MdBuilder.appendListItem markup.content
-                        >> MdBuilder.appendBlocks markup.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup (Markup markup_)
         }
 
 
@@ -973,10 +1102,10 @@ expectHttpRequest :
         , expectation : List HttpRequest -> Expectation
         }
     -> Scenario m
-expectHttpRequest (Session session) markup param =
+expectHttpRequest (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1013,20 +1142,10 @@ expectHttpRequest (Session session) markup param =
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1043,10 +1162,10 @@ expectPortRequest :
         , expectation : List Value -> Expectation
         }
     -> Scenario m
-expectPortRequest (Session session) markup param =
+expectPortRequest (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1083,20 +1202,10 @@ expectPortRequest (Session session) markup param =
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1113,10 +1222,10 @@ expectRandomRequest :
         , spec : Random.Spec a
         }
     -> Scenario m
-expectRandomRequest (Session session) markup param =
+expectRandomRequest (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1163,20 +1272,10 @@ expectRandomRequest (Session session) markup param =
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1238,7 +1337,6 @@ mapLayer =
     import AppUrl exposing (AppUrl)
     import Dict
     import Json.Encode as JE
-    import MarkdownAst as Markdown
 
     myScenario =
         [ userComment sakuraChan
@@ -1246,7 +1344,7 @@ mapLayer =
         , userComment sakuraChan
             "I'll open the home page..."
         , loadApp sakuraChanMainSession
-            (textContent "Load the home page.")
+            (markup "Load the home page.")
             { path =
                 { path = []
                 , query = Dict.empty
@@ -1260,7 +1358,7 @@ mapLayer =
         , userComment sakuraChan
             "Oops, I accidentally hit the F5 button..."
         , loadApp sakuraChanMainSession
-            (textContent "Reload the page.")
+            (markup "Reload the page.")
             { path =
                 { path = []
                 , query = Dict.empty
@@ -1281,10 +1379,10 @@ loadApp :
         , flags : Value
         }
     -> Scenario m
-loadApp (Session session) markup o =
+loadApp (Session session) (Markup markup_) o =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1312,20 +1410,10 @@ loadApp (Session session) markup o =
                             }
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1335,10 +1423,10 @@ closeApp :
     Session
     -> Markup
     -> Scenario m
-closeApp (Session session) markup =
+closeApp (Session session) (Markup markup_) =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1357,20 +1445,10 @@ closeApp (Session session) markup =
                             }
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSessionScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSessionScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1395,13 +1473,13 @@ userOperation :
         , operation : ( String, Value )
         }
     -> Scenario m
-userOperation (Session session) markup param =
+userOperation (Session session) (Markup markup_) param =
     let
         (User user) =
             session.user
 
         description =
-            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ user.name ++ " " ++ markup_.content
     in
     Scenario
         { test =
@@ -1464,22 +1542,12 @@ userOperation (Session session) markup param =
                                             }
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processUserScenario
-                            { uniqueSessionName = session.uniqueName
-                            , userName = user.name
-                            }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processUserScenario
+                        { uniqueSessionName = session.uniqueName
+                        , userName = user.name
+                        }
+                        (Markup markup_)
         }
 
 
@@ -1492,10 +1560,10 @@ sleep :
     Markup
     -> Int
     -> Scenario m
-sleep markup msec =
+sleep (Markup markup_) msec =
     let
         description =
-            stringifyInlineItems markup.content
+            markup_.content
     in
     Scenario
         { test =
@@ -1539,14 +1607,7 @@ sleep markup msec =
                             }
         , markup =
             \_ ->
-                if markup.appear then
-                    MdBuilder.appendListItem markup.content
-                        >> MdBuilder.appendBlocks markup.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup (Markup markup_)
         }
 
 
@@ -1612,7 +1673,7 @@ Suppose your application requests to access localStorage via port request named 
     myScenario =
         [ Debug.todo "After request to the port..."
         , portResponse sakuraChanMainSession
-            (textContent "Received response.")
+            (markup "Received response.")
             { layer = "Port to get page.account.bio"
             , response =
                 JE.string "I'm Sakura-chan."
@@ -1631,10 +1692,10 @@ portResponse :
         , response : Value -> Maybe Value
         }
     -> Scenario m
-portResponse (Session session) markup param =
+portResponse (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1711,20 +1772,10 @@ portResponse (Session session) markup param =
                                         )
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1743,7 +1794,7 @@ Suppose your application requests random integer:
     respondToOneToTenInt =
         Scenario.randomResponse
             mySession
-            (Scenario.textContent "Respond `1` to the first unresolved `oneToTen` request.")
+            (Scenario.markup "Respond `1` to the first unresolved `oneToTen` request.")
             { layer = myLayer
             , spec = oneToTen
             , value = 1
@@ -1763,10 +1814,10 @@ randomResponse :
         , response : a
         }
     -> Scenario m
-randomResponse (Session session) markup param =
+randomResponse (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1849,20 +1900,10 @@ randomResponse (Session session) markup param =
                                         )
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1875,10 +1916,10 @@ forward :
     Session
     -> Markup
     -> Scenario m
-forward (Session session) markup =
+forward (Session session) (Markup markup_) =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -1930,20 +1971,10 @@ forward (Session session) markup =
                                             }
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -1956,10 +1987,10 @@ back :
     Session
     -> Markup
     -> Scenario m
-back (Session session) markup =
+back (Session session) (Markup markup_) =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -2011,20 +2042,10 @@ back (Session session) markup =
                                             }
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -2135,8 +2156,7 @@ toTest o =
                                 , zone = zone
                                 , view =
                                     \layer ->
-                                        Core.Layer layer
-                                            |> o.props.view
+                                        o.props.view layer.state
                                             |> .body
                                             |> Html.div []
                                 }
@@ -2159,14 +2179,7 @@ toTest o =
                                         \m ->
                                             let
                                                 document =
-                                                    o.props.view
-                                                        (Core.Layer
-                                                            { id = Core.ThisLayerId LayerId.init
-                                                            , state = m
-                                                            , events = Core.ThisLayerEvents Dict.empty
-                                                            , values = Core.ThisLayerValues Dict.empty
-                                                            }
-                                                        )
+                                                    o.props.view m
                                             in
                                             { title = document.title
                                             , body = document.body
@@ -2772,83 +2785,6 @@ putTimer new timers =
                 t :: putTimer new ts
 
 
-{-| Generate scenario document server.
--}
-toHtml :
-    { title : String
-    , sections : List (Section m)
-    , config : RenderConfig
-    }
-    -> Html msg
-toHtml o =
-    case buildMarkdown o of
-        Err err ->
-            renderInvalidMarkdown err
-
-        Ok root ->
-            MdAst.preview root
-
-
-renderInvalidMarkdown : InvalidMarkup -> Html msg
-renderInvalidMarkdown reason =
-    case reason of
-        InvalidFromJust str ->
-            Html.div
-                []
-                [ Html.p
-                    []
-                    [ Html.text "Error: fromJust"
-                    ]
-                , Html.p
-                    []
-                    [ Html.text str
-                    ]
-                ]
-
-        InvalidFromOk str ->
-            Html.div
-                []
-                [ Html.p
-                    []
-                    [ Html.text "Error: fromOk"
-                    ]
-                , Html.p
-                    []
-                    [ Html.text str
-                    ]
-                ]
-
-        NoDependentSection name ->
-            Html.div
-                []
-                [ Html.p
-                    []
-                    [ Html.text "Error"
-                    ]
-                , Html.p
-                    []
-                    [ Html.text <| "No dependent section: " ++ "\"" ++ name ++ "\""
-                    ]
-                , Html.p
-                    []
-                    [ Html.text "Declare dependent section beforehand."
-                    ]
-                ]
-
-        DuplicatedSection name ->
-            Html.div
-                []
-                [ Html.p
-                    []
-                    [ Html.text "Error"
-                    ]
-                , Html.p
-                    []
-                    [ Html.text <| "Multiple sections with the same title: " ++ "\"" ++ name ++ "\""
-                    ]
-                ]
-
-
 {-| Generate scenario document markdown text.
 -}
 toMarkdown :
@@ -2858,17 +2794,6 @@ toMarkdown :
     }
     -> Result InvalidMarkup String
 toMarkdown o =
-    buildMarkdown o
-        |> Result.map MdAst.render
-
-
-buildMarkdown :
-    { title : String
-    , sections : List (Section m)
-    , config : RenderConfig
-    }
-    -> Result InvalidMarkup MdAst.Section
-buildMarkdown o =
     List.foldl
         (\sec acc ->
             let
@@ -2877,72 +2802,67 @@ buildMarkdown o =
             in
             acc
                 |> Result.andThen
-                    (\( builder, titles ) ->
-                        if Set.member sec.title titles then
+                    (\( ( level, content ), titles ) ->
+                        (if Set.member sec.title titles then
                             Err (DuplicatedSection sec.title)
 
-                        else
-                            builder
-                                |> MdBuilder.appendChildSection
-                                    { title = sec.title
-                                    }
-                                |> MdBuilder.editBody
-                                |> MdBuilder.appendUnorderedList
+                         else
+                            ( level
+                            , content
+                                |> List.append
+                                    [ ( level, "\n" ++ "## " ++ sec.title ++ "\n" )
+                                    ]
+                            )
                                 |> (case sec.dependency of
                                         EntryPoint zone initialTime ->
-                                            let
-                                                item =
-                                                    o.config.entryPointFirstListItem zone initialTime
-                                            in
-                                            MdBuilder.appendListItem item.content
-                                                >> MdBuilder.appendBlocks item.detail
-                                                >> MdBuilder.break
-                                                >> scenario.markup o.config
+                                            appendMarkup <|
+                                                o.config.entryPointFirstListItem zone initialTime
 
                                         RunAfter dep ->
                                             if Set.member dep titles then
-                                                let
-                                                    item =
-                                                        o.config.dependentScenarioFirstListItem
-                                                            { href =
-                                                                "#"
-                                                                    ++ (String.words dep
-                                                                            |> List.map
-                                                                                (String.filter Char.isAlphaNum
-                                                                                    >> String.toLower
-                                                                                )
-                                                                            |> String.join "-"
-                                                                       )
-                                                            , name = dep
-                                                            }
-                                                in
-                                                MdBuilder.appendListItem item.content
-                                                    >> MdBuilder.appendBlocks item.detail
-                                                    >> MdBuilder.break
-                                                    >> scenario.markup o.config
+                                                appendMarkup <|
+                                                    o.config.dependentScenarioFirstListItem
+                                                        { href =
+                                                            "#"
+                                                                ++ (String.words dep
+                                                                        |> List.map
+                                                                            (String.filter Char.isAlphaNum
+                                                                                >> String.toLower
+                                                                            )
+                                                                        |> String.join "-"
+                                                                   )
+                                                        , name = dep
+                                                        }
 
                                             else
                                                 \_ -> Err (NoDependentSection dep)
                                    )
-                                >> Result.map
-                                    (\a ->
-                                        ( a
-                                            |> MdBuilder.break
-                                            |> MdBuilder.break
-                                        , Set.insert sec.title titles
-                                        )
-                                    )
+                        )
+                            |> Result.andThen (scenario.markup o.config)
+                            |> Result.map
+                                (\x ->
+                                    ( x, Set.insert sec.title titles )
+                                )
                     )
         )
-        (( MdBuilder.root
-            { title = o.title
-            }
-         , Set.empty
-         )
-            |> Ok
+        (Ok
+            ( ( 0
+              , [ ( 0, "# " ++ o.title ) ]
+              )
+            , Set.empty
+            )
         )
         o.sections
-        |> Result.map (Tuple.first >> MdBuilder.run)
+        |> Result.map
+            (\( ( _, ls ), _ ) ->
+                List.map
+                    (\( indents, line ) ->
+                        String.repeat indents " " ++ line
+                    )
+                    ls
+                    |> List.reverse
+                    |> String.join "\n"
+            )
 
 
 {-| Configuration for rendering scenario.
@@ -3008,46 +2928,31 @@ ja_JP =
                 second =
                     Time.toSecond zone posix
             in
-            { content =
-                [ MdAst.PlainText <|
-                    String.concat
-                        [ "（"
-                        , String.fromInt year
-                        , "/"
-                        , monthIndex month
-                            |> String.fromInt
-                        , "/"
-                        , String.fromInt day
-                        , " "
-                        , String.fromInt hour
-                        , ":"
-                        , String.fromInt minute
-                            |> String.padLeft 2 '0'
-                        , ":"
-                        , String.fromInt second
-                            |> String.padLeft 2 '0'
-                        , "）"
-                        ]
-                ]
-            , detail =
-                []
-            , appear = True
-            }
+            markup """
+            （{{year}}/{{month}}/{{day}} {{hour}}:{{minute}}:{{second}}）
+            """
+                |> setParam "year" (String.fromInt year)
+                |> setParam "month"
+                    (monthIndex month
+                        |> String.fromInt
+                    )
+                |> setParam "day" (String.fromInt day)
+                |> setParam "hour" (String.fromInt hour)
+                |> setParam "minute"
+                    (String.fromInt minute
+                        |> String.padLeft 2 '0'
+                    )
+                |> setParam "second"
+                    (String.fromInt second
+                        |> String.padLeft 2 '0'
+                    )
     , dependentScenarioFirstListItem =
         \o ->
-            { content =
-                [ MdAst.PlainText "（「"
-                , MdAst.Link
-                    { href = o.href
-                    , text = o.name
-                    , title = Nothing
-                    }
-                , MdAst.PlainText "」の直後）"
-                ]
-            , detail =
-                []
-            , appear = True
-            }
+            markup """
+            （「[{{name}}]({{href|raw}})」の直後）
+            """
+                |> setParam "name" o.name
+                |> setParam "href" o.href
     , processSessionScenario = prependSessionName
     , processSystemScenario = prependSessionSystemName
     , processUserScenario = prependSessionAndUserName
@@ -3058,36 +2963,24 @@ prependSessionName :
     { uniqueSessionName : String }
     -> Markup
     -> Markup
-prependSessionName { uniqueSessionName } markup =
-    { markup
-        | content =
-            [ MdAst.StrongEmphasis <|
-                "["
-                    ++ uniqueSessionName
-                    ++ "]"
-            , MdAst.PlainText " "
-            ]
-                ++ markup.content
-    }
+prependSessionName { uniqueSessionName } (Markup markup_) =
+    Markup
+        { markup_
+            | content =
+                "**[" ++ uniqueSessionName ++ "]** " ++ markup_.content
+        }
 
 
 prependSessionSystemName :
     { uniqueSessionName : String }
     -> Markup
     -> Markup
-prependSessionSystemName { uniqueSessionName } markup =
-    { markup
-        | content =
-            [ MdAst.StrongEmphasis <|
-                "["
-                    ++ uniqueSessionName
-                    ++ "]"
-            , MdAst.PlainText " "
-            , MdAst.StrongEmphasis "System"
-            , MdAst.PlainText ": "
-            ]
-                ++ markup.content
-    }
+prependSessionSystemName { uniqueSessionName } (Markup markup_) =
+    Markup
+        { markup_
+            | content =
+                "**[" ++ uniqueSessionName ++ "]** **System**: " ++ markup_.content
+        }
 
 
 prependSessionAndUserName :
@@ -3096,19 +2989,12 @@ prependSessionAndUserName :
     }
     -> Markup
     -> Markup
-prependSessionAndUserName { uniqueSessionName, userName } markup =
-    { markup
-        | content =
-            [ MdAst.StrongEmphasis <|
-                "["
-                    ++ uniqueSessionName
-                    ++ "] "
-            , MdAst.PlainText " "
-            , MdAst.StrongEmphasis userName
-            , MdAst.PlainText ": "
-            ]
-                ++ markup.content
-    }
+prependSessionAndUserName { uniqueSessionName, userName } (Markup markup_) =
+    Markup
+        { markup_
+            | content =
+                "**[" ++ uniqueSessionName ++ "]** **" ++ userName ++ "**: " ++ markup_.content
+        }
 
 
 {-| Standard configuration for en\_US.
@@ -3136,44 +3022,31 @@ en_US =
                 second =
                     Time.toSecond zone posix
             in
-            { content =
-                [ MdAst.PlainText <|
-                    String.concat
-                        [ monthIndex month
-                            |> String.fromInt
-                        , "/"
-                        , String.fromInt day
-                        , "/"
-                        , String.fromInt year
-                        , " "
-                        , String.fromInt hour
-                        , ":"
-                        , String.fromInt minute
-                            |> String.padLeft 2 '0'
-                        , ":"
-                        , String.fromInt second
-                            |> String.padLeft 2 '0'
-                        ]
-                ]
-            , detail =
-                []
-            , appear = True
-            }
+            markup """
+            {{month}}/{{day}}/{{year}} {{hour}}:{{minute}}:{{second}}
+            """
+                |> setParam "year" (String.fromInt year)
+                |> setParam "month"
+                    (monthIndex month
+                        |> String.fromInt
+                    )
+                |> setParam "day" (String.fromInt day)
+                |> setParam "hour" (String.fromInt hour)
+                |> setParam "minute"
+                    (String.fromInt minute
+                        |> String.padLeft 2 '0'
+                    )
+                |> setParam "second"
+                    (String.fromInt second
+                        |> String.padLeft 2 '0'
+                    )
     , dependentScenarioFirstListItem =
         \o ->
-            { content =
-                [ MdAst.PlainText "Just after \""
-                , MdAst.Link
-                    { href = o.href
-                    , text = o.name
-                    , title = Nothing
-                    }
-                , MdAst.PlainText "\""
-                ]
-            , detail =
-                []
-            , appear = True
-            }
+            markup """
+            Just after "[{{name}}]({{href|raw}})"
+            """
+                |> setParam "name" o.name
+                |> setParam "href" o.href
     , processSessionScenario = prependSessionName
     , processSystemScenario = prependSessionSystemName
     , processUserScenario = prependSessionAndUserName
@@ -3304,7 +3177,7 @@ Suppose your application requests to access localStorage via port request named 
     myScenario =
         [ Debug.todo "After request to the port..."
         , portResponse sakuraChanMainSession
-            (textContent "Received response.")
+            (markup "Received response.")
             { layer = pageHomeLayer
             , name = "Port to get page.account.bio"
             , response =
@@ -3324,10 +3197,10 @@ httpResponse :
         , response : HttpRequest -> Maybe ( Http.Metadata, String )
         }
     -> Scenario m
-httpResponse (Session session) markup param =
+httpResponse (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -3403,20 +3276,10 @@ httpResponse (Session session) markup param =
                                         )
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 
@@ -3430,10 +3293,10 @@ httpBytesResponse :
         , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
         }
     -> Scenario m
-httpBytesResponse (Session session) markup param =
+httpBytesResponse (Session session) (Markup markup_) param =
     let
         description =
-            "[" ++ session.uniqueName ++ "] " ++ stringifyInlineItems markup.content
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
     in
     Scenario
         { test =
@@ -3508,20 +3371,10 @@ httpBytesResponse (Session session) markup param =
                                         )
         , markup =
             \config ->
-                let
-                    markup_ =
-                        config.processSystemScenario
-                            { uniqueSessionName = session.uniqueName }
-                            markup
-                in
-                if markup_.appear then
-                    MdBuilder.appendListItem markup_.content
-                        >> MdBuilder.appendBlocks markup_.detail
-                        >> MdBuilder.break
-                        >> Ok
-
-                else
-                    Ok
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
         }
 
 

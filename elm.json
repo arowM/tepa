@@ -16,8 +16,6 @@
     ],
     "elm-version": "0.19.0 <= v < 0.20.0",
     "dependencies": {
-        "arowM/elm-markdown-ast": "1.0.6 <= v < 2.0.0",
-        "arowM/elm-markdown-builder": "3.1.2 <= v < 4.0.0",
         "arowM/elm-mixin": "5.3.0 <= v < 6.0.0",
         "arowM/elm-sequential-test": "2.2.0 <= v < 3.0.0",
         "elm/browser": "1.0.2 <= v < 2.0.0",

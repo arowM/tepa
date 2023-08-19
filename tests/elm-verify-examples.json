@@ -1,8 +1,8 @@
 {
   "root": "../src",
   "tests": [
-    "Tepa.Scenario",
     "Internal.History",
-    "Internal.SafeInt"
+    "Internal.SafeInt",
+    "Internal.Template"
   ]
 }

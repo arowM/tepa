@@ -8,6 +8,7 @@ module Tepa exposing
     , modify
     , none
     , currentState
+    , neverResolved
     , bind, bind2, bind3, bindAll
     , succeed, sync
     , lazy
@@ -27,14 +28,15 @@ module Tepa exposing
     , newLayer
     , onLayer, LayerResult(..)
     , isOnSameLayer
-    , layerDocument
     , layerView
     , ViewContext
+    , mapViewContext
     , getValue, getValues
     , setValue
+    , getCheck, getChecks, setCheck
+    , getFormState, FormState
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
-    , mapViewContext, keyedLayerView
     , update
     , subscriptions
     , init
@@ -120,6 +122,7 @@ The main difference from Promise in JavaScript is that Promise in TEPA does not 
 @docs modify
 @docs none
 @docs currentState
+@docs neverResolved
 
 
 #### Bind results
@@ -344,17 +347,17 @@ Note that TEPA **does not** use the `Html.Events` module.
 
 ### Define Views
 
-To define View function, you use `layerDocument` or `layerView`.
+To define View function, you use `layerView`.
 
-@docs layerDocument
 @docs layerView
 @docs ViewContext
+@docs mapViewContext
 
     import Tepa exposing (Document, Layer)
 
     view : Layer Memory -> Document
     view =
-        Tepa.layerDocument <|
+        Tepa.layerView <|
             \{ state } ->
                 { title = "Sample App"
                 , body =
@@ -432,6 +435,20 @@ The `setValue` is used to overwrite or initiate the input value from the Procedu
 Note that the Procedure can only get/set values in Views on the same Layer that the Procedure is executed.
 
 
+### Handle form check state on Procedure
+
+You can get/set `checked` property values of radio/checkbox elements.
+
+@docs getCheck, getChecks, setCheck
+
+Note that the Procedure can only get/set check state in Views on the same Layer that the Procedure is executed.
+
+
+### Helpers to handle form state
+
+@docs getFormState, FormState
+
+
 ### Handle View events on Procedure
 
 To capture View events on Procedure, you can use `awaitViewEvent` or `awaitCustomViewEvent`.
@@ -449,11 +466,6 @@ Note that the Procedure can only capture events in Views on the same Layer that 
 
 The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
 Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/Element/input/search) or capture the `input` event with `awaitCustomViewEvent` to handle this situation.
-
-
-### Advanced functions
-
-@docs mapViewContext, keyedLayerView
 
 
 # Scenario
@@ -487,7 +499,6 @@ import Html exposing (Attribute, Html)
 import Internal.Core as Core
     exposing
         ( Msg(..)
-        , Promise(..)
         , Stream
         )
 import Json.Decode as JD exposing (Decoder)
@@ -860,6 +871,14 @@ currentState =
     Core.currentState
 
 
+{-| Promise that never be resolved.
+You can use `neverResolved` to prevent the current Layer from expiring.
+-}
+neverResolved : Promise m a
+neverResolved =
+    Core.neverResolved
+
+
 {-| Promise that requests the current Memory state of a Layer.
 -}
 layerState : Layer m1 -> Promise m m1
@@ -1055,13 +1074,13 @@ getValue =
     sample : Promise Memory ()
     sample =
         Tepa.bind Tepa.getValues <|
-            \form ->
+            \formValues ->
                 let
-                    formName =
-                        Dict.get "form_name" form
+                    targetValue =
+                        Dict.get "form_name" formValues
                             |> Maybe.withDefault ""
                 in
-                [ handleName formName
+                [ handleValue targetValue
                 ]
 
 -}
@@ -1074,6 +1093,61 @@ getValues =
 setValue : String -> String -> Promise m ()
 setValue =
     Core.setValue
+
+
+{-| Get whether the checkbox/radio specified by the key string is checked.
+
+`Nothing` means that the checkbox/radio element with the key does not exist or that the `checked` property value of the element specified by the key has not been changed since the element was rendered.
+
+-}
+getCheck : String -> Promise m (Maybe Bool)
+getCheck =
+    Core.getCheck
+
+
+{-| Get all the check states in the Layer as `Dict`.
+
+    sample : Promise Memory ()
+    sample =
+        Tepa.bind Tepa.getChecks <|
+            \formChecks ->
+                let
+                    targetCheck =
+                        Dict.get "form_name" formChecks
+                            |> Maybe.withDefault ""
+                in
+                [ handleCheck targetCheck
+                ]
+
+-}
+getChecks : Promise m (Dict String Bool)
+getChecks =
+    Core.getChecks
+
+
+{-| -}
+setCheck : String -> Bool -> Promise m ()
+setCheck =
+    Core.setCheck
+
+
+{-| Helper type alias representing a form state.
+-}
+type alias FormState =
+    { values : Dict String String
+    , checks : Dict String Bool
+    }
+
+
+{-| Helper function to run `getValues` and `getChecks` concurrently.
+-}
+getFormState : Promise m FormState
+getFormState =
+    getValues
+        |> andThen
+            (\values ->
+                map (\checks -> FormState values checks) getChecks
+            )
 
 
 
@@ -1099,11 +1173,11 @@ isOnSameLayer (Core.Layer layer1) (Core.Layer layer2) =
 
 {-| -}
 layerView :
-    (ViewContext m -> Html Msg)
+    (ViewContext m -> view)
     -> Layer m
-    -> Html Msg
-layerView =
-    Core.layerView
+    -> view
+layerView f layer =
+    f <| Core.viewArgs layer
 
 
 {-| -}
@@ -1111,6 +1185,8 @@ type alias ViewContext m =
     { state : m
     , setKey : String -> List (Attribute Msg)
     , values : Dict String String
+    , checks : Dict String Bool
+    , layerId : String
     }
 
 
@@ -1120,26 +1196,9 @@ mapViewContext f context =
     { state = f context.state
     , setKey = context.setKey
     , values = context.values
+    , checks = context.checks
+    , layerId = context.layerId
     }
-
-
-{-| Same as `layerView`, but also returns the unique string for the layer. Useful if you want to use the [`Html.Keyed`](https://package.elm-lang.org/packages/elm/html/latest/Html-Keyed) module.
--}
-keyedLayerView :
-    (ViewContext m -> Html Msg)
-    -> Layer m
-    -> ( String, Html Msg )
-keyedLayerView =
-    Core.keyedLayerView
-
-
-{-| -}
-layerDocument :
-    (ViewContext m -> Document)
-    -> Layer m
-    -> Document
-layerDocument =
-    Core.layerDocument
 
 
 
@@ -1260,7 +1319,7 @@ application props =
 type alias ApplicationProps memory =
     { init : memory
     , procedure : Value -> AppUrl -> NavKey -> Promise memory ()
-    , view : Layer memory -> Document
+    , view : memory -> Document
     , onUrlRequest : Value -> UrlRequest -> NavKey -> Promise memory ()
     , onUrlChange : Value -> AppUrl -> NavKey -> Promise memory ()
     }
@@ -1338,7 +1397,7 @@ update msg model =
 
 
 {-| -}
-documentView : (Layer memory -> Document) -> Model memory -> Document
+documentView : (memory -> Document) -> Model memory -> Document
 documentView =
     Core.documentView
 

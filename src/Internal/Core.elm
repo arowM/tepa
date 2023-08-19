@@ -9,16 +9,18 @@ module Internal.Core exposing
     , andThenPromise
     , syncPromise
     , liftPromiseMemory
+    , neverResolved
     , portRequest, portStream
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..)
     , now, here
     , getValue, getValues, setValue
+    , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
     , Layer(..), Layer_, ThisLayerId(..), mapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
-    , layerView, keyedLayerView, layerDocument
+    , viewArgs
     , none, sequence, concurrent
     , modify, push, currentState, lazy
     , sleep, listenTimeEvery, tick, listenMsg
@@ -54,16 +56,18 @@ module Internal.Core exposing
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseMemory
+@docs neverResolved
 @docs portRequest, portStream
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody
 @docs now, here
 @docs getValue, getValues, setValue
+@docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
 @docs Layer, Layer_, ThisLayerId, mapLayer
 @docs ThisLayerEvents, ThisLayerValues
-@docs layerView, keyedLayerView, layerDocument
+@docs viewArgs
 @docs none, sequence, concurrent
 
 
@@ -108,7 +112,7 @@ import Browser.Navigation as Nav
 import Bytes exposing (Bytes)
 import Dict exposing (Dict)
 import File exposing (File)
-import Html exposing (Attribute, Html)
+import Html exposing (Attribute)
 import Html.Attributes as Attributes
 import Html.Events
 import Http
@@ -207,6 +211,22 @@ type ThisLayerValues m
 
 unwrapThisLayerValues : ThisLayerValues m -> Dict String String
 unwrapThisLayerValues (ThisLayerValues dict) =
+    dict
+
+
+{-| -}
+type ThisLayerChecks m
+    = ThisLayerChecks
+        (Dict
+            String
+            -- key
+            Bool
+         -- `checked` property value for the form control
+        )
+
+
+unwrapThisLayerChecks : ThisLayerChecks m -> Dict String Bool
+unwrapThisLayerChecks (ThisLayerChecks dict) =
     dict
 
 
@@ -534,6 +554,24 @@ justAwaitPromise f =
     primitivePromise <| AwaitMsg f
 
 
+{-| Await forever
+-}
+neverResolved : Promise m a
+neverResolved =
+    Promise <|
+        \context ->
+            let
+                next : Msg -> m -> Promise m a
+                next _ _ =
+                    justAwaitPromise next
+            in
+            { newContext = context
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg next
+            }
+
+
 {-| Await both Promises to be completed.
 -}
 syncPromise : Promise m a -> Promise m (a -> b) -> Promise m b
@@ -734,6 +772,16 @@ monitorChange param =
                                                                                                     Dict.insert r.key value
                                                                                            )
                                                                                         |> ThisLayerValues
+                                                                                , checks =
+                                                                                    unwrapThisLayerChecks l1.checks
+                                                                                        |> (case JD.decodeValue checkPropertyDecoder r.value of
+                                                                                                Err _ ->
+                                                                                                    identity
+
+                                                                                                Ok checks ->
+                                                                                                    Dict.insert r.key checks
+                                                                                           )
+                                                                                        |> ThisLayerChecks
                                                                              }
                                                                                 |> Layer
                                                                             )
@@ -829,6 +877,7 @@ onLayer_ o (Promise prom1) =
                             , id = context.layer.id
                             , events = context.layer.events
                             , values = context.layer.values
+                            , checks = context.layer.checks
                             }
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
@@ -888,6 +937,9 @@ liftPromiseMemory o (Promise prom1) =
                             , values =
                                 unwrapThisLayerValues context.layer.values
                                     |> ThisLayerValues
+                            , checks =
+                                unwrapThisLayerChecks context.layer.checks
+                                    |> ThisLayerChecks
                             }
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
@@ -904,6 +956,9 @@ liftPromiseMemory o (Promise prom1) =
                     , values =
                         unwrapThisLayerValues eff1.newContext.layer.values
                             |> ThisLayerValues
+                    , checks =
+                        unwrapThisLayerChecks eff1.newContext.layer.checks
+                            |> ThisLayerChecks
                     }
                 , nextRequestId = eff1.newContext.nextRequestId
                 , nextLayerId = eff1.newContext.nextLayerId
@@ -1061,6 +1116,7 @@ type alias Layer_ m =
     , state : m
     , events : ThisLayerEvents m
     , values : ThisLayerValues m
+    , checks : ThisLayerChecks m
     }
 
 
@@ -1085,6 +1141,9 @@ mapLayer f parent =
                         , values =
                             unwrapThisLayerValues layer1.values
                                 |> ThisLayerValues
+                        , checks =
+                            unwrapThisLayerChecks layer1.checks
+                                |> ThisLayerChecks
                         }
                 )
 
@@ -1100,36 +1159,22 @@ newLayer m1 =
                     , state = m1
                     , events = ThisLayerEvents Dict.empty
                     , values = ThisLayerValues Dict.empty
+                    , checks = ThisLayerChecks Dict.empty
                     }
             )
 
 
 {-| -}
-layerView :
-    ({ state : m
-     , setKey : String -> List (Attribute Msg)
-     , values : Dict String String
-     }
-     -> Html Msg
-    )
-    -> Layer m
-    -> Html Msg
-layerView f (Layer layer) =
-    f (viewArgs layer)
-        |> Html.map
-            (\msg ->
-                msg
-            )
-
-
 viewArgs :
-    Layer_ m
+    Layer m
     ->
         { state : m
         , setKey : String -> List (Attribute Msg)
         , values : Dict String String
+        , checks : Dict String Bool
+        , layerId : String
         }
-viewArgs layer =
+viewArgs (Layer layer) =
     { state = layer.state
     , setKey =
         \key ->
@@ -1182,59 +1227,29 @@ viewArgs layer =
                                         []
 
                                     Just str ->
-                                        [ Attributes.value str
+                                        [ Attributes.property "value" <| JE.string str
+                                        ]
+                           )
+                    )
+                |> List.append
+                    (unwrapThisLayerChecks layer.checks
+                        |> Dict.get key
+                        |> (\mp ->
+                                case mp of
+                                    Nothing ->
+                                        []
+
+                                    Just p ->
+                                        [ Attributes.property "checked" <| JE.bool p
                                         ]
                            )
                     )
     , values = unwrapThisLayerValues layer.values
+    , checks = unwrapThisLayerChecks layer.checks
+    , layerId =
+        unwrapThisLayerId layer.id
+            |> LayerId.toString
     }
-
-
-{-| -}
-keyedLayerView :
-    ({ state : m
-     , setKey : String -> List (Attribute Msg)
-     , values : Dict String String
-     }
-     -> Html Msg
-    )
-    -> Layer m
-    -> ( String, Html Msg )
-keyedLayerView f (Layer layer) =
-    ( unwrapThisLayerId layer.id
-        |> LayerId.toString
-    , f (viewArgs layer)
-        |> Html.map
-            (\msg ->
-                msg
-            )
-    )
-
-
-{-| -}
-layerDocument :
-    ({ state : m
-     , setKey : String -> List (Attribute Msg)
-     , values : Dict String String
-     }
-     -> Document Msg
-    )
-    -> Layer m
-    -> Document Msg
-layerDocument f (Layer layer) =
-    f (viewArgs layer)
-        |> (\doc ->
-                { title = doc.title
-                , body =
-                    doc.body
-                        |> List.map
-                            (Html.map
-                                (\msg ->
-                                    msg
-                                )
-                            )
-                }
-           )
 
 
 {-| -}
@@ -1926,6 +1941,21 @@ getValue key =
 
 
 {-| -}
+getCheck : String -> Promise m (Maybe Bool)
+getCheck key =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds = []
+            , logs = []
+            , state =
+                unwrapThisLayerChecks context.layer.checks
+                    |> Dict.get key
+                    |> Resolved
+            }
+
+
+{-| -}
 getValues : Promise m (Dict String String)
 getValues =
     Promise <|
@@ -1935,6 +1965,20 @@ getValues =
             , logs = []
             , state =
                 unwrapThisLayerValues context.layer.values
+                    |> Resolved
+            }
+
+
+{-| -}
+getChecks : Promise m (Dict String Bool)
+getChecks =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds = []
+            , logs = []
+            , state =
+                unwrapThisLayerChecks context.layer.checks
                     |> Resolved
             }
 
@@ -1956,6 +2000,31 @@ setValue key val =
                                 unwrapThisLayerValues layer.values
                                     |> Dict.insert key val
                                     |> ThisLayerValues
+                        }
+                }
+            , realCmds = []
+            , logs = []
+            , state = Resolved ()
+            }
+
+
+{-| -}
+setCheck : String -> Bool -> Promise m ()
+setCheck key val =
+    Promise <|
+        \context ->
+            { newContext =
+                { context
+                    | layer =
+                        let
+                            layer =
+                                context.layer
+                        in
+                        { layer
+                            | checks =
+                                unwrapThisLayerChecks layer.checks
+                                    |> Dict.insert key val
+                                    |> ThisLayerChecks
                         }
                 }
             , realCmds = []
@@ -2178,6 +2247,7 @@ initContext memory =
         , id = ThisLayerId LayerId.init
         , events = ThisLayerEvents Dict.empty
         , values = ThisLayerValues Dict.empty
+        , checks = ThisLayerChecks Dict.empty
         }
     , nextRequestId = RequestId.init
     , nextLayerId = LayerId.inc LayerId.init
@@ -2225,6 +2295,16 @@ toModel context (Promise prom) =
                                                                             Dict.insert viewMsg.key value
                                                                    )
                                                                 |> ThisLayerValues
+                                                        , checks =
+                                                            unwrapThisLayerChecks layer.checks
+                                                                |> (case JD.decodeValue checkPropertyDecoder viewMsg.value of
+                                                                        Err _ ->
+                                                                            identity
+
+                                                                        Ok checks ->
+                                                                            Dict.insert viewMsg.key checks
+                                                                   )
+                                                                |> ThisLayerChecks
                                                     }
                                             }
                                             (nextProm msg nextContext.layer.state)
@@ -2242,6 +2322,34 @@ toModel context (Promise prom) =
             }
 
 
+checkPropertyDecoder : Decoder Bool
+checkPropertyDecoder =
+    JD.at [ "target", "tagName" ] JD.string
+        |> JD.andThen
+            (\tagName ->
+                if tagName /= "INPUT" then
+                    JD.fail "Not an input element"
+
+                else
+                    JD.at [ "target", "type" ] JD.string
+            )
+        |> JD.andThen
+            (\type_ ->
+                let
+                    isCheckboxOrRadio =
+                        List.member (String.toLower type_)
+                            [ "checkbox"
+                            , "radio"
+                            ]
+                in
+                if isCheckboxOrRadio then
+                    JD.at [ "target", "checked" ] JD.bool
+
+                else
+                    JD.fail "Not a checkable element"
+            )
+
+
 {-| -}
 update : Msg -> Model m -> NewState m
 update msg (Model model) =
@@ -2249,9 +2357,13 @@ update msg (Model model) =
 
 
 {-| -}
-documentView : (Layer memory -> Document Msg) -> Model memory -> Document Msg
+documentView : (memory -> Document Msg) -> Model memory -> Document Msg
 documentView f model =
-    f <| layerState model
+    let
+        (Layer layer_) =
+            layerState model
+    in
+    f layer_.state
 
 
 {-| -}
