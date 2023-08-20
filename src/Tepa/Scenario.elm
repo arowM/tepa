@@ -483,7 +483,7 @@ systemComment : Session -> String -> Scenario m
 systemComment (Session session) commentText =
     comment
         (markup """
-          **[{{session}}]** **System**: {{comment}}
+          **[{{session}}]** {{comment}}
           """
             |> setParam "session" session.uniqueName
             |> setParam "comment" commentText
@@ -2847,7 +2847,27 @@ toMarkdown o =
         )
         (Ok
             ( ( 0
-              , [ ( 0, "# " ++ o.title ) ]
+              , ( 0, "# " ++ o.title )
+                :: List.map
+                    (\sec ->
+                        (0
+                        , String.concat
+                            [ "- "
+                            , "["
+                            , sec.title
+                            , "](#"
+                            , String.words sec.title
+                                     |> List.map
+                                         (String.filter Char.isAlphaNum
+                                             >> String.toLower
+                                         )
+                                     |> String.join "-"
+                            , ")"
+                            ]
+                        )
+                    )
+                    o.sections
+                |> List.reverse
               )
             , Set.empty
             )
@@ -2979,7 +2999,7 @@ prependSessionSystemName { uniqueSessionName } (Markup markup_) =
     Markup
         { markup_
             | content =
-                "**[" ++ uniqueSessionName ++ "]** **System**: " ++ markup_.content
+                "**[" ++ uniqueSessionName ++ "]** " ++ markup_.content
         }
 
 
