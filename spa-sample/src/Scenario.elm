@@ -1,6 +1,6 @@
 module Scenario exposing
     ( main, test, sections, MarkupConfig
-    , Model, Msg, Section
+    , Section
     )
 
 {-| Scenario
@@ -11,16 +11,16 @@ module Scenario exposing
 
 import App exposing (Memory)
 import App.Session as Session
-import Browser
 import DebugToJson
 import Dict
 import Expect
 import Html
 import Html.Attributes as Attributes
-import Html.Events as Events
 import Json.Encode as JE
-import MarkdownAst as Markdown
-import Tepa.Scenario as Scenario exposing (userComment)
+import Markdown
+import String.Multiline exposing (here)
+import Tepa exposing (Document, Layer)
+import Tepa.Scenario as Scenario exposing (markup, setParam, userComment)
 import Tepa.Time as Time
 import Test exposing (Test)
 import TimeZone
@@ -31,51 +31,98 @@ import Widget.Toast as Toast
 -- # Expose
 
 
-{-| Generate document for `scenarios`.
+{-| Scenario document server.
 -}
-main : Program () Model Msg
+main : Tepa.Program ScenarioMemory
 main =
-    Browser.sandbox
-        { init =
-            { dev = True
-            }
-        , view =
-            \config ->
-                Html.div
-                    []
-                    [ Html.label
-                        []
-                        [ Html.input
-                            [ Attributes.type_ "checkbox"
-                            , Attributes.checked config.dev
-                            , Events.onInput (\_ -> ToggleDevMode)
-                            ]
-                            []
-                        , Html.text "Enable dev mode"
+    Tepa.application
+        { init = init
+        , procedure =
+            \_ _ _ ->
+                Tepa.bind (Tepa.newLayer ()) <|
+                    \layer ->
+                        [ Tepa.modify <|
+                            \m ->
+                                { m | page = Just layer }
+                        , Tepa.void <|
+                            Tepa.onLayer
+                                { get = .page
+                                , set = \l m -> { m | page = Just l }
+                                }
+                            <|
+                                Tepa.sequence
+                                    [ Tepa.neverResolved
+                                    ]
                         ]
-                    , Scenario.toHtml
+        , view =
+            \{ page } ->
+                case page of
+                    Nothing ->
+                        { title = "Loading"
+                        , body = [ Html.text "Loading..." ]
+                        }
+
+                    Just layer ->
+                        documentView layer
+        , onUrlRequest = \_ _ _ -> Tepa.none
+        , onUrlChange = \_ _ _ -> Tepa.none
+        }
+
+
+type alias ScenarioMemory =
+    { page : Maybe (Layer ())
+    }
+
+
+init : ScenarioMemory
+init =
+    { page = Nothing
+    }
+
+
+documentView : Layer () -> Document
+documentView =
+    Tepa.layerView <|
+        \{ setKey, checks } ->
+            let
+                devModeCheckboxId =
+                    "devModeCheckboxId"
+
+                config : MarkupConfig
+                config =
+                    { dev =
+                        Dict.get devModeCheckboxId (Debug.log "checks" checks)
+                            |> Maybe.withDefault False
+                    }
+
+                markdown =
+                    Scenario.toMarkdown
                         { title = "Sample scenario"
                         , sections = sections config
                         , config = Scenario.en_US
                         }
-                    ]
-        , update = update
-        }
+            in
+            { title = "User Scenario"
+            , body =
+                case markdown of
+                    Err err ->
+                        [ Html.text <|
+                            Debug.toString err
+                        ]
 
-
-type alias Model =
-    MarkupConfig
-
-
-type Msg
-    = ToggleDevMode
-
-
-update : Msg -> Model -> Model
-update msg model =
-    case msg of
-        ToggleDevMode ->
-            { model | dev = not model.dev }
+                    Ok content ->
+                        [ Html.label
+                            []
+                            [ Html.input
+                                (Attributes.type_ "checkbox"
+                                    :: setKey devModeCheckboxId
+                                )
+                                []
+                            , Html.text "Enable dev mode"
+                            ]
+                        , Markdown.toHtml [] content
+                        ]
+            }
 
 
 {-| Test for `scenarios`.
@@ -205,17 +252,16 @@ introduction1 config =
         , userComment sakuraChan "Today I'm going to try a chat application."
         , userComment sakuraChan "I'm trying to access the URL."
         , Scenario.loadApp sakuraChanMainSession
-            { content =
-                [ Markdown.StrongEmphasis sakuraChanName
-                , Markdown.PlainText ": Type the following URL in the address bar."
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.InlineCode "https://example.com/"
-                    ]
-                ]
-            , appear = True
-            }
+            (markup
+                """
+              **{{name}}**: Type the following URL in the address bar.
+
+              ```
+              https://example.com/
+              ```
+              """
+                |> setParam "name" sakuraChanName
+            )
             { path =
                 { path = [ pathPrefix ]
                 , queryParameters = Dict.empty
@@ -238,7 +284,7 @@ introduction1 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "code": "LoginRequired"
                 }
@@ -248,41 +294,38 @@ introduction1 config =
             (\_ ->
                 Just ( responseMeta, responseBody )
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the profile request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanMainSession.app.fetchProfileEndpoint
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the profile request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , onSakuraChanMainSession.login.expectAvailable <|
-            Scenario.textContent "Display login page."
+            markup "Display login page."
         , userComment sakuraChan
             "I see I have to log in! I remember my dad gave me the account information beforehand."
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors <|
-            Scenario.textContent "The login form shows no errors at first."
+            markup "The login form shows no errors at first."
         , userComment warunasubiKun
             "I'm Warunasubi-kun. I'm going to play a prank on Sakura-chan. Muahahahahaha! 🍆😈"
         , userComment warunasubiKun
@@ -296,11 +339,11 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginId
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the login ID.")
+            (markup <| "Enter \"" ++ value ++ "\" in the login ID.")
         , userComment sakuraChan
             "The note says that the password can be left blank."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Click the login button.")
+            (markup "Click the login button.")
         , let
             error =
                 "Password is required."
@@ -308,7 +351,7 @@ introduction1 config =
           onSakuraChanMainSession.login.expectLoginFormShowError
             { error = error
             }
-            (Scenario.textContent <| "Form shows error: " ++ error)
+            (markup <| "Form shows error: " ++ error)
         , userComment sakuraChan
             "Oh my goat, I got an error..."
         , userComment warunasubiKun
@@ -322,13 +365,18 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Change the password to \"" ++ value ++ "\"")
+            (markup <| "Change the password to \"" ++ value ++ "\"")
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors
-            (Scenario.textContent "Login form shows no errors at the time.")
+            (markup "Login form shows no errors at the time.")
         , userComment sakuraChan
             "It looks good."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Click the login button.")
+            (markup "Click the login button.")
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The login button becomes disabled
+            """
+            )
         , let
             requestBody =
                 JE.object
@@ -344,7 +392,7 @@ introduction1 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "code": "IncorrectIdOrPassword"
                 }
@@ -358,36 +406,43 @@ introduction1 config =
                 else
                     Nothing
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the login request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanMainSession.login.loginEndpoint
-                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the login request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+                  ```json
+                  {{requestBody|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.login.loginEndpoint)
+                |> setParam "requestBody"
+                    (JE.encode 4 requestBody)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The login button becomes reenabled.
+            """
+            )
         , let
             error =
                 "Incorrect ID or password."
@@ -395,7 +450,7 @@ introduction1 config =
           onSakuraChanMainSession.login.expectLoginFormShowError
             { error = error
             }
-            (Scenario.textContent <| "The form shows error: " ++ error)
+            (markup <| "The form shows error: " ++ error)
         , userComment sakuraChan "Oops!"
         , userComment warunasubiKun "Maybe you mistyped the password."
         , userComment sakuraChan "That might be true. It's hard to type with my two-fingered hooves..."
@@ -406,9 +461,9 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field.")
+            (markup <| "Enter \"" ++ value ++ "\" in the password field.")
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Click login button.")
+            (markup "Click the login button.")
         , let
             requestBody =
                 JE.object
@@ -418,17 +473,23 @@ introduction1 config =
           in
           onSakuraChanMainSession.login.expectRequestLogin
             requestBody
-            { content =
-                [ Markdown.PlainText "The client sends a login request to the backend with a timeout of 5000 milliseconds."
-                ]
-            , detail =
-                [ Markdown.CodeBlock <|
-                    ppr
-                        onSakuraChanMainSession.login.loginEndpoint
-                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The client sends a login request to the backend with a timeout of 5000 milliseconds.
+
+              ```json
+              {{requestMeta|block}}
+              ```
+
+              ```json
+              {{requestBody|block}}
+              ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.login.loginEndpoint)
+                |> setParam "requestBody"
+                    (JE.encode 4 requestBody)
+                |> setLogLevelDev config
+            )
         , if config.dev then
             Scenario.systemComment sakuraChanMainSession <|
                 "The client requests the user profile from the server with a timeout of 5000 milliseconds."
@@ -436,21 +497,21 @@ introduction1 config =
           else
             Scenario.none
         , Scenario.sleep
-            (Scenario.textContent <| "5000 milliseconds have passed.")
+            (markup <| "5000 milliseconds have passed.")
             5000
         , let
             currentTime =
                 1672531205000
           in
           Scenario.expectCurrentTime
-            (Scenario.textContent <| "Current time in POSIX: " ++ String.fromInt currentTime ++ ".")
+            (markup <| "Current time in POSIX: " ++ String.fromInt currentTime ++ ".")
             { expectation =
                 Expect.equal
                     (Time.millisToPosix currentTime)
             }
         , Scenario.expectHttpRequest
             sakuraChanMainSession
-            (Scenario.textContent <| "The login request timed out.")
+            (markup <| "The login request timed out.")
             { layer = onSakuraChanMainSession.login.layer
             , expectation =
                 List.length
@@ -459,7 +520,7 @@ introduction1 config =
         , onSakuraChanMainSession.login.toast.expectErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "A toast popup appears: \"Network error, please try again.\"")
+            (markup "A toast popup appears: \"Network error, please try again.\"")
         , userComment sakuraChan "Oops!"
         ]
     }
@@ -473,16 +534,16 @@ introduction1_sub1 config =
         [ onSakuraChanMainSession.login.toast.closeErrorsByMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "Click the close button on the popup.")
+            (markup "Click the close button on the popup.")
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "The popup begins to disappear.")
+            (markup "The popup begins to disappear.")
         , Scenario.sleep
-            (Scenario.textContent <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
+            (markup <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
-            (Scenario.textContent "No toast popups now.")
+            (markup "No toast popups now.")
         ]
     }
 
@@ -493,20 +554,25 @@ introduction1_1 config =
     , dependency = Scenario.RunAfter (introduction1 config).title
     , content =
         [ Scenario.sleep
-            (Scenario.textContent <| String.fromInt Toast.toastTimeout ++ " milliseconds passes.")
+            (markup <| String.fromInt Toast.toastTimeout ++ " milliseconds passes.")
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
-            (Scenario.textContent "The popup begins to disappear.")
+            (markup "The popup begins to disappear.")
         , Scenario.sleep
-            (Scenario.textContent <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
+            (markup <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
-            (Scenario.textContent "No toast popups now.")
+            (markup "No toast popups now.")
         , userComment sakuraChan "Try again."
         , onSakuraChanMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Click the login button.")
+            (markup "Click the login button.")
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The login button becomes disabled
+            """
+            )
         , let
             requestBody =
                 JE.object
@@ -527,7 +593,7 @@ introduction1_1 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "profile": {
                         "id": "guest",
@@ -544,47 +610,51 @@ introduction1_1 config =
                 else
                     Nothing
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the login request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanMainSession.login.loginEndpoint
-                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the login request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+                  ```json
+                  {{requestBody|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.login.loginEndpoint)
+                |> setParam "requestBody"
+                    (JE.encode 4 requestBody)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The login button becomes reenabled.
+            """
+            )
         , onSakuraChanMainSession.login.receiveRandomLuckyHay
             { value = Session.LuckyHayAlfalfa
             }
-            { content =
-                [ Markdown.PlainText "Client receives random value for lucky hay: Alfalfa"
-                ]
-            , detail = []
-            , appear = config.dev
-            }
+            (markup "Client receives random value for lucky hay: Alfalfa"
+                |> setLogLevelDev config
+            )
         , onSakuraChanMainSession.home.expectAvailable
-            (Scenario.textContent "Redirect to home page.")
+            (markup "Redirect to home page.")
         , let
             value =
                 "Alfalfa"
@@ -592,7 +662,7 @@ introduction1_1 config =
           onSakuraChanMainSession.home.expectLuckyHayMessage
             { value = value
             }
-            (Scenario.textContent <| "The lucky grass hay is \"" ++ value ++ "\"")
+            (markup <| "The lucky grass hay is \"" ++ value ++ "\"")
         , let
             value =
                 "2023-01-01 09:00:15"
@@ -600,7 +670,7 @@ introduction1_1 config =
           onSakuraChanMainSession.home.expectClockMessage
             { value = value
             }
-            (Scenario.textContent <| "The clock says \"" ++ value ++ "\"")
+            (markup <| "The clock says \"" ++ value ++ "\"")
         , userComment sakuraChan "Yes!"
         ]
     }
@@ -618,7 +688,7 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.expectGreetingMessage
             { value = value
             }
-            (Scenario.textContent <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+            (markup <| "The greeting message says \"Hi, " ++ value ++ "!\"")
         , userComment sakuraChan "I'm Sakura-chan! Not \"Guest\"! 💢🐐"
         , let
             value =
@@ -627,9 +697,9 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.changeEditAccountFormAccountId
             { value = value
             }
-            (Scenario.textContent <| "Change the name input field value to \"" ++ value ++ "\".")
+            (markup <| "Change the name input field value to \"" ++ value ++ "\".")
         , onSakuraChanMainSession.home.clickSubmitEditAccount
-            (Scenario.textContent "Click the save button.")
+            (markup "Click the save button.")
         , let
             requestBody =
                 JE.object
@@ -649,7 +719,7 @@ pageHomeCase1 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "profile": {
                         "name": "Sakura-chan"
@@ -665,35 +735,31 @@ pageHomeCase1 config =
                 else
                     Nothing
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the edit account request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanMainSession.home.editAccountEndpoint
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the edit account request.
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.home.editAccountEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , let
             value =
                 "Sakura-chan"
@@ -701,19 +767,17 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.expectGreetingMessage
             { value = value
             }
-            (Scenario.textContent <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+            (markup <| "The greeting message says \"Hi, " ++ value ++ "!\"")
         , Scenario.loadApp sakuraChanSecondSession
-            { content =
-                [ Markdown.StrongEmphasis sakuraChanName
-                , Markdown.PlainText ": Open new tab, and type the following URL in the address bar."
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.InlineCode "https://example.com/"
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              **{{name}}**: Open new tab, and type the following URL in the address bar.
+
+              ```
+              https://example.com/
+              ```
+              """
+                |> setParam "name" sakuraChanName
+            )
             { path =
                 { path = [ pathPrefix ]
                 , queryParameters = Dict.empty
@@ -735,7 +799,7 @@ pageHomeCase1 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                   "profile": {
                     "id": "guest",
@@ -748,44 +812,40 @@ pageHomeCase1 config =
             (\_ ->
                 Just ( responseMeta, responseBody )
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the profile request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanSecondSession.app.fetchProfileEndpoint
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the profile request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , onSakuraChanSecondSession.app.receiveRandomLuckyHay
             { value = Session.LuckyHayTimothy
             }
-            { content =
-                [ Markdown.PlainText "Client receives a random response for lucky hay: Timothy"
-                ]
-            , detail = []
-            , appear = config.dev
-            }
+            (markup """
+              Client receives a random response for lucky hay: Timothy
+              """
+                |> setLogLevelDev config
+            )
         , let
             value =
                 "Timothy"
@@ -793,7 +853,7 @@ pageHomeCase1 config =
           onSakuraChanSecondSession.home.expectLuckyHayMessage
             { value = value
             }
-            (Scenario.textContent <| "The lucky grass hay is \"" ++ value ++ "\"")
+            (markup <| "The lucky grass hay is \"" ++ value ++ "\"")
         , let
             value =
                 "Sakura-chan"
@@ -801,7 +861,7 @@ pageHomeCase1 config =
           onSakuraChanSecondSession.home.expectGreetingMessage
             { value = value
             }
-            (Scenario.textContent <| "The greeting message says \"Hi " ++ value ++ "!\"")
+            (markup <| "The greeting message says \"Hi " ++ value ++ "!\"")
         ]
     }
 
@@ -812,62 +872,103 @@ pageHomeCase2 config =
     , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
         [ Scenario.todo sakuraChanMainSession
-            (Scenario.textContent "Click the \"Start Chat\" button.")
+            (markup "Click the \"Start Chat\" button.")
         , Scenario.todo sakuraChanMainSession
-            (Scenario.textContent "Redirect to chat page.")
+            (markup "Redirect to chat page.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
+                |> setLogLevelDev config
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client sends a handshake request to the WS server.
+            """
+            |> setLogLevelDev config
+            )
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives an initialization message from the WS server.
+
+            ```json
+            {
+                "message": "initialized",
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    }
+                ]
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
         , let
             userNames =
                 [ "Sakura-chan"
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field says:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
+            (markup """
+              The "Active users" field says:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Sakura-chan"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
                     }
                 ]
-            , appear = True
+
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
         , let
             message =
                 "Sakura-chan has entered."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              The Message Timeline area displays only one system message:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , userComment sakuraChan "Warunasubi-kun, shall we chat?"
         , userComment warunasubiKun "It sounds good!"
         , Scenario.loadApp sakuraChanMainSession
-            { content =
-                [ Markdown.StrongEmphasis warunasubiKunName
-                , Markdown.PlainText ": Enter the chat page URL in the address bar."
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.InlineCode "https://example.com/chat/"
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              **{{name}}**: Enter the chat page URL in the address bar.
+
+              ```
+              https://example.com/chat/
+              ```
+              """
+                |> setParam "name" warunasubiKunName
+            )
             { path =
                 { path = [ pathPrefix, "chat" ]
                 , queryParameters = Dict.empty
@@ -876,7 +977,7 @@ pageHomeCase2 config =
             , flags = JE.object []
             }
         , onWarunasubiKunMainSession.login.expectAvailable <|
-            Scenario.textContent "Display login page."
+            markup "Display login page."
         , userComment sakuraChan
             "I see the note also contains other account information."
         , let
@@ -886,7 +987,7 @@ pageHomeCase2 config =
           onWarunasubiKunMainSession.login.changeLoginId
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the login ID.")
+            (markup <| "Enter \"" ++ value ++ "\" in the login ID.")
         , let
             value =
                 "guestPass2"
@@ -894,9 +995,9 @@ pageHomeCase2 config =
           onWarunasubiKunMainSession.login.changeLoginPass
             { value = value
             }
-            (Scenario.textContent <| "Enter \"" ++ value ++ "\" in the password field.")
+            (markup <| "Enter \"" ++ value ++ "\" in the password field.")
         , onWarunasubiKunMainSession.login.clickSubmitLogin
-            (Scenario.textContent "Click the login button.")
+            (markup "Click the login button.")
         , let
             requestBody =
                 JE.object
@@ -917,7 +1018,7 @@ pageHomeCase2 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "profile": {
                         "id": "guest2",
@@ -934,47 +1035,82 @@ pageHomeCase2 config =
                 else
                     Nothing
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the login request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onSakuraChanMainSession.login.loginEndpoint
-                                , Markdown.CodeBlock <| "json\n" ++ JE.encode 4 requestBody
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the login request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.login.loginEndpoint)
+                |> setParam "requestBody"
+                    (JE.encode 4 requestBody)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , onWarunasubiKunMainSession.login.receiveRandomLuckyHay
             { value = Session.LuckyHayTimothy
             }
-            { content =
-                [ Markdown.PlainText "Client receives random value for lucky hay: Timothy"
-                ]
-            , detail = []
-            , appear = config.dev
-            }
+            (markup """
+              Client receives random value for lucky hay: Timothy
+              """
+                |> setLogLevelDev config
+            )
+
         , Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent "Redirect to the chat page.")
+            (markup "Redirect to the chat page.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
+                |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client sends a handshake request to the WS server.
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives an initialization message from the WS server.
+
+            ```json
+            {
+                "message": "initialized",
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Guest2"
+                    }
+                ]
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
         , let
             userNames =
                 [ "Sakura-chan"
@@ -982,39 +1118,84 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field says:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
+            (markup """
+              The "Active users" field says:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Guest2"
                     }
                 ]
-            , appear = True
+
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             message =
                 "Guest2 has entered."
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
+            (markup """
+              The Message Timeline area displays only one system message:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Guest2"
+                    }
                 ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
+
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             userNames =
                 [ "Sakura-chan"
@@ -1022,126 +1203,198 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field is changed:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field is changed:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
         , let
             message =
                 "Guest2 has entered."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new system message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             message =
                 "Welcome, Warunasubi-kun!"
           in
           Scenario.userTodo sakuraChanMainSession
-            (Scenario.textContent <| "Enter \"" ++ message ++ "\" in the message input field.")
+            (markup <| "Enter \"" ++ message ++ "\" in the message input field.")
         , Scenario.userTodo sakuraChanMainSession
-            (Scenario.textContent <| "Enter \"Submit\" button.")
+            (markup <| "Enter \"Submit\" button.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup <| "The \"Submit\" button becomes disabled.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client sends a message to the WS server.
+
+            ```json
+            {
+                "action": "push-message",
+                "message": "Welcome, Warunasubi-kun!"
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Welcome, Warunasubi-kun!"
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client resets the message field value in localStorage.
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup <| "The \"Submit\" button becomes reenabled.")
+        , Scenario.todo sakuraChanMainSession
+            (markup <| "The message input field becomes empty.")
+
         , let
             message =
                 "Sakura-chan: Welcome, Warunasubi-kun!"
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Welcome, Warunasubi-kun!"
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             message =
                 "Sakura-chan: Welcome, Warunasubi-kun!"
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
         , let
             message =
                 "Hi, Sakura-"
           in
           Scenario.userTodo warunasubiKunMainSession
-            (Scenario.textContent <| "Refresh the page accidentally in the middle of writing \"" ++ message ++ "\" in the message input field.")
+            (markup <| "Refresh the page accidentally in the middle of writing \"" ++ message ++ "\" in the message input field.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup "The client saves the input to localStorage during input."
+                |> setLogLevelDev config
+            )
+
         , Scenario.closeApp warunasubiKunMainSession
-            (Scenario.textContent "The page is reloading.")
+            (markup "The page is reloading.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "user-left",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    }
+                ]
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             message =
                 "Guest2 has left."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new system message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             userNames =
                 [ "Sakura-chan"
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field is changed:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field is changed:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
         , Scenario.loadApp warunasubiKunMainSession
-            (Scenario.textContent "The page is reloaded.")
+            (markup "The page is reloaded.")
             { path =
                 { path = [ pathPrefix, "chat" ]
                 , queryParameters = Dict.empty
@@ -1163,7 +1416,7 @@ pageHomeCase2 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                   "profile": {
                     "id": "guest2",
@@ -1176,46 +1429,112 @@ pageHomeCase2 config =
             (\_ ->
                 Just ( responseMeta, responseBody )
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the profile request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onWarunasubiKunMainSession.app.fetchProfileEndpoint
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
-                    }
-                ]
-            , appear = config.dev
-            }
+            (markup """
+              The backend responds to the profile request.
+
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , onWarunasubiKunMainSession.app.receiveRandomLuckyHay
             { value = Session.LuckyHayOrchard
             }
-            { content =
-                [ Markdown.PlainText "Client receives a random response for lucky hay: Orchard"
-                ]
-            , detail = []
-            , appear = config.dev
-            }
+            (markup """
+              Client receives random value for lucky hay: Orchard
+              """
+                |> setLogLevelDev config
+            )
+
         , Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent "Display the chat page.")
+            (markup "Display the chat page.")
+
+        , let
+            message = here """
+            Hi, Sakura-
+            """
+          in
+          Scenario.todo sakuraChanMainSession
+            (markup """
+            The client checks localStorage to restore the previous user input.
+
+            Found:
+
+            ```
+            {{message|block}}
+            ```
+            """
+            |> setParam "message" message
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client sends a handshake request to the WS server.
+            """
+            |> setLogLevelDev config
+            )
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives an initialization message from the WS server.
+
+            ```json
+            {
+                "message": "initialized",
+                "users": [
+                    {
+                        "displayName": "Guest2"
+                    }
+                ]
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Guest2"
+                    }
+                ]
+
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             userNames =
                 [ "Sakura-chan"
@@ -1223,45 +1542,64 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field says:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field says:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
         , let
             message =
                 "Guest2 has entered."
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The Message Timeline area displayes only one system message:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              The Message Timeline area displays only one system message:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             message =
                 "Hi, Sakura-"
           in
           Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent <| "The previous message \"" ++ message ++ "\" remains in the message input field.")
+            (markup <| "The previous message \"" ++ message ++ "\" remains in the message input field.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Guest2"
+                    }
+                ]
+
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             userNames =
                 [ "Sakura-chan"
@@ -1269,122 +1607,193 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field is changed:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field is changed:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
         , let
             message =
                 "Guest2 has entered."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new system message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
         , let
             message =
                 "Hi, Sakura-chan."
           in
           Scenario.userTodo warunasubiKunMainSession
-            (Scenario.textContent <| "Change the message input field value to \"" ++ message ++ "\".")
+            (markup <| "Change the message input field value to \"" ++ message ++ "\".")
         , Scenario.userTodo warunasubiKunMainSession
-            (Scenario.textContent <| "Enter \"Submit\" button.")
+            (markup <| "Enter \"Submit\" button.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The \"Submit\" button becomes disabled.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client sends a message to the WS server.
+
+            ```json
+            {
+                "action": "push-message",
+                "message": "Hi, Sakura-chan."
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Hi, Sakura-chan."
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client resets the message field value in localStorage.
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The \"Submit\" button becomes reenabled.")
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The message input field becomes empty.")
+
         , let
             message =
                 "Guest2: Hi, Sakura-chan."
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Hi, Sakura-chan."
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             message =
                 "Guest2: Hi, Sakura-chan."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
         , userComment sakuraChan "Looks good!"
+
         , userComment warunasubiKun "I just thought of a fun prank. 😈"
+
         , Scenario.userTodo warunasubiKunMainSession
-            (Scenario.textContent <| "Click header.")
+            (markup <| "Click header.")
+
         , Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent "Redirect to the home page.")
+            (markup "Redirect to the home page.")
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "user-left",
+                "user": {
+                    "displayName": "Guest2"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    }
+                ]
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             message =
                 "Guest2 has left."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new system message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             userNames =
                 [ "Sakura-chan"
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field is changed:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field is changed:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
+
         , let
             value =
                 "Sakura-chan"
@@ -1392,9 +1801,11 @@ pageHomeCase2 config =
           onWarunasubiKunMainSession.home.changeEditAccountFormAccountId
             { value = value
             }
-            (Scenario.textContent <| "Change the name input field value to \"" ++ value ++ "\".")
+            (markup <| "Change the name input field value to \"" ++ value ++ "\".")
+
         , onWarunasubiKunMainSession.home.clickSubmitEditAccount
-            (Scenario.textContent "Click the save button.")
+            (markup "Click the save button.")
+
         , let
             requestBody =
                 JE.object
@@ -1414,7 +1825,7 @@ pageHomeCase2 config =
                 }
 
             responseBody =
-                """
+                here """
                 {
                     "profile": {
                         "name": "Sakura-chan"
@@ -1430,39 +1841,69 @@ pageHomeCase2 config =
                 else
                     Nothing
             )
-            { content =
-                [ Markdown.PlainText "The backend responds to the edit account request."
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = False
-                    , items =
-                        [ { content =
-                                [ Markdown.PlainText "Request:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <|
-                                    ppr
-                                        onWarunasubiKunMainSession.home.editAccountEndpoint
-                                ]
-                          }
-                        , { content =
-                                [ Markdown.PlainText "Response:"
-                                ]
-                          , children =
-                                [ Markdown.CodeBlock <| ppr responseMeta
-                                , Markdown.CodeBlock <| "json" ++ responseBody
-                                ]
-                          }
-                        ]
+            (markup """
+              The backend responds to the edit account request.
+              - Request:
+
+                  ```json
+                  {{requestMeta|block}}
+                  ```
+
+              - Response:
+
+                  ```json
+                  {{responseMeta|block}}
+                  ```
+
+                  ```json
+                  {{responseBody|block}}
+                  ```
+              """
+                |> setParam "requestMeta"
+                    (ppr onSakuraChanMainSession.home.editAccountEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
+        , Scenario.todo warunasubiKunMainSession
+            (markup "Click the \"Start Chat\" button.")
+        , Scenario.todo warunasubiKunMainSession
+            (markup "Redirect to chat page.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
+                |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client sends a handshake request to the WS server.
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives an initialization message from the WS server.
+
+            ```json
+            {
+                "message": "initialized",
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Sakura-chan"
                     }
                 ]
-            , appear = config.dev
             }
-        , Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent "Click the \"Start Chat\" button.")
-        , Scenario.todo warunasubiKunMainSession
-            (Scenario.textContent "Redirect to chat page.")
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
         , let
             userNames =
                 [ "Sakura-chan"
@@ -1470,39 +1911,84 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field says:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
+            (markup """
+              The "Active users" field says:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Sakura-chan"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Sakura-chan"
                     }
                 ]
-            , appear = True
+
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
         , let
             message =
                 "Sakura-chan has entered."
           in
           Scenario.todo warunasubiKunMainSession
-            { content =
-                [ Markdown.PlainText "The Message Timeline area displays only one system message:"
+            (markup """
+              The Message Timeline area displays only one system message:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a system message from the WS server.
+
+            ```json
+            {
+                "message": "new-user",
+                "user": {
+                    "displayName": "Sakura-chan"
+                },
+                "users": [
+                    {
+                        "displayName": "Sakura-chan"
+                    },
+                    {
+                        "displayName": "Sakura-chan"
+                    }
                 ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
+
             }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+
         , let
             userNames =
                 [ "Sakura-chan"
@@ -1510,81 +1996,151 @@ pageHomeCase2 config =
                 ]
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The \"Active users\" field is changed:"
-                ]
-            , detail =
-                [ Markdown.ListBlock
-                    { ordered = True
-                    , items =
-                        List.map
-                            (\userName ->
-                                { content = [ Markdown.PlainText userName ]
-                                , children = []
-                                }
-                            )
-                            userNames
-                    }
-                ]
-            , appear = True
-            }
+            (markup """
+              The "Active users" field is changed:
+
+              {{users|block}}
+              """
+                |> setParam "users"
+                    (List.map
+                        (\name -> "- " ++ name)
+                        userNames
+                        |> String.join "\n"
+                    )
+            )
         , let
             message =
                 "Sakura-chan has entered."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new system message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              A new system message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             message =
                 "Guest2: Hi, Sakura-chan."
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "The display name of existing messages remain unchanged:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
+            (markup """
+              The display name of existing messages remain unchanged:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
         , let
             message =
                 "Warunasubi-kun is smart and cool.🥰"
           in
-          Scenario.userTodo sakuraChanMainSession
-            (Scenario.textContent <| "Enter \"" ++ message ++ "\" in the message input field.")
-        , Scenario.userTodo sakuraChanMainSession
-            (Scenario.textContent <| "Enter \"Submit\" button.")
+          Scenario.userTodo warunasubiKunMainSession
+            (markup <| "Enter \"" ++ message ++ "\" in the message input field.")
+        , Scenario.userTodo warunasubiKunMainSession
+            (markup <| "Enter \"Submit\" button.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The \"Submit\" button becomes disabled.")
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client sends a message to the WS server.
+
+            ```json
+            {
+                "action": "push-message",
+                "message": "Warunasubi-kun is smart and cool.🥰"
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Warunasubi-kun is smart and cool.🥰"
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup """
+            The client resets the message field value in localStorage.
+            """
+            |> setLogLevelDev config
+            )
+
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The \"Submit\" button becomes reenabled.")
+        , Scenario.todo warunasubiKunMainSession
+            (markup <| "The message input field becomes empty.")
+
+        , let
+            message =
+                "Sakura-chan: Warunasubi-kun is smart and cool.🥰"
+          in
+          Scenario.todo warunasubiKunMainSession
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+
+        , Scenario.todo sakuraChanMainSession
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {
+                "message": "new-message",
+                "value": "Warunasubi-kun is smart and cool.🥰"
+            }
+            ```
+            """
+            |> setLogLevelDev config
+            )
+
+
         , let
             message =
                 "Sakura-chan: Warunasubi-kun is smart and cool.🥰"
           in
           Scenario.todo sakuraChanMainSession
-            { content =
-                [ Markdown.PlainText "A new message is added to the Message TimeLine area:"
-                ]
-            , detail =
-                [ Markdown.ParagraphBlock
-                    [ Markdown.PlainText message
-                    ]
-                ]
-            , appear = True
-            }
-        , userComment sakuraChan "Hey Warnusbi-kun, I know you posted it. The display name is also Sakura-chan, but with a different color."
+            (markup """
+              A new message is added to the Message TimeLine area:
+
+              ```
+              {{message|block}}
+              ```
+              """
+                |> setParam "message" message
+            )
+        , userComment sakuraChan "Hey Warunasubi-kun, I know you posted it. The display name is also Sakura-chan, but with a different color."
         , userComment warunasubiKun "😋"
         ]
     }
+
+
+setLogLevelDev : MarkupConfig -> Scenario.Markup -> Scenario.Markup
+setLogLevelDev config =
+    Scenario.hide <| not config.dev
 
 
 {-| Helper function to pretty print records.
@@ -1593,4 +2149,3 @@ ppr : a -> String
 ppr a =
     Debug.toString a
         |> DebugToJson.pp
-        |> String.append "json\n"
