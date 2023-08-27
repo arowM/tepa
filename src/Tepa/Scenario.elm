@@ -943,7 +943,11 @@ appendMarkup (Markup markup_) ( level, acc ) =
                             (details
                                 |> List.map
                                     (\( l, s ) ->
-                                        ( l + level + 4, s )
+                                        if s == "" then
+                                            ( 0, "" )
+
+                                        else
+                                            ( l + level + 4, s )
                                     )
                             )
                     )
@@ -2846,26 +2850,26 @@ toMarkdown o =
         (Ok
             ( ( 0
               , ( 0, "# " ++ o.title )
-                :: List.map
-                    (\sec ->
-                        (0
-                        , String.concat
-                            [ "- "
-                            , "["
-                            , sec.title
-                            , "](#"
-                            , String.words sec.title
-                                     |> List.map
-                                         (String.filter Char.isAlphaNum
-                                             >> String.toLower
-                                         )
-                                     |> String.join "-"
-                            , ")"
-                            ]
+                    :: List.map
+                        (\sec ->
+                            ( 0
+                            , String.concat
+                                [ "- "
+                                , "["
+                                , sec.title
+                                , "](#"
+                                , String.words sec.title
+                                    |> List.map
+                                        (String.filter Char.isAlphaNum
+                                            >> String.toLower
+                                        )
+                                    |> String.join "-"
+                                , ")"
+                                ]
+                            )
                         )
-                    )
-                    o.sections
-                |> List.reverse
+                        o.sections
+                    |> List.reverse
               )
             , Set.empty
             )
