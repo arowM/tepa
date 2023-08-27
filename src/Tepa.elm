@@ -17,7 +17,9 @@ module Tepa exposing
     , unless
     , withMaybe
     , syncAll
-    , portRequest, portStream
+    , portRequest
+    , PortRequest, PortResponse
+    , portStream
     , map
     , liftMemory
     , andThen, bindAndThen
@@ -212,7 +214,9 @@ To send HTTP request to the backend server, you can use [`Tepa.Http`](./Tepa-Htt
 
 #### Port requests
 
-@docs portRequest, portStream
+@docs portRequest
+@docs PortRequest, PortResponse
+@docs portStream
 
 
 #### Streams
@@ -893,6 +897,12 @@ For example, we can use `portRequest` to get localStorage value safely.
 In JavaScript side:
 
 ```js
+const app = Elm.Main.init({
+  node: document.body.appendChild(document.createElement("div")),
+  flags: {
+    "loaded-at": Date.now()
+};
+
 app.ports.requestGetLocalName.subscribe((req) => {
   try {
     app.ports.receiveGetLocalName.send({
@@ -918,10 +928,11 @@ In Elm side:
 
     import Json.Decode as JD
     import Json.Encode as JE exposing (Value)
+    import Tepa exposing (PortRequest, PortResponse, Promise)
 
-    port requestGetLocalName : Value -> Cmd msg
+    port requestGetLocalName : PortRequest a
 
-    port receiveGetLocalName : (Value -> msg) -> Sub msg
+    port receiveGetLocalName : PortResponse a
 
     type alias LocalNameResponse =
         { name : Maybe String
@@ -929,11 +940,9 @@ In Elm side:
 
     requestLocalName : String -> Promise Memory Event LocalNameResponse
     requestLocalName userId =
-        portRequest
-            { ports =
-                { request = requestGetLocalName
-                , response = receiveGetLocalName
-                }
+        Tepa.portRequest
+            { request = requestGetLocalName
+            , response = receiveGetLocalName
             , requestBody =
                 JE.object
                     [ ( "requestId", requestId )
@@ -949,15 +958,29 @@ In Elm side:
 
 -}
 portRequest :
-    { ports :
-        { request : Value -> Cmd Msg
-        , response : (Value -> Msg) -> Sub Msg
-        }
+    { request : PortRequest Msg
+    , response : PortResponse Msg
     , requestBody : Value
     }
     -> Promise m Value
-portRequest =
+portRequest param =
     Core.portRequest
+        { ports =
+            { request = param.request
+            , response = param.response
+            }
+        , requestBody = param.requestBody
+        }
+
+
+{-| -}
+type alias PortRequest msg =
+    Value -> Cmd msg
+
+
+{-| -}
+type alias PortResponse msg =
+    (Value -> msg) -> Sub msg
 
 
 {-| Similar to `portRequest`, but `portStream` can receive many responses.
@@ -967,15 +990,19 @@ Keep in mind that this Promise blocks subsequent Promises, so it is common pract
 
 -}
 portStream :
-    { ports :
-        { request : Value -> Cmd Msg
-        , response : (Value -> Msg) -> Sub Msg
-        }
+    { request : PortRequest Msg
+    , response : PortResponse Msg
     , requestBody : Value
     }
     -> Promise m (Stream Value)
-portStream =
+portStream param =
     Core.portStream
+        { ports =
+            { request = param.request
+            , response = param.response
+            }
+        , requestBody = param.requestBody
+        }
 
 
 {-| Tepa.Stream
