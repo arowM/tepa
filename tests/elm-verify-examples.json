@@ -2,7 +2,6 @@
   "root": "../src",
   "tests": [
     "Internal.History",
-    "Internal.SafeInt",
     "Internal.Template"
   ]
 }

@@ -12,13 +12,13 @@ module Internal.Core exposing
     , neverResolved
     , portRequest, portStream
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
-    , HttpRequestBody(..)
+    , HttpRequestBody(..), RequestId(..)
     , now, here
     , getValue, getValues, setValue
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), Layer_, ThisLayerId(..), mapLayer
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence, concurrent
@@ -59,13 +59,13 @@ module Internal.Core exposing
 @docs neverResolved
 @docs portRequest, portStream
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
-@docs HttpRequestBody
+@docs HttpRequestBody, RequestId
 @docs now, here
 @docs getValue, getValues, setValue
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, Layer_, ThisLayerId, mapLayer
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence, concurrent
@@ -116,11 +116,10 @@ import Html exposing (Attribute)
 import Html.Attributes as Attributes
 import Html.Events
 import Http
-import Internal.LayerId as LayerId exposing (LayerId)
-import Internal.RequestId as RequestId exposing (RequestId)
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
 import Process
+import SequenceId exposing (SequenceId)
 import Task
 import Time exposing (Posix)
 
@@ -160,6 +159,43 @@ type alias Context m =
     , nextLayerId : LayerId
     , subs : List (m -> Maybe ( RequestId, Sub Msg ))
     }
+
+
+{-| -}
+type LayerId
+    = LayerId SequenceId
+
+
+incLayerId : LayerId -> LayerId
+incLayerId (LayerId id) =
+    SequenceId.inc id
+        |> LayerId
+
+
+initLayerId : LayerId
+initLayerId =
+    LayerId SequenceId.init
+
+
+{-| -}
+type RequestId
+    = RequestId SequenceId
+
+
+incRequestId : RequestId -> RequestId
+incRequestId (RequestId id) =
+    SequenceId.inc id
+        |> RequestId
+
+
+initRequestId : RequestId
+initRequestId =
+    RequestId SequenceId.init
+
+
+stringifyRequestId : RequestId -> String
+stringifyRequestId (RequestId id) =
+    SequenceId.toString id
 
 
 {-| -}
@@ -731,7 +767,7 @@ monitorChange param =
                 state msg _ =
                     case msg of
                         ViewMsg r ->
-                            if ThisLayerId r.layerId == param.layerId && r.type_ == "change" then
+                            if wrapThisLayerId r.layerId == param.layerId && r.type_ == "change" then
                                 Promise <|
                                     \context_ ->
                                         let
@@ -929,8 +965,7 @@ liftPromiseMemory o (Promise prom1) =
                         { layer =
                             { state = state1
                             , id =
-                                unwrapThisLayerId context.layer.id
-                                    |> ThisLayerId
+                                coerceThisLayerId context.layer.id
                             , events =
                                 unwrapThisLayerEvents context.layer.events
                                     |> ThisLayerEvents
@@ -1042,7 +1077,7 @@ genNewLayerId =
                     context.nextLayerId
 
                 newContext =
-                    { context | nextLayerId = LayerId.inc newLayerId }
+                    { context | nextLayerId = incLayerId newLayerId }
             in
             { newContext = newContext
             , realCmds = []
@@ -1132,8 +1167,7 @@ mapLayer f parent =
                 (\(Layer layer1) ->
                     Layer
                         { id =
-                            unwrapThisLayerId layer1.id
-                                |> ThisLayerId
+                            coerceThisLayerId layer1.id
                         , state = f layer1.state
                         , events =
                             unwrapThisLayerEvents layer1.events
@@ -1155,7 +1189,7 @@ newLayer m1 =
         |> mapPromise
             (\layerId ->
                 Layer
-                    { id = ThisLayerId layerId
+                    { id = wrapThisLayerId layerId
                     , state = m1
                     , events = ThisLayerEvents Dict.empty
                     , values = ThisLayerValues Dict.empty
@@ -1246,20 +1280,33 @@ viewArgs (Layer layer) =
                     )
     , values = unwrapThisLayerValues layer.values
     , checks = unwrapThisLayerChecks layer.checks
-    , layerId =
-        unwrapThisLayerId layer.id
-            |> LayerId.toString
+    , layerId = stringifyThisLayerId layer.id
     }
 
 
 {-| -}
 type ThisLayerId m
-    = ThisLayerId LayerId
+    = ThisLayerId SequenceId
+
+
+stringifyThisLayerId : ThisLayerId m -> String
+stringifyThisLayerId (ThisLayerId id) =
+    SequenceId.toString id
 
 
 unwrapThisLayerId : ThisLayerId m -> LayerId
-unwrapThisLayerId (ThisLayerId lid) =
-    lid
+unwrapThisLayerId (ThisLayerId id) =
+    LayerId id
+
+
+wrapThisLayerId : LayerId -> ThisLayerId m
+wrapThisLayerId (LayerId id) =
+    ThisLayerId id
+
+
+coerceThisLayerId : ThisLayerId m1 -> ThisLayerId m2
+coerceThisLayerId (ThisLayerId id) =
+    ThisLayerId id
 
 
 {-| -}
@@ -1281,10 +1328,10 @@ portStream o =
                 thisLayerId =
                     unwrapThisLayerId context.layer.id
 
-                responseDecoder : Decoder ( RequestId, Value )
+                responseDecoder : Decoder ( String, Value )
                 responseDecoder =
                     JD.map2 Tuple.pair
-                        (JD.field "id" RequestId.decoder)
+                        (JD.field "id" JD.string)
                         (JD.field "body" JD.value)
 
                 nextStream : Msg -> ( List Value, Stream Value )
@@ -1308,7 +1355,7 @@ portStream o =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                     , subs =
                         (\_ ->
                             Just
@@ -1319,8 +1366,8 @@ portStream o =
                                             Err _ ->
                                                 NoOp
 
-                                            Ok ( requestId, body ) ->
-                                                if requestId == myRequestId then
+                                            Ok ( rawRequestId, body ) ->
+                                                if rawRequestId == stringifyRequestId myRequestId then
                                                     PortResponseMsg
                                                         { requestId = myRequestId
                                                         , response = body
@@ -1336,7 +1383,7 @@ portStream o =
             , realCmds =
                 [ o.ports.request <|
                     JE.object
-                        [ ( "id", RequestId.toValue myRequestId )
+                        [ ( "id", JE.string <| stringifyRequestId myRequestId )
                         , ( "body", o.requestBody )
                         ]
                 ]
@@ -1401,7 +1448,7 @@ sleep msec =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ Process.sleep (toFloat msec)
@@ -1469,7 +1516,7 @@ listenTimeEvery interval handler =
 
                 newContext =
                     { context
-                        | nextRequestId = RequestId.inc context.nextRequestId
+                        | nextRequestId = incRequestId context.nextRequestId
                         , subs =
                             (\_ ->
                                 Just
@@ -1528,7 +1575,7 @@ tick interval =
 
                 newContext =
                     { context
-                        | nextRequestId = RequestId.inc context.nextRequestId
+                        | nextRequestId = incRequestId context.nextRequestId
                         , subs =
                             (\_ ->
                                 Just
@@ -1642,7 +1689,7 @@ httpRequest request =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ Http.request
@@ -1705,7 +1752,7 @@ httpBytesRequest request =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ Http.request
@@ -1776,10 +1823,10 @@ portRequest o =
                     unwrapThisLayerId
                         context.layer.id
 
-                responseDecoder : Decoder ( RequestId, Value )
+                responseDecoder : Decoder ( String, Value )
                 responseDecoder =
                     JD.map2 Tuple.pair
-                        (JD.field "id" RequestId.decoder)
+                        (JD.field "id" JD.string)
                         (JD.field "body" JD.value)
 
                 nextPromise : Msg -> m -> Promise m Value
@@ -1800,7 +1847,7 @@ portRequest o =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                     , subs =
                         (\_ ->
                             Just
@@ -1811,10 +1858,10 @@ portRequest o =
                                             Err _ ->
                                                 NoOp
 
-                                            Ok ( requestId, body ) ->
-                                                if requestId == myRequestId then
+                                            Ok ( rawRequestId, body ) ->
+                                                if rawRequestId == stringifyRequestId myRequestId then
                                                     PortResponseMsg
-                                                        { requestId = requestId
+                                                        { requestId = myRequestId
                                                         , response = body
                                                         }
 
@@ -1828,7 +1875,7 @@ portRequest o =
             , realCmds =
                 [ o.ports.request <|
                     JE.object
-                        [ ( "id", RequestId.toValue myRequestId )
+                        [ ( "id", JE.string <| stringifyRequestId myRequestId )
                         , ( "body", o.requestBody )
                         ]
                 ]
@@ -1863,7 +1910,7 @@ now =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ Time.now
@@ -1906,7 +1953,7 @@ here =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ Time.here
@@ -2073,7 +2120,7 @@ customRequest newPromise_ realCmd log =
             in
             { newContext =
                 { context
-                    | nextRequestId = RequestId.inc context.nextRequestId
+                    | nextRequestId = incRequestId context.nextRequestId
                 }
             , realCmds =
                 [ realCmd myRequestId
@@ -2244,13 +2291,13 @@ initContext : m -> Context m
 initContext memory =
     { layer =
         { state = memory
-        , id = ThisLayerId LayerId.init
+        , id = ThisLayerId SequenceId.init
         , events = ThisLayerEvents Dict.empty
         , values = ThisLayerValues Dict.empty
         , checks = ThisLayerChecks Dict.empty
         }
-    , nextRequestId = RequestId.init
-    , nextLayerId = LayerId.inc LayerId.init
+    , nextRequestId = initRequestId
+    , nextLayerId = incLayerId initLayerId
     , subs = []
     }
 
@@ -2276,7 +2323,7 @@ toModel context (Promise prom) =
                         \msg nextContext ->
                             case msg of
                                 ViewMsg viewMsg ->
-                                    if ThisLayerId viewMsg.layerId == nextContext.layer.id && viewMsg.type_ == "change" then
+                                    if wrapThisLayerId viewMsg.layerId == nextContext.layer.id && viewMsg.type_ == "change" then
                                         let
                                             layer =
                                                 nextContext.layer

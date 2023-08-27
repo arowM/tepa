@@ -170,10 +170,8 @@ import Dict exposing (Dict)
 import Expect exposing (Expectation)
 import File exposing (File)
 import Http
-import Internal.Core as Core exposing (Model(..))
+import Internal.Core as Core exposing (LayerId, Model(..), RequestId)
 import Internal.History as History exposing (History)
-import Internal.LayerId exposing (LayerId)
-import Internal.RequestId exposing (RequestId)
 import Internal.Template as Template
 import Json.Encode as JE exposing (Value)
 import Mixin.Html as Html exposing (Html)
@@ -1128,7 +1126,7 @@ expectHttpRequest (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer1) ->
                                 List.filterMap
-                                    (\( ( _, lid ), req ) ->
+                                    (\( ( _, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer1.id then
                                             Just <| fromCoreHttpRequest req
 
@@ -1188,7 +1186,7 @@ expectPortRequest (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer1) ->
                                 List.filterMap
-                                    (\( ( _, lid ), val ) ->
+                                    (\( ( _, Core.LayerId lid ), val ) ->
                                         if Core.ThisLayerId lid == layer1.id then
                                             Just val
 
@@ -1248,7 +1246,7 @@ expectRandomRequest (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer1) ->
                                 List.filterMap
-                                    (\( ( _, lid ), val ) ->
+                                    (\( ( _, Core.LayerId lid ), val ) ->
                                         if Core.ThisLayerId lid == layer1.id then
                                             Just val
 
@@ -1715,7 +1713,7 @@ portResponse (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer) ->
                                 takeLastMatched
-                                    (\( ( rid, lid ), req ) ->
+                                    (\( ( rid, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer.id then
                                             param.response req
                                                 |> Maybe.map
@@ -1837,7 +1835,7 @@ randomResponse (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer) ->
                                 takeLastMatched
-                                    (\( ( rid, lid ), req ) ->
+                                    (\( ( rid, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer.id && Core.isRequestForSpec param.spec req then
                                             Just rid
 
@@ -3240,7 +3238,7 @@ httpResponse (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer) ->
                                 takeLastMatched
-                                    (\( ( rid, lid ), req ) ->
+                                    (\( ( rid, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer.id then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
@@ -3336,7 +3334,7 @@ httpBytesResponse (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer) ->
                                 takeLastMatched
-                                    (\( ( rid, lid ), req ) ->
+                                    (\( ( rid, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer.id then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
