@@ -1,8 +1,7 @@
 module Tepa.HtmlSelector exposing
     ( Selector
-    , tag, text, exactText, containing, attribute, all
+    , tag, text, exactText, containing, attribute, boolAttribute, all
     , id, class, classes, exactClassName, disabled
-    , boolAttribute
     )
 
 {-| Selecting HTML elements for testing.
@@ -14,7 +13,7 @@ _This is TEPA-friendly version of [Test.Html.Selector](https://package.elm-lang.
 
 ## General Selectors
 
-@docs tag, text, exactText, containing, attribute, all
+@docs tag, text, exactText, containing, attribute, boolAttribute, all
 
 
 ## Attributes
@@ -24,7 +23,7 @@ _This is TEPA-friendly version of [Test.Html.Selector](https://package.elm-lang.
 -}
 
 import Html.Attributes as Attributes
-import Test.Html.Selector as HtmlSelector exposing (..)
+import Test.Html.Selector as HtmlSelector
 
 
 {-| A selector used to filter sets of elements.
