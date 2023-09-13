@@ -9,14 +9,13 @@ module Widget.Header exposing (view)
 import App.Path as Path
 import AppUrl
 import Dict
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
-import Tepa exposing (Msg)
+import Tepa.Html as Html exposing (Html)
+import Tepa.Mixin as Mixin exposing (Mixin)
 
 
 {-| Page header.
 -}
-view : Mixin Msg -> Html Msg
+view : Mixin -> Html
 view extra =
     Html.div
         [ extra
@@ -36,7 +35,7 @@ view extra =
         ]
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (pagePrefix ++ name)
 

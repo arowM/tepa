@@ -7,6 +7,8 @@
     "exposed-modules": [
         "Tepa",
         "Tepa.Dom",
+        "Tepa.Html",
+        "Tepa.Mixin",
         "Tepa.Http",
         "Tepa.Navigation",
         "Tepa.Random",

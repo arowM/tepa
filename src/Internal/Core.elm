@@ -118,6 +118,7 @@ import Html.Events
 import Http
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode as JE exposing (Value)
+import Mixin
 import Process
 import SequenceId exposing (SequenceId)
 import Task
@@ -1210,94 +1211,102 @@ viewArgs :
     Layer m
     ->
         { state : m
-        , setKey : String -> List (Attribute Msg)
+        , setKey : String -> Mixin.Mixin Msg
         , values : Dict String String
         , checks : Dict String Bool
         , layerId : String
+        , setKey_ : String -> List (Attribute Msg)
         }
 viewArgs (Layer layer) =
+    let
+        setKey_ =
+            \key ->
+                let
+                    events =
+                        unwrapThisLayerEvents layer.events
+                            |> Dict.get key
+                            |> Maybe.withDefault Dict.empty
+                            |> Dict.update "change"
+                                (\ma ->
+                                    case ma of
+                                        Just a ->
+                                            Just a
+
+                                        Nothing ->
+                                            Just <|
+                                                JD.succeed
+                                                    { stopPropagation = False
+                                                    , preventDefault = False
+                                                    }
+                                )
+                in
+                Dict.toList events
+                    |> List.map
+                        (\( type_, decoder ) ->
+                            Html.Events.custom type_ <|
+                                JD.map2
+                                    (\v { stopPropagation, preventDefault } ->
+                                        { message =
+                                            ViewMsg
+                                                { layerId = unwrapThisLayerId layer.id
+                                                , key = key
+                                                , type_ = type_
+                                                , value = v
+                                                , decoder = decoder
+                                                }
+                                        , stopPropagation = stopPropagation
+                                        , preventDefault = preventDefault
+                                        }
+                                    )
+                                    JD.value
+                                    decoder
+                        )
+                    |> List.append
+                        (unwrapThisLayerValues layer.values
+                            |> Dict.get key
+                            |> (\mstr ->
+                                    case mstr of
+                                        Nothing ->
+                                            []
+
+                                        Just str ->
+                                            -- This is intentional.
+                                            -- `Attributes.property` causes reset user input during editing because
+                                            -- it fires all the time the application Model is updated.
+                                            -- We have come up with three ways to solve this problem,
+                                            -- but for now we will adopt none of them and make them TEPA specifications.
+                                            -- * a. Update values on `input` event
+                                            --      * It causes extra costs
+                                            -- * b. Remove `Attributes.property "value"` during editing
+                                            --      * We gave up this solution because Elm runtime seems to set `""` on removing `Attributes.property "value"`
+                                            -- * c. Create TEPA-original version of `elm` command, it enables Kernel modules for us
+                                            [ Attributes.attribute "value" str
+                                            ]
+                               )
+                        )
+                    |> List.append
+                        (unwrapThisLayerChecks layer.checks
+                            |> Dict.get key
+                            |> (\mp ->
+                                    case mp of
+                                        Nothing ->
+                                            []
+
+                                        Just p ->
+                                            [ Attributes.property "checked" <| JE.bool p
+                                            ]
+                               )
+                        )
+    in
     { state = layer.state
     , setKey =
         \key ->
-            let
-                events =
-                    unwrapThisLayerEvents layer.events
-                        |> Dict.get key
-                        |> Maybe.withDefault Dict.empty
-                        |> Dict.update "change"
-                            (\ma ->
-                                case ma of
-                                    Just a ->
-                                        Just a
-
-                                    Nothing ->
-                                        Just <|
-                                            JD.succeed
-                                                { stopPropagation = False
-                                                , preventDefault = False
-                                                }
-                            )
-            in
-            Dict.toList events
-                |> List.map
-                    (\( type_, decoder ) ->
-                        Html.Events.custom type_ <|
-                            JD.map2
-                                (\v { stopPropagation, preventDefault } ->
-                                    { message =
-                                        ViewMsg
-                                            { layerId = unwrapThisLayerId layer.id
-                                            , key = key
-                                            , type_ = type_
-                                            , value = v
-                                            , decoder = decoder
-                                            }
-                                    , stopPropagation = stopPropagation
-                                    , preventDefault = preventDefault
-                                    }
-                                )
-                                JD.value
-                                decoder
-                    )
-                |> List.append
-                    (unwrapThisLayerValues layer.values
-                        |> Dict.get key
-                        |> (\mstr ->
-                                case mstr of
-                                    Nothing ->
-                                        []
-
-                                    Just str ->
-                                        -- This is intentional.
-                                        -- `Attributes.property` causes reset user input during editing because
-                                        -- it fires all the time the application Model is updated.
-                                        -- We have come up with three ways to solve this problem,
-                                        -- but for now we will adopt none of them and make them TEPA specifications.
-                                        -- * a. Update values on `input` event
-                                        --      * It causes extra costs
-                                        -- * b. Remove `Attributes.property "value"` during editing
-                                        --      * We gave up this solution because Elm runtime seems to set `""` on removing `Attributes.property "value"`
-                                        -- * c. Create TEPA-original version of `elm` command, it enables Kernel modules for us
-                                        [ Attributes.attribute "value" str
-                                        ]
-                           )
-                    )
-                |> List.append
-                    (unwrapThisLayerChecks layer.checks
-                        |> Dict.get key
-                        |> (\mp ->
-                                case mp of
-                                    Nothing ->
-                                        []
-
-                                    Just p ->
-                                        [ Attributes.property "checked" <| JE.bool p
-                                        ]
-                           )
-                    )
+            setKey_ key
+                |> Mixin.fromAttributes
     , values = unwrapThisLayerValues layer.values
     , checks = unwrapThisLayerChecks layer.checks
     , layerId = stringifyThisLayerId layer.id
+    , setKey_ = setKey_
     }
 
 

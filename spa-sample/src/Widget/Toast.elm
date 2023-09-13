@@ -46,9 +46,9 @@ module Widget.Toast exposing
 import App.ZIndex as ZIndex
 import Expect
 import Html.Attributes as Attributes
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
-import Tepa exposing (Layer, Msg, Promise)
+import Tepa exposing (Layer, Promise)
+import Tepa.Html as Html exposing (Html)
+import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Stream as Stream
 import Tepa.Time as Time
@@ -247,7 +247,7 @@ toastItemProcedure =
 
 
 {-| -}
-view : Tepa.ViewContext Memory -> Html Msg
+view : Tepa.ViewContext Memory -> Html
 view context =
     let
         (Memory state) =
@@ -265,7 +265,7 @@ view context =
         )
 
 
-toastItemView : Tepa.ViewContext ToastItemMemory -> Html Msg
+toastItemView : Tepa.ViewContext ToastItemMemory -> Html
 toastItemView { state, setKey } =
     Html.div
         [ localClass "toast_item"
@@ -281,8 +281,7 @@ toastItemView { state, setKey } =
             ]
         , Html.div
             [ localClass "toast_item_close"
-            , Mixin.fromAttributes
-                (setKey keys.toastItemClose)
+            , setKey keys.toastItemClose
             ]
             [ Html.text "×"
             ]
@@ -481,7 +480,7 @@ closeByMessage props messageType { message } markup =
 -- Helper functions
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (classPrefix ++ name)
 

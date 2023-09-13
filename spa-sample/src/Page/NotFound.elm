@@ -20,9 +20,9 @@ import App.Path as Path
 import App.Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
-import Tepa exposing (Layer, Msg, NavKey, Promise)
+import Tepa exposing (Layer, NavKey, Promise)
+import Tepa.Html as Html exposing (Html)
+import Tepa.Mixin as Mixin exposing (Mixin)
 
 
 {-| -}
@@ -51,7 +51,7 @@ leave =
 
 
 {-| -}
-view : Layer Memory -> Html Msg
+view : Layer Memory -> Html
 view =
     Tepa.layerView <|
         \_ ->
@@ -93,7 +93,7 @@ procedure _ _ =
 -- Helper functions
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (pagePrefix ++ name)
 

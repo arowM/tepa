@@ -14,12 +14,12 @@ import App.Session as Session
 import DebugToJson
 import Dict
 import Expect
-import Html
-import Html.Attributes as Attributes
 import Json.Encode as JE
 import Markdown
 import String.Multiline exposing (here)
 import Tepa exposing (Document, Layer)
+import Tepa.Html as Html
+import Tepa.Mixin as Mixin
 import Tepa.Scenario as Scenario exposing (markup, setParam, userComment)
 import Tepa.Time as Time
 import Test exposing (Test)
@@ -111,12 +111,12 @@ documentView =
                         ]
 
                     Ok content ->
-                        [ Html.label
+                        [ Html.node "label"
                             []
                             [ Html.input
-                                (Attributes.type_ "checkbox"
-                                    :: setKey devModeCheckboxId
-                                )
+                                [ Mixin.attribute "type" "checkbox"
+                                , setKey devModeCheckboxId
+                                ]
                                 []
                             , Html.text "Enable dev mode"
                             ]

@@ -27,11 +27,11 @@ import Dict
 import Expect
 import Html.Attributes
 import Json.Encode exposing (Value)
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
 import Page.Login.Login as Login
-import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext)
+import Tepa exposing (Layer, NavKey, Promise, ViewContext)
+import Tepa.Html as Html exposing (Html)
 import Tepa.Http as Http
+import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -76,7 +76,7 @@ leave =
 
 
 {-| -}
-view : Layer Memory -> Html Msg
+view : Layer Memory -> Html
 view =
     Tepa.layerView <|
         \context ->
@@ -113,7 +113,7 @@ initLoginForm =
     }
 
 
-loginFormView : ViewContext LoginFormMemory -> Html Msg
+loginFormView : ViewContext LoginFormMemory -> Html
 loginFormView { state, setKey, values } =
     let
         errors =
@@ -127,7 +127,7 @@ loginFormView { state, setKey, values } =
                 , Login.toFormErrors values
                 ]
 
-        invalidOn : Login.FormError -> Mixin msg
+        invalidOn : Login.FormError -> Mixin
         invalidOn err =
             Mixin.boolAttribute "aria-invalid"
                 (state.showError
@@ -177,7 +177,6 @@ loginFormView { state, setKey, values } =
                 , Mixin.disabled state.isBusy
                 , localClass "loginForm_id_input"
                 , setKey Login.keys.loginFormId
-                    |> Mixin.fromAttributes
                 ]
                 []
             ]
@@ -195,7 +194,6 @@ loginFormView { state, setKey, values } =
                 , Mixin.disabled state.isBusy
                 , localClass "loginForm_password_input"
                 , setKey Login.keys.loginFormPassword
-                    |> Mixin.fromAttributes
                 ]
                 []
             ]
@@ -225,7 +223,6 @@ loginFormView { state, setKey, values } =
             -- If you use the `disabled` attribute, for example, if a user once presses the login button with an incorrect password, then corrects the password again and wants the tab key to focus on the login button, it will not focus properly.
             , Mixin.boolAttribute "aria-disabled" <| state.showError && not (List.isEmpty errors)
             , setKey keys.loginFormLoginButton
-                |> Mixin.fromAttributes
             ]
             [ Html.text "Login"
             ]
@@ -676,7 +673,7 @@ expectLoginButtonIsBusy props isBusy markup =
 -- Helper functions
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (pagePrefix ++ name)
 

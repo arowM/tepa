@@ -30,6 +30,8 @@ module Tepa exposing
     , newLayer
     , onLayer, LayerResult(..)
     , isOnSameLayer
+    , Html
+    , Mixin
     , layerView
     , ViewContext
     , mapViewContext
@@ -346,8 +348,10 @@ The new `Page' definition above uses`Layer' to wrap each page memory state. A pr
 ## View
 
 The _View_ determines how your application is rendered in the web browser, based only on the current layer state.
-You use [elm/html](https://package.elm-lang.org/packages/elm/html/latest/) to tell the web browser how to render the page.
-Note that TEPA **does not** use the `Html.Events` module.
+You use [Tepa.Html](Tepa-Html) and [Tepa.Mixin](Tepa-Mixin) to tell the web browser how to render the page.
+
+@docs Html
+@docs Mixin
 
 
 ### Define Views
@@ -385,35 +389,36 @@ The `state` field of the `ViewContext` indicates current memory state of the Lay
 
 Key is used to specify a specific View element.
 
-    import Html exposing (Html)
-    import Html.Attributes as Attributes
     import Tepa exposing (Layer, Msg)
+    import Tepa.Html as Html exposing (Html)
+    import Tepa.Mixin as Mixin
 
-    formView : Layer Memory -> Html Msg
+    formView : Layer Memory -> Html
     formView =
         Tepa.layerView <|
             \{ setKey, values } ->
-                Html.form
-                    [ Attributes.novalidate True
+                Html.node "form"
+                    [ Mixin.attribute "novalidate" "true"
                     ]
-                    [ Html.label []
+                    [ Html.node "label"
+                        []
                         [ Html.text "Name: "
-                        , Html.input
-                            (setKey "form_name"
-                                ++ [ Attributes.type_ "text"
-                                   , Attributes.placeholder "Sakura-chan"
-                                   ]
-                            )
+                        , Html.node "input"
+                            [ setKey "form_name"
+                            , Mixin.attribute "type" "text"
+                            , Mixin.attribute "placeholder" "Sakura-chan"
+                            ]
                             []
                         ]
                     , Html.button
-                        (setKey "form_submit")
+                        [ setKey "form_submit"
+                        ]
                         [ Html.text "Submit"
                         ]
                     , errors values
                     ]
 
-    errors : Dict String String -> Html Msg
+    errors : Dict String String -> Html
     errors formValues =
         case Dict.get "form_name" formValues of
             Just "" ->
@@ -425,6 +430,8 @@ Key is used to specify a specific View element.
 This example uses the `setKey` of the `ViewContext` to set the key named "form\_name" to the name input, and "form\_submit" to the submit button. In this way, you can retrieve the user input value with the `values` field of the `ViewContext`.
 
 Note that keys on the same Layer must be unique.
+
+_For TEA users: You can use `setKey` alternative for `Html.Attribute` that elm/html expose. It means you can use layout libraries such as neat-layout or elm-ui._
 
 
 ### Handle form value on Procedure
@@ -505,7 +512,7 @@ _For TEA users: If you have an existing application built with TEA, you can part
 import AppUrl exposing (AppUrl)
 import Browser
 import Dict exposing (Dict)
-import Html exposing (Attribute, Html)
+import Html exposing (Attribute)
 import Internal.Core as Core
     exposing
         ( Msg(..)
@@ -513,6 +520,7 @@ import Internal.Core as Core
         )
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
+import Mixin
 import Platform
 import Url exposing (Url)
 
@@ -1227,12 +1235,32 @@ layerView f layer =
 
 
 {-| -}
+type alias Html =
+    Html.Html Msg
+
+
+{-| -}
+type alias Mixin =
+    Mixin.Mixin Msg
+
+
+{-|
+
+  - `state`: Current Memory state.
+  - `setKey`: Set a key to the element.
+  - `values`: Current values of the control elements, keyed by its key strings set with `setKey`.
+  - `checks`: Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
+  - `layerId`: Unique string that identifies current Layer.
+  - `setKey_`: _(Only for TEA users) TEA version of `setKey`._
+
+-}
 type alias ViewContext m =
     { state : m
-    , setKey : String -> List (Attribute Msg)
+    , setKey : String -> Mixin
     , values : Dict String String
     , checks : Dict String Bool
     , layerId : String
+    , setKey_ : String -> List (Attribute Msg)
     }
 
 
@@ -1244,6 +1272,7 @@ mapViewContext f context =
     , values = context.values
     , checks = context.checks
     , layerId = context.layerId
+    , setKey_ = context.setKey_
     }
 
 
@@ -1398,7 +1427,7 @@ _This is the TEPA version of [Browser.Document](https://package.elm-lang.org/pac
 -}
 type alias Document =
     { title : String
-    , body : List (Html Msg)
+    , body : List Html
     }
 
 

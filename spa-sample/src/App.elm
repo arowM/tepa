@@ -24,12 +24,12 @@ import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Json.Encode exposing (Value)
-import Mixin.Html as Html exposing (Html)
 import Page.Chat as PageChat
 import Page.Home as PageHome
 import Page.Login as PageLogin
 import Page.NotFound as PageNotFound
 import Tepa exposing (Document, Layer, NavKey, Promise)
+import Tepa.Html as Html exposing (Html)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
 import Tepa.Random as Random
@@ -196,7 +196,7 @@ view state =
 -- -- PageLoading
 
 
-pageLoadingView : Html msg
+pageLoadingView : Html
 pageLoadingView =
     Html.text "Loading..."
 

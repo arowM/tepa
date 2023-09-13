@@ -31,11 +31,11 @@ import Dict
 import Expect
 import Html.Attributes
 import Json.Encode exposing (Value)
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
 import Page.Home.EditAccount as EditAccount
-import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext)
+import Tepa exposing (Layer, NavKey, Promise, ViewContext)
+import Tepa.Html as Html exposing (Html)
 import Tepa.Http as Http
+import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Time as Time exposing (Posix)
@@ -102,7 +102,7 @@ leave =
 
 
 {-| -}
-view : Layer Memory -> Html Msg
+view : Layer Memory -> Html
 view =
     Tepa.layerView <|
         \context ->
@@ -204,7 +204,7 @@ displayLuckyHay hay =
             "Bermuda grass"
 
 
-clockView : ViewContext ClockMemory -> Html Msg
+clockView : ViewContext ClockMemory -> Html
 clockView { state } =
     Html.div
         [ localClass "clock"
@@ -284,7 +284,7 @@ type alias EditAccountFormMemory =
     }
 
 
-editAccountFormView : ViewContext EditAccountFormMemory -> Html Msg
+editAccountFormView : ViewContext EditAccountFormMemory -> Html
 editAccountFormView { state, setKey, values } =
     let
         errors =
@@ -308,7 +308,6 @@ editAccountFormView { state, setKey, values } =
                 , Mixin.disabled state.isBusy
                 , localClass "editAccountForm_id_input"
                 , setKey EditAccount.keys.editAccountFormName
-                    |> Mixin.fromAttributes
                 , Mixin.boolAttribute "aria-invalid" <|
                     state.showError
                         && List.member EditAccount.IdRequired errors
@@ -338,7 +337,6 @@ editAccountFormView { state, setKey, values } =
             , Mixin.boolAttribute "aria-busy" state.isBusy
             , Mixin.boolAttribute "aria-disabled" <| state.showError && not (List.isEmpty errors)
             , setKey keys.editAccountFormSaveButton
-                |> Mixin.fromAttributes
             ]
             [ Html.text "Save"
             ]
@@ -780,7 +778,7 @@ expectLuckyHayMessage props { value } markup =
 -- Helper functions
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (pagePrefix ++ name)
 

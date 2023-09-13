@@ -30,13 +30,13 @@ import Dict
 import Expect exposing (Expectation)
 import Html.Attributes
 import Json.Encode as JE exposing (Value)
-import Mixin exposing (Mixin)
-import Mixin.Html as Html exposing (Html)
 import Page.Chat.ChatServer as ChatServer
 import Page.Chat.Message as Message exposing (ActiveUser, Message)
 import Page.Chat.NewMessage as NewMessage
 import String.Multiline exposing (here)
-import Tepa exposing (Layer, Msg, NavKey, Promise, ViewContext)
+import Tepa exposing (Layer, NavKey, Promise, ViewContext)
+import Tepa.Html as Html exposing (Html)
+import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Stream as Stream
@@ -103,7 +103,7 @@ leave =
 
 
 {-| -}
-view : Layer Memory -> Html Msg
+view : Layer Memory -> Html
 view =
     Tepa.layerView <|
         \context ->
@@ -129,7 +129,7 @@ view =
                 ]
 
 
-activeUsersView : List ActiveUser -> Html Msg
+activeUsersView : List ActiveUser -> Html
 activeUsersView activeUsers =
     Html.div
         [ localClass "activeUsers"
@@ -156,7 +156,7 @@ activeUsersView activeUsers =
         ]
 
 
-messageFieldView : List Message -> Html Msg
+messageFieldView : List Message -> Html
 messageFieldView messages =
     Html.div
         [ localClass "messageField"
@@ -170,7 +170,7 @@ messageFieldView messages =
         ]
 
 
-renderMessage : Message -> Html Msg
+renderMessage : Message -> Html
 renderMessage message =
     case message of
         Message.UserEntered param ->
@@ -238,7 +238,7 @@ type alias NewMessageFormMemory =
     }
 
 
-newMessageFormView : ViewContext NewMessageFormMemory -> Html Msg
+newMessageFormView : ViewContext NewMessageFormMemory -> Html
 newMessageFormView { state, setKey, values } =
     let
         errors =
@@ -252,8 +252,7 @@ newMessageFormView { state, setKey, values } =
         [ Html.node "textarea"
             [ localClass "newMessageForm_control_body"
             , Mixin.id newMessageFormBodyId
-            , Mixin.fromAttributes
-                (setKey NewMessage.keys.body)
+            , setKey NewMessage.keys.body
             , Mixin.boolAttribute "aria-invalid" <|
                 state.showError
                     && List.member NewMessage.BodyRequired errors
@@ -281,8 +280,7 @@ newMessageFormView { state, setKey, values } =
             , Mixin.attribute "type" "button"
             , Mixin.boolAttribute "aria-busy" state.isBusy
             , Mixin.boolAttribute "aria-disabled" <| state.showError && not (List.isEmpty errors)
-            , Mixin.fromAttributes
-                (setKey NewMessage.keys.submit)
+            , setKey NewMessage.keys.submit
             ]
             [ Html.text "Submit"
             ]
@@ -891,7 +889,7 @@ expectSubmitMessageButtonIsBusy props isBusy markup =
 -- Helper functions
 
 
-localClass : String -> Mixin msg
+localClass : String -> Mixin
 localClass name =
     Mixin.class (pagePrefix ++ name)
 
