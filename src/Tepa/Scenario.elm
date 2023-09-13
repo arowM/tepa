@@ -5,6 +5,7 @@ module Tepa.Scenario exposing
     , toTest
     , toMarkdown
     , InvalidMarkup(..)
+    , stringifyInvalidMarkup
     , Section
     , Dependency(..)
     , User
@@ -63,6 +64,7 @@ module Tepa.Scenario exposing
 @docs toTest
 @docs toMarkdown
 @docs InvalidMarkup
+@docs stringifyInvalidMarkup
 @docs Section
 @docs Dependency
 
@@ -263,6 +265,26 @@ type InvalidMarkup
     | NoDependentSection String
     | DuplicatedSection String
     | ParameterNotFound String String
+
+
+{-| -}
+stringifyInvalidMarkup : InvalidMarkup -> String
+stringifyInvalidMarkup err =
+    case err of
+        InvalidFromJust str ->
+            str ++ "\nfromJust: The value is Nothing."
+
+        InvalidFromOk str ->
+            str ++ "\nThe value is Err."
+
+        NoDependentSection str ->
+            str ++ "\nNo dependent section."
+
+        DuplicatedSection str ->
+            str ++ "\nDuplicated section."
+
+        ParameterNotFound name desc ->
+            desc ++ "\nParameter not found: " ++ name
 
 
 {-| A Scenario that does nothing.

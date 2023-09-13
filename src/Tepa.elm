@@ -39,6 +39,7 @@ module Tepa exposing
     , getFormState, FormState
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
+    , headless
     , update
     , subscriptions
     , init
@@ -477,6 +478,11 @@ Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/E
 To create user scenarios and generate tests for them, see the [`Tepa.Scenario`](./Tepa-Scenario) module.
 
 
+# Headless
+
+@docs headless
+
+
 # Connect to TEA app
 
 _For TEA users: If you have an existing application built with TEA, you can partially replace it with TEPA._
@@ -507,6 +513,7 @@ import Internal.Core as Core
         )
 import Json.Decode as JD exposing (Decoder)
 import Json.Encode exposing (Value)
+import Platform
 import Url exposing (Url)
 
 
@@ -1415,6 +1422,31 @@ fromBrowserUrlRequest req =
 
         Browser.External url ->
             ExternalPage url
+
+
+{-| Build headless application.
+You can use `headless` to save your scenario document as a markdown file.
+-}
+headless :
+    { init : memory
+    , procedure : Value -> Promise memory ()
+    }
+    -> Program memory
+headless props =
+    Platform.worker
+        { init =
+            \flags ->
+                let
+                    newState =
+                        Core.init props.init (props.procedure flags)
+                in
+                ( newState.nextModel
+                , newState.realCmds
+                    |> Cmd.batch
+                )
+        , update = update
+        , subscriptions = subscriptions
+        }
 
 
 
