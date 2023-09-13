@@ -28,7 +28,6 @@ import App.Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect exposing (Expectation)
-import Html.Attributes
 import Json.Encode as JE exposing (Value)
 import Page.Chat.ChatServer as ChatServer
 import Page.Chat.Message as Message exposing (ActiveUser, Message)
@@ -36,6 +35,7 @@ import Page.Chat.NewMessage as NewMessage
 import String.Multiline exposing (here)
 import Tepa exposing (Layer, NavKey, Promise, ViewContext)
 import Tepa.Html as Html exposing (Html)
+import Tepa.HtmlSelector as Selector
 import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
 import Tepa.Scenario as Scenario exposing (Scenario)
@@ -43,7 +43,6 @@ import Tepa.Stream as Stream
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
-import Test.Html.Selector as Selector
 import Widget.Header as Header
 import Widget.Toast as Toast
 
@@ -568,10 +567,8 @@ clickSubmitMessage props markup =
         { query =
             Query.find
                 [ localClassSelector "newMessageForm_control_submit"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-disabled" "false"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-busy" "false"
+                , Selector.attribute "aria-disabled" "false"
+                , Selector.attribute "aria-busy" "false"
                 ]
         , operation =
             HtmlEvent.click
@@ -874,13 +871,7 @@ expectSubmitMessageButtonIsBusy props isBusy markup =
                         [ localClassSelector "newMessageForm_control_submit"
                         ]
                     |> Query.has
-                        [ Selector.attribute <|
-                            Html.Attributes.attribute "aria-busy" <|
-                                if isBusy then
-                                    "true"
-
-                                else
-                                    "false"
+                        [ Selector.boolAttribute "aria-busy" isBusy
                         ]
         }
 

@@ -8,6 +8,7 @@
         "Tepa",
         "Tepa.Dom",
         "Tepa.Html",
+        "Tepa.HtmlSelector",
         "Tepa.Mixin",
         "Tepa.Http",
         "Tepa.Navigation",

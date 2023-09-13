@@ -25,11 +25,11 @@ import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
-import Html.Attributes
 import Json.Encode exposing (Value)
 import Page.Login.Login as Login
 import Tepa exposing (Layer, NavKey, Promise, ViewContext)
 import Tepa.Html as Html exposing (Html)
+import Tepa.HtmlSelector as Selector
 import Tepa.Http as Http
 import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
@@ -39,7 +39,6 @@ import Tepa.Stream as Stream
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
-import Test.Html.Selector as Selector
 import Widget.Toast as Toast
 
 
@@ -530,10 +529,8 @@ clickSubmitLogin props markup =
         { query =
             Query.find
                 [ localClassSelector "loginForm_loginButton"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-disabled" "false"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-busy" "false"
+                , Selector.attribute "aria-disabled" "false"
+                , Selector.attribute "aria-busy" "false"
                 ]
         , operation =
             HtmlEvent.click
@@ -658,13 +655,7 @@ expectLoginButtonIsBusy props isBusy markup =
                         [ localClassSelector "loginForm_loginButton"
                         ]
                     |> Query.has
-                        [ Selector.attribute <|
-                            Html.Attributes.attribute "aria-busy" <|
-                                if isBusy then
-                                    "true"
-
-                                else
-                                    "false"
+                        [ Selector.boolAttribute "aria-busy" isBusy
                         ]
         }
 

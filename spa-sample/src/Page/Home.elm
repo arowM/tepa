@@ -29,11 +29,11 @@ import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
-import Html.Attributes
 import Json.Encode exposing (Value)
 import Page.Home.EditAccount as EditAccount
 import Tepa exposing (Layer, NavKey, Promise, ViewContext)
 import Tepa.Html as Html exposing (Html)
+import Tepa.HtmlSelector as Selector
 import Tepa.Http as Http
 import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Navigation as Nav
@@ -42,7 +42,6 @@ import Tepa.Time as Time exposing (Posix)
 import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
-import Test.Html.Selector as Selector
 import Widget.Header as Header
 import Widget.Toast as Toast
 
@@ -615,10 +614,8 @@ clickSubmitEditAccount props markup =
         { query =
             Query.find
                 [ localClassSelector "editAccountForm_saveButton"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-disabled" "false"
-                , Selector.attribute <|
-                    Html.Attributes.attribute "aria-busy" "false"
+                , Selector.attribute "aria-disabled" "false"
+                , Selector.attribute "aria-busy" "false"
                 ]
         , operation =
             HtmlEvent.click
@@ -651,7 +648,8 @@ clickStartChat props markup =
                             ]
                         |> Query.has
                             [ Selector.tag "a"
-                            , Selector.attribute (Html.Attributes.href <| AppUrl.toString href)
+                            , Selector.attribute "href" <|
+                                AppUrl.toString href
                             ]
             }
         , Scenario.pushPath props.session

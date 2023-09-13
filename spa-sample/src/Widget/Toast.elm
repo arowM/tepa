@@ -45,16 +45,15 @@ module Widget.Toast exposing
 
 import App.ZIndex as ZIndex
 import Expect
-import Html.Attributes as Attributes
 import Tepa exposing (Layer, Promise)
 import Tepa.Html as Html exposing (Html)
+import Tepa.HtmlSelector as Selector
 import Tepa.Mixin as Mixin exposing (Mixin)
 import Tepa.Scenario as Scenario exposing (Scenario)
 import Tepa.Stream as Stream
 import Tepa.Time as Time
 import Test.Html.Event as HtmlEvent
 import Test.Html.Query as HtmlQuery
-import Test.Html.Selector as Selector
 
 
 
@@ -413,8 +412,7 @@ expectDisappearingMessage props messageType { message } markup =
                 HtmlQuery.fromHtml (Html.div [] body)
                     |> HtmlQuery.findAll
                         [ localClassSelector <| "toast_item-" ++ messageTypeCode messageType
-                        , Selector.attribute
-                            (Attributes.attribute "aria-hidden" "true")
+                        , Selector.attribute "aria-hidden" "true"
                         ]
                     |> HtmlQuery.keep
                         (Selector.all
@@ -461,8 +459,7 @@ closeByMessage props messageType { message } markup =
                 , localClassSelector <|
                     "toast_item-"
                         ++ messageTypeCode messageType
-                , Selector.attribute
-                    (Attributes.attribute "aria-hidden" "false")
+                , Selector.attribute "aria-hidden" "false"
                 , Selector.containing
                     [ localClassSelector "toast_item_body"
                     , Selector.exactText message
