@@ -15,6 +15,7 @@ module Tepa.Scenario exposing
     , markup
     , hide
     , setParam
+    , modifyContent
     , userComment
     , systemComment
     , comment
@@ -22,6 +23,7 @@ module Tepa.Scenario exposing
     , userTodo
     , expectMemory
     , expectAppView
+    , expectValues
     , expectCurrentTime
     , expectHttpRequest
     , expectPortRequest
@@ -38,9 +40,11 @@ module Tepa.Scenario exposing
     , HttpRequest
     , HttpRequestBody(..)
     , portResponse
+    , PortRequest
     , randomResponse
     , forward
     , back
+    , pushPath
     , fromJust
     , fromOk
     , RenderConfig
@@ -81,6 +85,7 @@ module Tepa.Scenario exposing
 @docs markup
 @docs hide
 @docs setParam
+@docs modifyContent
 
 
 # Primitives
@@ -103,6 +108,7 @@ module Tepa.Scenario exposing
 
 @docs expectMemory
 @docs expectAppView
+@docs expectValues
 @docs expectCurrentTime
 @docs expectHttpRequest
 @docs expectPortRequest
@@ -135,6 +141,7 @@ module Tepa.Scenario exposing
 ## Port response Simulators
 
 @docs portResponse
+@docs PortRequest
 
 
 ## Random response Simulators
@@ -146,6 +153,7 @@ module Tepa.Scenario exposing
 
 @docs forward
 @docs back
+@docs pushPath
 
 
 # Conditions
@@ -230,7 +238,7 @@ type alias TestContext m =
 {-| -}
 type alias SessionContext m =
     { model : Model m
-    , portRequests : List ( ( RequestId, LayerId ), Value ) -- reversed
+    , portRequests : List ( ( RequestId, LayerId ), Core.PortRequest ) -- reversed
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
     , randomRequests : List ( ( RequestId, LayerId ), Core.RandomRequest ) -- reversed
     , timers : List Timer
@@ -633,6 +641,41 @@ type alias Markup_ =
     }
 
 
+{-| Modify `Markup` content part.
+
+Markup:
+
+    markup """
+    This is **content**.
+    You can also provide detail informations.
+
+    ```json
+    {
+      "foo": 3
+    }
+    ```
+    """
+        |> modifyContent (String.prepend "(notation) ")
+
+Rendered to:
+
+    - (notation) This is **content**.
+
+        You can also provide detail informations.
+
+        ```json
+        {
+          "foo": 3
+        }
+        ```
+
+-}
+modifyContent : (String -> String) -> Markup -> Markup
+modifyContent f (Markup markup_) =
+    Markup
+        { markup_ | content = f markup_.content }
+
+
 {-| Constructor for `Markup`.
 
 Markup:
@@ -982,7 +1025,7 @@ Suppose your application has a popup:
 
 You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
-Note that the `expectation` field takes page whole view even if you use it in `onLayer` function.
+Note that the `expectation` field takes whole page view even if you use it in `onLayer` function.
 
     onLayer popup
         [ expectAppView sakuraChanMainSession
@@ -1029,6 +1072,61 @@ expectAppView (Session session) (Markup markup_) { expectation } =
             \config ->
                 appendMarkup <|
                     config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
+        }
+
+
+{-| Describe your expectations for the user input values in the specified Layer at the point.
+
+You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
+
+-}
+expectValues :
+    Session
+    -> Markup
+    ->
+        { layer : Layer m -> Maybe (Layer m1)
+        , expectation : Dict String String -> Expectation
+        }
+    -> Scenario m
+expectValues (Session session) (Markup markup_) param =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "expectValues: The application is not active in the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        case param.layer <| Core.layerState sessionContext.model of
+                            Nothing ->
+                                SeqTest.fail description <|
+                                    \_ ->
+                                        Err (Core.memoryState sessionContext.model)
+                                            |> Expect.equal
+                                                (Ok "expectValues: No layer found.")
+
+                            Just (Core.Layer layer1) ->
+                                let
+                                    (Core.ThisLayerValues dict) =
+                                        layer1.values
+                                in
+                                SeqTest.pass dict
+                                    |> SeqTest.assert description
+                                        param.expectation
+                                    |> SeqTest.map (\_ -> context)
+        , markup =
+            \config ->
+                appendMarkup <|
+                    config.processSessionScenario
                         { uniqueSessionName = session.uniqueName }
                         (Markup markup_)
         }
@@ -1161,7 +1259,7 @@ expectPortRequest :
     -> Markup
     ->
         { layer : Layer m -> Maybe (Layer m1)
-        , expectation : List Value -> Expectation
+        , expectation : List PortRequest -> Expectation
         }
     -> Scenario m
 expectPortRequest (Session session) (Markup markup_) param =
@@ -1190,9 +1288,9 @@ expectPortRequest (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer1) ->
                                 List.filterMap
-                                    (\( ( _, Core.LayerId lid ), val ) ->
+                                    (\( ( _, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer1.id then
-                                            Just val
+                                            Just req
 
                                         else
                                             Nothing
@@ -1200,7 +1298,16 @@ expectPortRequest (Session session) (Markup markup_) param =
                                     sessionContext.portRequests
                                     |> SeqTest.pass
                                     |> SeqTest.assert description
-                                        param.expectation
+                                        (\requests ->
+                                            List.map
+                                                (\request ->
+                                                    { name = request.portName
+                                                    , requestBody = request.body
+                                                    }
+                                                )
+                                                requests
+                                                |> param.expectation
+                                        )
                                     |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
@@ -1466,6 +1573,10 @@ closeApp (Session session) (Markup markup_) =
 
 Simulate a custom event. The String is the event name, and the Value is the event object the browser would send to the event listener callback.
 
+Note that current version does not trigger page transition on clicking anchor elements.
+Alternatively, you can check the anchor has expected `href` value with `expectAppView`,
+and `pushPath` to the path.
+
 -}
 userOperation :
     Session
@@ -1678,7 +1789,8 @@ Suppose your application requests to access localStorage via port request named 
             (markup "Received response.")
             { layer = "Port to get page.account.bio"
             , response =
-                JE.string "I'm Sakura-chan."
+                \_ ->
+                    JE.string "I'm Sakura-chan."
             }
         , Debug.todo "..."
         ]
@@ -1691,7 +1803,7 @@ portResponse :
     -> Markup
     ->
         { layer : Layer m -> Maybe (Layer m1)
-        , response : Value -> Maybe Value
+        , response : PortRequest -> Maybe Value
         }
     -> Scenario m
 portResponse (Session session) (Markup markup_) param =
@@ -1719,7 +1831,10 @@ portResponse (Session session) (Markup markup_) param =
                                 takeLastMatched
                                     (\( ( rid, Core.LayerId lid ), req ) ->
                                         if Core.ThisLayerId lid == layer.id then
-                                            param.response req
+                                            param.response
+                                                { name = req.portName
+                                                , requestBody = req.body
+                                                }
                                                 |> Maybe.map
                                                     (\resp ->
                                                         Core.PortResponseMsg
@@ -1732,17 +1847,15 @@ portResponse (Session session) (Markup markup_) param =
                                             Nothing
                                     )
                                     sessionContext.portRequests
-                                    |> Result.fromMaybe "portResponse: No requests found for the response."
+                                    |> Result.fromMaybe "portResponse: No listening ports found for the response."
                                     |> Result.andThen
-                                        (\( msg, nextPortRequests ) ->
+                                        (\( msg, _ ) ->
                                             let
                                                 updateResult =
                                                     update
                                                         context
                                                         msg
-                                                        { sessionContext
-                                                            | portRequests = nextPortRequests
-                                                        }
+                                                        sessionContext
                                             in
                                             case updateResult of
                                                 SessionExpired ->
@@ -1779,6 +1892,18 @@ portResponse (Session session) (Markup markup_) param =
                         { uniqueSessionName = session.uniqueName }
                         (Markup markup_)
         }
+
+
+{-| Port request:
+
+  - `name` to identify the port, which you passed as `portName` field of `portRequest` or `portStream`.
+  - `requestBody`, which you passed as `requestBody` field of `portRequest` or `portStream`.
+
+-}
+type alias PortRequest =
+    { name : String
+    , requestBody : Value
+    }
 
 
 {-| Simulate response to the `Tepa.Random.request`.
@@ -2064,6 +2189,70 @@ wrapBySpec spec =
             param.wrap
 
 
+{-| Simulate page transition.
+-}
+pushPath :
+    Session
+    -> AppUrl
+    -> Markup
+    -> Scenario m
+pushPath (Session session) path (Markup markup_) =
+    let
+        description =
+            "[" ++ session.uniqueName ++ "] " ++ markup_.content
+    in
+    Scenario
+        { test =
+            \_ context ->
+                case Dict.get session.uniqueName context.sessions of
+                    Nothing ->
+                        SeqTest.fail description <|
+                            \_ ->
+                                Expect.fail
+                                    "pushPath: The application is not active in the session. Use `loadApp` beforehand."
+
+                    Just sessionContext ->
+                        let
+                            newHistory =
+                                History.push path sessionContext.history
+
+                            updateResult =
+                                update context
+                                    (Core.UrlChange <| History.current newHistory)
+                                    { sessionContext
+                                        | history = newHistory
+                                    }
+                        in
+                        case updateResult of
+                            SessionExpired ->
+                                SeqTest.pass
+                                    { context
+                                        | sessions =
+                                            Dict.remove session.uniqueName
+                                                context.sessions
+                                    }
+
+                            SessionUpdateFailed err ->
+                                SeqTest.fail description <|
+                                    \_ -> Expect.fail err
+
+                            SessionUpdated nextSessionContext ->
+                                SeqTest.pass
+                                    { context
+                                        | sessions =
+                                            Dict.insert session.uniqueName
+                                                nextSessionContext
+                                                context.sessions
+                                    }
+        , markup =
+            \config ->
+                appendMarkup <|
+                    config.processSystemScenario
+                        { uniqueSessionName = session.uniqueName }
+                        (Markup markup_)
+        }
+
+
 
 -- Conditions
 
@@ -2139,6 +2328,11 @@ fromOk description res f =
 toTest :
     { props : ApplicationProps memory
     , sections : List (Section memory)
+    , origin :
+        { secure : Bool
+        , hostname : String
+        , port_ : Maybe Int
+        }
     }
     -> Test
 toTest o =
@@ -3191,22 +3385,6 @@ fromCoreHttpRequestBody core =
 
 
 {-| Simulate response to the `Tepa.Http.request` and `Tepa.Http.bytesRequest`.
-
-Suppose your application requests to access localStorage via port request named "Port to get page.account.bio":
-
-    import Json.Encode as JE
-
-    myScenario =
-        [ Debug.todo "After request to the port..."
-        , portResponse sakuraChanMainSession
-            (markup "Received response.")
-            { layer = pageHomeLayer
-            , name = "Port to get page.account.bio"
-            , response =
-                JE.string "I'm Sakura-chan."
-            }
-        , Debug.todo "..."
-        ]
 
 If no Layers found for the query, it does nothing and just passes the test.
 

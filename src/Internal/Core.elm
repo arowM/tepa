@@ -10,7 +10,7 @@ module Internal.Core exposing
     , syncPromise
     , liftPromiseMemory
     , neverResolved
-    , portRequest, portStream
+    , portRequest, portStream, PortRequest
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..), RequestId(..)
     , now, here
@@ -57,7 +57,7 @@ module Internal.Core exposing
 @docs syncPromise
 @docs liftPromiseMemory
 @docs neverResolved
-@docs portRequest, portStream
+@docs portRequest, portStream, PortRequest
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody, RequestId
 @docs now, here
@@ -309,7 +309,7 @@ type Log
     | RequestCurrentTime RequestId
     | RequestCurrentZone RequestId
     | IssueHttpRequest RequestId LayerId HttpRequest
-    | HandshakePortStream RequestId LayerId Value
+    | HandshakePortStream RequestId LayerId PortRequest
     | IssueRandomRequest RequestId LayerId RandomRequest
     | ResolvePortRequest RequestId
     | ResolveHttpRequest RequestId
@@ -363,6 +363,13 @@ type RandomSpec a
         , unwrap : RandomValue -> Maybe a
         , wrap : a -> Result String RandomValue
         }
+
+
+{-| -}
+type alias PortRequest =
+    { portName : String
+    , body : Value
+    }
 
 
 
@@ -1261,7 +1268,17 @@ viewArgs (Layer layer) =
                                         []
 
                                     Just str ->
-                                        [ Attributes.property "value" <| JE.string str
+                                        -- This is intentional.
+                                        -- `Attributes.property` causes reset user input during editing because
+                                        -- it fires all the time the application Model is updated.
+                                        -- We have come up with three ways to solve this problem,
+                                        -- but for now we will adopt none of them and make them TEPA specifications.
+                                        -- * a. Update values on `input` event
+                                        --      * It causes extra costs
+                                        -- * b. Remove `Attributes.property "value"` during editing
+                                        --      * We gave up this solution because Elm runtime seems to set `""` on removing `Attributes.property "value"`
+                                        -- * c. Create TEPA-original version of `elm` command, it enables Kernel modules for us
+                                        [ Attributes.attribute "value" str
                                         ]
                            )
                     )
@@ -1314,6 +1331,7 @@ portStream :
     { ports :
         { request : Value -> Cmd Msg
         , response : (Value -> Msg) -> Sub Msg
+        , name : String
         }
     , requestBody : Value
     }
@@ -1388,7 +1406,11 @@ portStream o =
                         ]
                 ]
             , logs =
-                [ HandshakePortStream myRequestId thisLayerId o.requestBody
+                [ HandshakePortStream myRequestId
+                    thisLayerId
+                    { portName = o.ports.name
+                    , body = o.requestBody
+                    }
                 ]
             , state =
                 Resolved <|
@@ -1808,6 +1830,7 @@ portRequest :
     { ports :
         { request : Value -> Cmd Msg
         , response : (Value -> Msg) -> Sub Msg
+        , name : String
         }
     , requestBody : Value
     }
@@ -1880,7 +1903,11 @@ portRequest o =
                         ]
                 ]
             , logs =
-                [ HandshakePortStream myRequestId thisLayerId o.requestBody
+                [ HandshakePortStream myRequestId
+                    thisLayerId
+                    { portName = o.ports.name
+                    , body = o.requestBody
+                    }
                 ]
             , state = AwaitMsg nextPromise
             }
@@ -2321,48 +2348,8 @@ toModel context (Promise prom) =
                     { context = eff.newContext
                     , next =
                         \msg nextContext ->
-                            case msg of
-                                ViewMsg viewMsg ->
-                                    if wrapThisLayerId viewMsg.layerId == nextContext.layer.id && viewMsg.type_ == "change" then
-                                        let
-                                            layer =
-                                                nextContext.layer
-                                        in
-                                        toModel
-                                            { nextContext
-                                                | layer =
-                                                    { layer
-                                                        | values =
-                                                            unwrapThisLayerValues layer.values
-                                                                |> (case JD.decodeValue Html.Events.targetValue viewMsg.value of
-                                                                        Err _ ->
-                                                                            identity
-
-                                                                        Ok value ->
-                                                                            Dict.insert viewMsg.key value
-                                                                   )
-                                                                |> ThisLayerValues
-                                                        , checks =
-                                                            unwrapThisLayerChecks layer.checks
-                                                                |> (case JD.decodeValue checkPropertyDecoder viewMsg.value of
-                                                                        Err _ ->
-                                                                            identity
-
-                                                                        Ok checks ->
-                                                                            Dict.insert viewMsg.key checks
-                                                                   )
-                                                                |> ThisLayerChecks
-                                                    }
-                                            }
-                                            (nextProm msg nextContext.layer.state)
-
-                                    else
-                                        toModel nextContext
-                                            (nextProm msg nextContext.layer.state)
-
-                                _ ->
-                                    toModel nextContext
-                                        (nextProm msg nextContext.layer.state)
+                            toModel nextContext
+                                (nextProm msg nextContext.layer.state)
                     }
             , realCmds = eff.realCmds
             , logs = eff.logs

@@ -1,20 +1,16 @@
 module Tepa.Stream exposing
     ( Stream
-    , first, firstWithTimeout
-    , all
-    , map
+    , awaitFirst, awaitFirstWithTimeout
+    , awaitAll, awaitAllWithTimeout
+    , awaitWhile, awaitUnless
     , run
+    , while
+    , map
     , filter
     , filterMap
     , take
     , union
-    , control
-    , Control
-    , continue
-    , break
-    , firstOfAll
-    , bind
-    , race
+    , scan
     )
 
 {-| Handle data stream.
@@ -23,29 +19,17 @@ module Tepa.Stream exposing
 # Stream
 
 @docs Stream
-@docs first, firstWithTimeout
-@docs all
-@docs map
+@docs awaitFirst, awaitFirstWithTimeout
+@docs awaitAll, awaitAllWithTimeout
+@docs awaitWhile, awaitUnless
 @docs run
+@docs while
+@docs map
 @docs filter
 @docs filterMap
 @docs take
 @docs union
-
-
-# Control
-
-@docs control
-@docs Control
-@docs continue
-@docs break
-
-
-# Helper Functions
-
-@docs firstOfAll
-@docs bind
-@docs race
+@docs scan
 
 -}
 
@@ -53,7 +37,10 @@ import Internal.Core as Core exposing (PromiseState(..))
 import Tepa exposing (Promise)
 
 
-{-| Data stream is a concept in which one or more data arrives one after another in real time.
+{-| `Stream` is a _specification_ of how to retrieve a sequence of data arriving one after another in real time until it ends.
+
+Since it is only a _specification_, it is only when it is evaluated by `run` or await functions that your actually start getting data.
+
 -}
 type alias Stream a =
     Core.Stream a
@@ -223,10 +210,78 @@ merge s1 s2 =
                 }
 
 
-{-| Evaluate mapped Procedures asynchronously.
+{-| Scans the Stream till the _scanner_ function returns `Nothing`. The scanner function receives new Stream data `a`, and the past result `b`. If the scanner returns `Nothing`, resulting `Stream` ends.
 -}
-run : Stream (Promise m ()) -> Promise m ()
-run stream =
+scan : (a -> b -> Maybe b) -> b -> Stream a -> Stream b
+scan f init stream =
+    case stream of
+        Core.ActiveStream param ->
+            Core.ActiveStream
+                { unwrapMsg =
+                    \msg ->
+                        let
+                            ( data, next ) =
+                                param.unwrapMsg msg
+
+                            ( reversed, isComplete ) =
+                                scanData [] f init data
+                        in
+                        if isComplete then
+                            ( List.reverse reversed
+                            , Core.EndOfStream
+                            )
+
+                        else
+                            ( List.reverse reversed
+                            , scan f
+                                (List.head reversed
+                                    |> Maybe.withDefault init
+                                )
+                                next
+                            )
+                }
+
+        Core.EndOfStream ->
+            Core.EndOfStream
+
+
+scanData : List b -> (a -> b -> Maybe b) -> b -> List a -> ( List b, Bool )
+scanData acc f b ls =
+    case ls of
+        [] ->
+            ( acc, False )
+
+        x :: xs ->
+            case f x b of
+                Nothing ->
+                    ( acc, True )
+
+                Just b_ ->
+                    scanData (b_ :: acc) f b_ xs
+
+
+{-| Map Procedures to each Stream data asynchronously.
+
+    import Tepa exposing (Promise)
+    import Tepa.Time as Time
+
+    sample : Promise m ()
+    sample =
+        Tepa.bind Time.tick <|
+            \stream ->
+                run
+                    (\a ->
+                        [ Debug.todo "procedures for each stream data `a`"
+                        ]
+                    )
+                    stream
+
+-}
+run :
+    (a -> List (Promise m ()))
+    -> Stream a
+    -> Promise m ()
+run f stream =
     case stream of
         Core.EndOfStream ->
             Tepa.none
@@ -238,11 +293,11 @@ run stream =
                         nextPromise : Core.Msg -> m -> Promise m ()
                         nextPromise msg _ =
                             let
-                                ( promises, nextStream ) =
+                                ( ls, nextStream ) =
                                     param.unwrapMsg msg
                             in
                             Tepa.syncAll
-                                (promises ++ [ run nextStream ])
+                                (List.map (Tepa.sequence << f) ls ++ [ run f nextStream ])
                     in
                     { newContext = context
                     , realCmds = []
@@ -252,82 +307,16 @@ run stream =
 
 
 
--- Scan
-
-
-{-| Control Stream precisely.
--}
-control : (a -> Control b) -> Stream a -> Stream b
-control f stream =
-    case stream of
-        Core.EndOfStream ->
-            Core.EndOfStream
-
-        Core.ActiveStream param ->
-            Core.ActiveStream
-                { unwrapMsg =
-                    \msg ->
-                        let
-                            ( data, nextStream ) =
-                                param.unwrapMsg msg
-
-                            accumed : Control b
-                            accumed =
-                                List.foldl
-                                    (\a acc ->
-                                        case ( acc, f a ) of
-                                            ( Continue xs1, Continue xs2 ) ->
-                                                Continue (xs1 ++ xs2)
-
-                                            ( Continue xs1, Break xs2 ) ->
-                                                Break (xs1 ++ xs2)
-
-                                            ( Break xs1, _ ) ->
-                                                Break xs1
-                                    )
-                                    (Continue [])
-                                    data
-                        in
-                        case accumed of
-                            Continue xs ->
-                                ( xs, control f nextStream )
-
-                            Break xs ->
-                                ( xs, Core.EndOfStream )
-                }
-
-
-{-| -}
-type Control a
-    = Continue (List a)
-    | Break (List a)
-
-
-{-| Pass given values, and continue processing.
--}
-continue : List a -> Control a
-continue =
-    Continue
-
-
-{-| Pass given values, and complete processing.
--}
-break : List a -> Control a
-break =
-    Break
-
-
-
 -- Convert to Promise
 
 
-{-| Takes the first data from the Stream as a Promise result.
+{-| Run Stream and wait for the first data.
 -}
-first : Stream a -> Promise m a
-first stream =
+awaitFirst : Stream a -> Promise m a
+awaitFirst stream =
     let
-        awaitFirst : Stream a -> Core.Msg -> m -> Promise m a
-        awaitFirst stream_ msg _ =
+        next : Stream a -> Core.Msg -> m -> Promise m a
+        next stream_ msg _ =
             case stream_ of
                 Core.EndOfStream ->
                     Core.Promise <|
@@ -335,7 +324,7 @@ first stream =
                             { newContext = context
                             , realCmds = []
                             , logs = []
-                            , state = AwaitMsg <| awaitFirst stream_
+                            , state = AwaitMsg <| next stream_
                             }
 
                 Core.ActiveStream param ->
@@ -352,7 +341,7 @@ first stream =
                                     , logs = []
                                     , state =
                                         AwaitMsg <|
-                                            awaitFirst nextStream
+                                            next nextStream
                                     }
 
                         a :: _ ->
@@ -363,30 +352,32 @@ first stream =
             { newContext = context
             , realCmds = []
             , logs = []
-            , state = AwaitMsg <| awaitFirst stream
+            , state = AwaitMsg <| next stream
             }
 
 
-{-| Similar to `first`, but also specifies the timeout in milliseconds. If no data produced by the Stream in the timeout seconds, it returns `Nothing`.
+{-| Similar to `awaitFirst`, but also specifies the timeout in milliseconds.
+Returns `Nothing` if no data is produced by the timeout seconds after the Stream is run.
 -}
-firstWithTimeout : Int -> Stream a -> Promise m (Maybe a)
-firstWithTimeout timeout stream =
+awaitFirstWithTimeout : Int -> Stream a -> Promise m (Maybe a)
+awaitFirstWithTimeout timeout stream =
     Tepa.bindAndThen (Core.tick timeout) <|
         \tickStream ->
             union
                 [ map Just stream
                 , map (\_ -> Nothing) tickStream
                 ]
-                |> first
+                |> awaitFirst
 
 
-{-| Wait for the Stream to close, and take all the data from the Stream as a Promise result.
+{-| Run Stream and wait for all the data the Stream produces.
+Make sure that `awaitAll` is not resolved if the Stream continues to produce data indefinitely.
 -}
-all : Stream a -> Promise m (List a)
-all stream =
+awaitAll : Stream a -> Promise m (List a)
+awaitAll stream =
     let
-        awaitAll : Stream a -> List a -> Core.Msg -> m -> Promise m (List a)
-        awaitAll stream_ reversed msg _ =
+        next : Stream a -> List a -> Core.Msg -> m -> Promise m (List a)
+        next stream_ reversed msg _ =
             case stream_ of
                 Core.EndOfStream ->
                     List.reverse reversed
@@ -404,7 +395,7 @@ all stream =
                             , logs = []
                             , state =
                                 AwaitMsg <|
-                                    awaitAll nextStream (data ++ reversed)
+                                    next nextStream (List.reverse data ++ reversed)
                             }
     in
     Core.Promise <|
@@ -412,54 +403,160 @@ all stream =
             { newContext = context
             , realCmds = []
             , logs = []
-            , state = AwaitMsg <| awaitAll stream []
+            , state = AwaitMsg <| next stream []
             }
 
 
+{-| Run Stream and continues to wait for all data as long as it meets the given condition.
+When the Stream has finished producing all data while satisfying the condition, `awaitWhile` resolves to the all data.
+-}
+awaitWhile : (a -> Bool) -> Stream a -> Promise m (List a)
+awaitWhile p stream =
+    let
+        next : Stream a -> List a -> Core.Msg -> m -> Promise m (List a)
+        next stream_ reversed msg _ =
+            case stream_ of
+                Core.EndOfStream ->
+                    List.reverse reversed
+                        |> Tepa.succeed
 
--- Helper functions
+                Core.ActiveStream param ->
+                    let
+                        ( data, nextStream ) =
+                            param.unwrapMsg msg
+
+                        ( producedR, isComplete ) =
+                            awaitWhileHelper [] p data
+                    in
+                    Core.Promise <|
+                        \context ->
+                            { newContext = context
+                            , realCmds = []
+                            , logs = []
+                            , state =
+                                if isComplete then
+                                    Resolved
+                                        ((producedR ++ reversed)
+                                            |> List.reverse
+                                        )
+
+                                else
+                                    AwaitMsg <|
+                                        next nextStream (producedR ++ reversed)
+                            }
+    in
+    Core.Promise <|
+        \context ->
+            { newContext = context
+            , realCmds = []
+            , logs = []
+            , state = AwaitMsg <| next stream []
+            }
 
 
-{-| -}
-firstOfAll :
-    List (Promise m (Stream a))
-    -> Promise m a
-firstOfAll ps =
-    List.foldl
-        (\p pacc ->
-            Tepa.succeed (\acc a -> a :: acc)
-                |> Tepa.sync pacc
-                |> Tepa.sync p
-        )
-        (Tepa.succeed [])
-        ps
-        |> Tepa.andThen
-            (\streams ->
-                List.reverse streams
-                    |> union
-                    |> first
-            )
+awaitWhileHelper :
+    List a
+    -> (a -> Bool)
+    -> List a
+    -> ( List a, Bool )
+awaitWhileHelper acc p ls =
+    case ls of
+        [] ->
+            ( acc, False )
+
+        x :: xs ->
+            if p x then
+                ( acc, True )
+
+            else
+                awaitWhileHelper
+                    (x :: acc)
+                    p
+                    xs
 
 
-{-| -}
-bind :
-    Promise m (Stream a)
-    -> (a -> List (Promise m ()))
-    -> Promise m (Stream (Promise m ()))
-bind prom f =
-    Tepa.map
-        (map (f >> Tepa.sequence))
-        prom
+{-| Run Stream and continues to wait for all data as long as it does not meet the given condition.
+When the Stream has finished producing all data while not satisfying the condition, `awaitUnless` resolves to the all data.
+-}
+awaitUnless : (a -> Bool) -> Stream a -> Promise m (List a)
+awaitUnless p =
+    awaitWhile (not << p)
 
 
-{-| -}
-race :
-    List (Promise m (Stream (Promise m ())))
+{-| Similar to `awaitAll`, but also specifies the timeout in milliseconds.
+Returns `Nothing` if no data is produced by the timeout seconds after the Stream is run.
+-}
+awaitAllWithTimeout : Int -> Stream a -> Promise m (List a)
+awaitAllWithTimeout timeout stream =
+    Tepa.bindAndThen (Core.tick timeout) <|
+        \tickStream ->
+            union
+                [ map Just stream
+                , map (\_ -> Nothing) tickStream
+                ]
+                |> awaitWhile ((/=) Nothing)
+                |> Tepa.map (List.filterMap identity)
+
+
+{-| Similar to `run`, but the handler stops monitoring the Stream when it receives `Err`.
+After the first `Err` value is handled, `while` resolves to `()`.
+-}
+while :
+    (Result err a -> List (Promise m ()))
+    -> Stream (Result err a)
     -> Promise m ()
-race ps =
-    Tepa.bindAll ps <|
-        \streams ->
-            [ union streams
-                |> take 1
-                |> run
-            ]
+while f stream =
+    case stream of
+        Core.EndOfStream ->
+            Tepa.none
+
+        Core.ActiveStream param ->
+            Core.Promise <|
+                \context ->
+                    let
+                        nextPromise : Core.Msg -> m -> Promise m ()
+                        nextPromise msg _ =
+                            let
+                                ( data, nextStream ) =
+                                    param.unwrapMsg msg
+
+                                ( reversed, isComplete ) =
+                                    whileHelper [] f data
+                            in
+                            Tepa.syncAll
+                                (List.reverse reversed
+                                    ++ (if isComplete then
+                                            []
+
+                                        else
+                                            [ while f nextStream ]
+                                       )
+                                )
+                    in
+                    { newContext = context
+                    , realCmds = []
+                    , logs = []
+                    , state = AwaitMsg nextPromise
+                    }
+
+
+whileHelper :
+    List (Promise m ())
+    -> (Result err a -> List (Promise m ()))
+    -> List (Result err a)
+    -> ( List (Promise m ()), Bool )
+whileHelper acc f ls =
+    case ls of
+        [] ->
+            ( acc, False )
+
+        x :: xs ->
+            case x of
+                Err _ ->
+                    ( Tepa.sequence (f x) :: acc, True )
+
+                Ok _ ->
+                    whileHelper
+                        (Tepa.sequence (f x) :: acc)
+                        f
+                        xs

@@ -930,9 +930,9 @@ In Elm side:
     import Json.Encode as JE exposing (Value)
     import Tepa exposing (PortRequest, PortResponse, Promise)
 
-    port requestGetLocalName : PortRequest a
+    port page_foo_get_local_name_request : PortRequest a
 
-    port receiveGetLocalName : PortResponse a
+    port page_foo_get_local_name_response : PortResponse a
 
     type alias LocalNameResponse =
         { name : Maybe String
@@ -941,17 +941,16 @@ In Elm side:
     requestLocalName : String -> Promise Memory Event LocalNameResponse
     requestLocalName userId =
         Tepa.portRequest
-            { request = requestGetLocalName
-            , response = receiveGetLocalName
+            { request = page_foo_get_local_name_request
+            , response = page_foo_get_local_name_response
+
+            -- Port identifier for testing and debugging which must be
+            -- unique among its layer.
+            , portName = "get_local_name"
             , requestBody =
                 JE.object
-                    [ ( "requestId", requestId )
-                    , ( "body"
-                      , JE.object
-                            [ ( "userId"
-                              , JE.string userId
-                              )
-                            ]
+                    [ ( "userId"
+                      , JE.string userId
                       )
                     ]
             }
@@ -960,6 +959,7 @@ In Elm side:
 portRequest :
     { request : PortRequest Msg
     , response : PortResponse Msg
+    , portName : String
     , requestBody : Value
     }
     -> Promise m Value
@@ -968,6 +968,7 @@ portRequest param =
         { ports =
             { request = param.request
             , response = param.response
+            , name = param.portName
             }
         , requestBody = param.requestBody
         }
@@ -992,6 +993,7 @@ Keep in mind that this Promise blocks subsequent Promises, so it is common pract
 portStream :
     { request : PortRequest Msg
     , response : PortResponse Msg
+    , portName : String
     , requestBody : Value
     }
     -> Promise m (Stream Value)
@@ -1000,6 +1002,7 @@ portStream param =
         { ports =
             { request = param.request
             , response = param.response
+            , name = param.portName
             }
         , requestBody = param.requestBody
         }
@@ -1116,7 +1119,16 @@ getValues =
     Core.getValues
 
 
-{-| -}
+{-| Set the user's input value for the view element identified by the key string.
+
+Note that it only sets initial value, but does not **overwrite** user input value.
+It is due to a slightly awkward behavior of the Elm runtime.
+We plan to improve this behavior in the near future, but for most applications,
+just setting the default values should be fine.
+
+You can see spa-sample's [`Page.Chat` module](https://github.com/arowM/tepa/blob/main/spa-sample/src/Page/Chat.elm) for a real example of resetting user input.
+
+-}
 setValue : String -> String -> Promise m ()
 setValue =
     Core.setValue
