@@ -3179,24 +3179,16 @@ prependSessionName :
     { uniqueSessionName : String }
     -> Markup
     -> Markup
-prependSessionName { uniqueSessionName } (Markup markup_) =
-    Markup
-        { markup_
-            | content =
-                "**[" ++ uniqueSessionName ++ "]** " ++ markup_.content
-        }
+prependSessionName { uniqueSessionName } =
+    modifyContent <| \content -> "**[" ++ uniqueSessionName ++ "]** " ++ content
 
 
 prependSessionSystemName :
     { uniqueSessionName : String }
     -> Markup
     -> Markup
-prependSessionSystemName { uniqueSessionName } (Markup markup_) =
-    Markup
-        { markup_
-            | content =
-                "**[" ++ uniqueSessionName ++ "]** " ++ markup_.content
-        }
+prependSessionSystemName { uniqueSessionName } =
+    modifyContent <| \content -> "**[" ++ uniqueSessionName ++ "]** " ++ content
 
 
 prependSessionAndUserName :
@@ -3205,12 +3197,8 @@ prependSessionAndUserName :
     }
     -> Markup
     -> Markup
-prependSessionAndUserName { uniqueSessionName, userName } (Markup markup_) =
-    Markup
-        { markup_
-            | content =
-                "**[" ++ uniqueSessionName ++ "]** **" ++ userName ++ "**: " ++ markup_.content
-        }
+prependSessionAndUserName { uniqueSessionName, userName } =
+    modifyContent <| \content -> "**[" ++ uniqueSessionName ++ "]** **" ++ userName ++ "**: " ++ content
 
 
 {-| Standard configuration for en\_US.
