@@ -85,7 +85,7 @@ type Response
     | FatalErrorResponse
 
 
-{-|
+{-| @test-helper
 
     import Dict
     import Tepa.Http as Http
@@ -111,34 +111,17 @@ type Response
     --> GoodResponse
     -->     { profile =
     -->         { id = "Sakura-chan-ID"
-    -->         , name = Just "Sakura-chan"
+    -->         , name = "Sakura-chan"
     -->         }
     -->     }
 
-    -- Accept null "name" value
+    -- "name" value must not be `null`.
     Http.GoodResponse successfulMeta
         """
         {
           "profile": {
             "id": "Sakura-chan-ID",
             "name": null
-          }
-        }
-        """
-        |> response
-    --> GoodResponse
-    -->     { profile =
-    -->         { id = "Sakura-chan-ID"
-    -->         , name = Nothing
-    -->         }
-    -->     }
-
-    -- "name" field is required.
-    Http.GoodResponse successfulMeta
-        """
-        {
-          "profile": {
-            "id": "Sakura-chan-ID"
           }
         }
         """
@@ -213,7 +196,7 @@ response rawResponse =
                     JD.field "profile"
                         (JD.succeed Session.Profile
                             |> JDP.required "id" JD.string
-                            |> JDP.required "name" (JD.nullable JD.string)
+                            |> JDP.required "name" JD.string
                             |> JD.map GoodResponseBody
                             |> JD.map GoodResponse
                         )

@@ -1,9 +1,15 @@
 # Sample SPA
 
+## Install dependencies
+
+```sh
+$ npm i
+```
+
 ## Dev server
 
 ```sh
-$ npm run start
+$ npm start
 ```
 
 ## Scenario document server
@@ -21,7 +27,7 @@ $ npm run build
 ## Test
 
 ```sh
-$ npm run test
+$ npm test
 ```
 
 ## Domain specific library document server

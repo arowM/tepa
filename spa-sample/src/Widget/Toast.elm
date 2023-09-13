@@ -221,7 +221,7 @@ toastItemProcedure =
             , type_ = "click"
             }
             |> Tepa.andThen
-                (Stream.firstWithTimeout toastTimeout)
+                (Stream.awaitFirstWithTimeout toastTimeout)
             |> Tepa.map
                 (\ma ->
                     case ma of
@@ -257,7 +257,12 @@ view context =
         [ localClass "toast"
         , Mixin.style "--zindex" <| String.fromInt ZIndex.toast
         ]
-        (List.map (Tepa.keyedLayerView toastItemView) state.items)
+        (List.map
+            (Tepa.layerView
+                (\vc -> ( vc.layerId, toastItemView vc ))
+            )
+            state.items
+        )
 
 
 toastItemView : Tepa.ViewContext ToastItemMemory -> Html Msg

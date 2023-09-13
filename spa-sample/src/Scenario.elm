@@ -1,6 +1,6 @@
 module Scenario exposing
     ( main, test, sections, MarkupConfig
-    , Section
+    , ScenarioMemory, Section
     )
 
 {-| Scenario
@@ -91,7 +91,7 @@ documentView =
                 config : MarkupConfig
                 config =
                     { dev =
-                        Dict.get devModeCheckboxId (Debug.log "checks" checks)
+                        Dict.get devModeCheckboxId checks
                             |> Maybe.withDefault False
                     }
 
@@ -120,7 +120,16 @@ documentView =
                                 []
                             , Html.text "Enable dev mode"
                             ]
-                        , Markdown.toHtml [] content
+                        , let
+                            defaultOptions =
+                                Markdown.defaultOptions
+                          in
+                          Markdown.toHtmlWith
+                            { defaultOptions
+                                | sanitize = False
+                            }
+                            []
+                            content
                         ]
             }
 
@@ -135,6 +144,11 @@ test =
             sections
                 { dev = True
                 }
+        , origin =
+            { secure = True
+            , hostname = "example.com"
+            , port_ = Nothing
+            }
         }
 
 
@@ -252,14 +266,13 @@ introduction1 config =
         , userComment sakuraChan "Today I'm going to try a chat application."
         , userComment sakuraChan "I'm trying to access the URL."
         , Scenario.loadApp sakuraChanMainSession
-            (markup
-                """
-              **{{name}}**: Type the following URL in the address bar.
+            (markup """
+            **{{name}}**: Type the following URL in the address bar.
 
-              ```
-              https://example.com/
-              ```
-              """
+            ```
+            https://example.com/
+            ```
+            """
                 |> setParam "name" sakuraChanName
             )
             { path =
@@ -269,12 +282,6 @@ introduction1 config =
                 }
             , flags = JE.object []
             }
-        , if config.dev then
-            Scenario.systemComment sakuraChanMainSession <|
-                "The client requests the user profile from the server."
-
-          else
-            Scenario.none
         , let
             responseMeta =
                 { url = "https://example.com/api/profile"
@@ -295,24 +302,24 @@ introduction1 config =
                 Just ( responseMeta, responseBody )
             )
             (markup """
-              The backend responds to the profile request.
+            The backend responds to the profile request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
                 |> setParam "responseMeta"
@@ -339,7 +346,11 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginId
             { value = value
             }
-            (markup <| "Enter \"" ++ value ++ "\" in the login ID.")
+            (markup """
+            Enter "#{value}" in the login ID.
+            """
+                |> setParam "value" value
+            )
         , userComment sakuraChan
             "The note says that the password can be left blank."
         , onSakuraChanMainSession.login.clickSubmitLogin
@@ -351,7 +362,13 @@ introduction1 config =
           onSakuraChanMainSession.login.expectLoginFormShowError
             { error = error
             }
-            (markup <| "Form shows error: " ++ error)
+            (markup """
+            Form shows error:
+
+            > #{error}
+            """
+                |> setParam "error" error
+            )
         , userComment sakuraChan
             "Oh my goat, I got an error..."
         , userComment warunasubiKun
@@ -365,18 +382,21 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (markup <| "Change the password to \"" ++ value ++ "\"")
+            (markup """
+            Change the password to "#{value}"
+            """
+                |> setParam "value" value
+            )
         , onSakuraChanMainSession.login.expectLoginFormShowNoErrors
             (markup "Login form shows no errors at the time.")
         , userComment sakuraChan
             "It looks good."
         , onSakuraChanMainSession.login.clickSubmitLogin
             (markup "Click the login button.")
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.login.expectLoginButtonIsBusy True
             (markup """
-            The login button becomes disabled
-            """
-            )
+            The login button becomes busy.
+            """)
         , let
             requestBody =
                 JE.object
@@ -407,28 +427,28 @@ introduction1 config =
                     Nothing
             )
             (markup """
-              The backend responds to the login request.
+            The backend responds to the login request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-                  ```json
-                  {{requestBody|block}}
-                  ```
+                ```json
+                {{requestBody|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.login.loginEndpoint)
                 |> setParam "requestBody"
@@ -438,11 +458,10 @@ introduction1 config =
                 |> setParam "responseBody" responseBody
                 |> setLogLevelDev config
             )
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.login.expectLoginButtonIsBusy False
             (markup """
-            The login button becomes reenabled.
-            """
-            )
+            The login button comes back from busy.
+            """)
         , let
             error =
                 "Incorrect ID or password."
@@ -450,7 +469,13 @@ introduction1 config =
           onSakuraChanMainSession.login.expectLoginFormShowError
             { error = error
             }
-            (markup <| "The form shows error: " ++ error)
+            (markup """
+            The form shows error:
+
+            > #{error}
+            """
+                |> setParam "error" error
+            )
         , userComment sakuraChan "Oops!"
         , userComment warunasubiKun "Maybe you mistyped the password."
         , userComment sakuraChan "That might be true. It's hard to type with my two-fingered hooves..."
@@ -461,7 +486,9 @@ introduction1 config =
           onSakuraChanMainSession.login.changeLoginPass
             { value = value
             }
-            (markup <| "Enter \"" ++ value ++ "\" in the password field.")
+            (markup """
+            Enter "#{value}" in the password field.
+            """)
         , onSakuraChanMainSession.login.clickSubmitLogin
             (markup "Click the login button.")
         , let
@@ -474,16 +501,16 @@ introduction1 config =
           onSakuraChanMainSession.login.expectRequestLogin
             requestBody
             (markup """
-              The client sends a login request to the backend with a timeout of 5000 milliseconds.
+            The client sends a login request to the backend with a timeout of 5000 milliseconds.
 
-              ```json
-              {{requestMeta|block}}
-              ```
+            ```json
+            {{requestMeta|block}}
+            ```
 
-              ```json
-              {{requestBody|block}}
-              ```
-              """
+            ```json
+            {{requestBody|block}}
+            ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.login.loginEndpoint)
                 |> setParam "requestBody"
@@ -497,21 +524,25 @@ introduction1 config =
           else
             Scenario.none
         , Scenario.sleep
-            (markup <| "5000 milliseconds have passed.")
+            (markup "5000 milliseconds have passed.")
             5000
         , let
             currentTime =
                 1672531205000
           in
           Scenario.expectCurrentTime
-            (markup <| "Current time in POSIX: " ++ String.fromInt currentTime ++ ".")
+            (markup """
+            Current time in POSIX: #{curr}.
+            """
+                |> setParam "curr" (String.fromInt currentTime)
+            )
             { expectation =
                 Expect.equal
                     (Time.millisToPosix currentTime)
             }
         , Scenario.expectHttpRequest
             sakuraChanMainSession
-            (markup <| "The login request timed out.")
+            (markup "The login request timed out.")
             { layer = onSakuraChanMainSession.login.layer
             , expectation =
                 List.length
@@ -540,7 +571,11 @@ introduction1_sub1 config =
             }
             (markup "The popup begins to disappear.")
         , Scenario.sleep
-            (markup <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
+            (markup """
+            #{duration} milliseconds passes.
+            """
+                |> setParam "duration" (String.fromInt Toast.toastFadeOutDuration)
+            )
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
             (markup "No toast popups now.")
@@ -554,25 +589,32 @@ introduction1_1 config =
     , dependency = Scenario.RunAfter (introduction1 config).title
     , content =
         [ Scenario.sleep
-            (markup <| String.fromInt Toast.toastTimeout ++ " milliseconds passes.")
+            (markup """
+            #{timeout} milliseconds passes.
+            """
+                |> setParam "timeout" (String.fromInt Toast.toastTimeout)
+            )
             Toast.toastTimeout
         , onSakuraChanMainSession.login.toast.expectDisappearingErrorMessage
             { message = "Network error, please check your network and try again."
             }
             (markup "The popup begins to disappear.")
         , Scenario.sleep
-            (markup <| String.fromInt Toast.toastFadeOutDuration ++ " milliseconds passes.")
+            (markup """
+            #{duration} milliseconds passes.
+            """
+                |> setParam "duration" (String.fromInt Toast.toastFadeOutDuration)
+            )
             Toast.toastFadeOutDuration
         , onSakuraChanMainSession.login.toast.expectNoMessages
             (markup "No toast popups now.")
         , userComment sakuraChan "Try again."
         , onSakuraChanMainSession.login.clickSubmitLogin
             (markup "Click the login button.")
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.login.expectLoginButtonIsBusy True
             (markup """
-            The login button becomes disabled
-            """
-            )
+            The login button becomes busy.
+            """)
         , let
             requestBody =
                 JE.object
@@ -587,7 +629,7 @@ introduction1_1 config =
                 , headers =
                     Dict.fromList
                         [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          , "auth_token=guest; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                           )
                         ]
                 }
@@ -611,28 +653,28 @@ introduction1_1 config =
                     Nothing
             )
             (markup """
-              The backend responds to the login request.
+            The backend responds to the login request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-                  ```json
-                  {{requestBody|block}}
-                  ```
+                ```json
+                {{requestBody|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.login.loginEndpoint)
                 |> setParam "requestBody"
@@ -641,11 +683,6 @@ introduction1_1 config =
                     (ppr responseMeta)
                 |> setParam "responseBody" responseBody
                 |> setLogLevelDev config
-            )
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The login button becomes reenabled.
-            """
             )
         , onSakuraChanMainSession.login.receiveRandomLuckyHay
             { value = Session.LuckyHayAlfalfa
@@ -662,7 +699,11 @@ introduction1_1 config =
           onSakuraChanMainSession.home.expectLuckyHayMessage
             { value = value
             }
-            (markup <| "The lucky grass hay is \"" ++ value ++ "\"")
+            (markup """
+            The lucky grass hay is "#{value}".
+            """
+                |> setParam "value" value
+            )
         , let
             value =
                 "2023-01-01 09:00:15"
@@ -670,7 +711,11 @@ introduction1_1 config =
           onSakuraChanMainSession.home.expectClockMessage
             { value = value
             }
-            (markup <| "The clock says \"" ++ value ++ "\"")
+            (markup """
+            The clock says "#{value}".
+            """
+                |> setParam "value" value
+            )
         , userComment sakuraChan "Yes!"
         ]
     }
@@ -688,7 +733,13 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.expectGreetingMessage
             { value = value
             }
-            (markup <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+            (markup """
+            The greeting message says:
+
+            > Hi, #{value}!
+            """
+                |> setParam "value" value
+            )
         , userComment sakuraChan "I'm Sakura-chan! Not \"Guest\"! 💢🐐"
         , let
             value =
@@ -697,7 +748,11 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.changeEditAccountFormAccountId
             { value = value
             }
-            (markup <| "Change the name input field value to \"" ++ value ++ "\".")
+            (markup """
+            Change the name input field value to "#{value}".
+            """
+                |> setParam "value" value
+            )
         , onSakuraChanMainSession.home.clickSubmitEditAccount
             (markup "Click the save button.")
         , let
@@ -713,7 +768,7 @@ pageHomeCase1 config =
                 , headers =
                     Dict.fromList
                         [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          , "auth_token=guest; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                           )
                         ]
                 }
@@ -722,6 +777,7 @@ pageHomeCase1 config =
                 here """
                 {
                     "profile": {
+                        "id": "guest",
                         "name": "Sakura-chan"
                     }
                 }
@@ -736,23 +792,23 @@ pageHomeCase1 config =
                     Nothing
             )
             (markup """
-              The backend responds to the edit account request.
-              - Request:
+            The backend responds to the edit account request.
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.home.editAccountEndpoint)
                 |> setParam "responseMeta"
@@ -767,15 +823,21 @@ pageHomeCase1 config =
           onSakuraChanMainSession.home.expectGreetingMessage
             { value = value
             }
-            (markup <| "The greeting message says \"Hi, " ++ value ++ "!\"")
+            (markup """
+            The greeting message changes:
+
+            > Hi, #{value}!
+            """
+                |> setParam "value" value
+            )
         , Scenario.loadApp sakuraChanSecondSession
             (markup """
-              **{{name}}**: Open new tab, and type the following URL in the address bar.
+            **{{name}}**: Open new tab, and type the following URL in the address bar.
 
-              ```
-              https://example.com/
-              ```
-              """
+            ```
+            https://example.com/
+            ```
+            """
                 |> setParam "name" sakuraChanName
             )
             { path =
@@ -793,7 +855,7 @@ pageHomeCase1 config =
                 , headers =
                     Dict.fromList
                         [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          , "auth_token=guest; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                           )
                         ]
                 }
@@ -801,10 +863,10 @@ pageHomeCase1 config =
             responseBody =
                 here """
                 {
-                  "profile": {
-                    "id": "guest",
-                    "name": "Sakura-chan"
-                  }
+                    "profile": {
+                        "id": "guest",
+                        "name": "Sakura-chan"
+                    }
                 }
                 """
           in
@@ -813,24 +875,24 @@ pageHomeCase1 config =
                 Just ( responseMeta, responseBody )
             )
             (markup """
-              The backend responds to the profile request.
+            The backend responds to the profile request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
                 |> setParam "responseMeta"
@@ -842,8 +904,8 @@ pageHomeCase1 config =
             { value = Session.LuckyHayTimothy
             }
             (markup """
-              Client receives a random response for lucky hay: Timothy
-              """
+            Client receives a random response for lucky hay: Timothy
+            """
                 |> setLogLevelDev config
             )
         , let
@@ -853,15 +915,11 @@ pageHomeCase1 config =
           onSakuraChanSecondSession.home.expectLuckyHayMessage
             { value = value
             }
-            (markup <| "The lucky grass hay is \"" ++ value ++ "\"")
-        , let
-            value =
-                "Sakura-chan"
-          in
-          onSakuraChanSecondSession.home.expectGreetingMessage
-            { value = value
-            }
-            (markup <| "The greeting message says \"Hi " ++ value ++ "!\"")
+            (markup """
+            The lucky grass hay is #{value}.
+            """
+                |> setParam "value" value
+            )
         ]
     }
 
@@ -871,102 +929,115 @@ pageHomeCase2 config =
     { title = "Home page #2"
     , dependency = Scenario.RunAfter (introduction1_1 config).title
     , content =
-        [ Scenario.todo sakuraChanMainSession
-            (markup "Click the \"Start Chat\" button.")
-        , Scenario.todo sakuraChanMainSession
+        [ onSakuraChanMainSession.home.clickStartChat
+            (markup """
+            Click the "Start Chat" button.
+            """)
+        , onSakuraChanMainSession.chat.expectAvailable
             (markup "Redirect to chat page.")
-
-        , Scenario.todo sakuraChanMainSession
-            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
-                |> setLogLevelDev config
-            )
-
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.chat.expectRequestHandshake
             (markup """
             The client sends a handshake request to the WS server.
-            """
-            |> setLogLevelDev config
-            )
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives an initialization message from the WS server.
 
             ```json
-            {
-                "message": "initialized",
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
+                {
+                    "url": "/ws/",
+                    "protocol": "wss",
+                    "headers": {
+                        "Cookie": "auth_token=guest; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                     }
-                ]
-            }
+                }
             ```
             """
-            |> setLogLevelDev config
+                |> setLogLevelDev config
             )
         , let
-            userNames =
-                [ "Sakura-chan"
+            payload : JE.Value
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserEntered" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Sakura-chan" )
+                            , ( "color", JE.string "#ff69b4" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onSakuraChanMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            The client receives a message from the WS server.
+
+            ```json
+            {{payload|block}}
+            ```
+            """
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+            )
+        , let
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
                 ]
           in
-          Scenario.todo sakuraChanMainSession
+          onSakuraChanMainSession.chat.expectActiveUsers
+            { users = users
+            }
             (markup """
-              The "Active users" field says:
+            The "Active users" field says:
 
-              {{users|block}}
-              """
+            {{users|block}}
+            """
                 |> setParam "users"
                     (List.map
-                        (\name -> "- " ++ name)
-                        userNames
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
                         |> String.join "\n"
                     )
             )
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.chat.expectNumOfMessageFieldItems 1
             (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Sakura-chan"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
+            The Message Timline area displays only one system message.
+            """)
         , let
-            message =
-                "Sakura-chan has entered."
+            user =
+                { displayName = "Sakura-chan"
+                , color = "#ff69b4"
+                }
           in
-          Scenario.todo sakuraChanMainSession
+          onSakuraChanMainSession.chat.expectUserEnteredMessage
+            { user = user
+            }
             (markup """
-              The Message Timeline area displays only one system message:
+            The Message Timeline area displays a system message which notifies a new user:
 
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
+            > <span style="color: #{color|raw};">#{displayName}</span> has entered.
+            """
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
             )
         , userComment sakuraChan "Warunasubi-kun, shall we chat?"
         , userComment warunasubiKun "It sounds good!"
-        , Scenario.loadApp sakuraChanMainSession
+        , Scenario.loadApp warunasubiKunMainSession
             (markup """
-              **{{name}}**: Enter the chat page URL in the address bar.
+            **{{name}}**: Enter the chat page URL in the address bar.
 
-              ```
-              https://example.com/chat/
-              ```
-              """
+            ```
+            https://example.com/chat/
+            ```
+            """
                 |> setParam "name" warunasubiKunName
             )
             { path =
@@ -976,6 +1047,51 @@ pageHomeCase2 config =
                 }
             , flags = JE.object []
             }
+        , let
+            responseMeta =
+                { url = "https://example.com/api/profile"
+                , statusCode = 401
+                , statusText = "Unauthorized"
+                , headers = Dict.empty
+                }
+
+            responseBody =
+                here """
+                {
+                    "code": "LoginRequired"
+                }
+                """
+          in
+          onWarunasubiKunMainSession.app.receiveProfile
+            (\_ ->
+                Just ( responseMeta, responseBody )
+            )
+            (markup """
+            The backend responds to the profile request.
+
+            - Request:
+
+                ```json
+                {{requestMeta|block}}
+                ```
+
+            - Response:
+
+                ```json
+                {{responseMeta|block}}
+                ```
+
+                ```json
+                {{responseBody|block}}
+                ```
+            """
+                |> setParam "requestMeta"
+                    (ppr onWarunasubiKunMainSession.app.fetchProfileEndpoint)
+                |> setParam "responseMeta"
+                    (ppr responseMeta)
+                |> setParam "responseBody" responseBody
+                |> setLogLevelDev config
+            )
         , onWarunasubiKunMainSession.login.expectAvailable <|
             markup "Display login page."
         , userComment sakuraChan
@@ -987,7 +1103,11 @@ pageHomeCase2 config =
           onWarunasubiKunMainSession.login.changeLoginId
             { value = value
             }
-            (markup <| "Enter \"" ++ value ++ "\" in the login ID.")
+            (markup """
+            Enter "#{value}" in the login ID.
+            """
+                |> setParam "value" value
+            )
         , let
             value =
                 "guestPass2"
@@ -995,7 +1115,11 @@ pageHomeCase2 config =
           onWarunasubiKunMainSession.login.changeLoginPass
             { value = value
             }
-            (markup <| "Enter \"" ++ value ++ "\" in the password field.")
+            (markup """
+            Enter "#{value}" in the password field.
+            """
+                |> setParam "value" value
+            )
         , onWarunasubiKunMainSession.login.clickSubmitLogin
             (markup "Click the login button.")
         , let
@@ -1012,7 +1136,7 @@ pageHomeCase2 config =
                 , headers =
                     Dict.fromList
                         [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          , "auth_token=guest2; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                           )
                         ]
                 }
@@ -1036,28 +1160,28 @@ pageHomeCase2 config =
                     Nothing
             )
             (markup """
-              The backend responds to the login request.
+            The backend responds to the login request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.login.loginEndpoint)
                 |> setParam "requestBody"
@@ -1071,325 +1195,410 @@ pageHomeCase2 config =
             { value = Session.LuckyHayTimothy
             }
             (markup """
-              Client receives random value for lucky hay: Timothy
-              """
+            Client receives random value for lucky hay: Timothy
+            """
                 |> setLogLevelDev config
             )
-
-        , Scenario.todo warunasubiKunMainSession
+        , onWarunasubiKunMainSession.chat.expectAvailable
             (markup "Redirect to the chat page.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
-                |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
+        , onWarunasubiKunMainSession.chat.expectRequestHandshake
             (markup """
             The client sends a handshake request to the WS server.
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client receives an initialization message from the WS server.
 
             ```json
-            {
-                "message": "initialized",
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Guest2"
+                {
+                    "url": "/ws/",
+                    "protocol": "wss",
+                    "headers": {
+                        "Cookie": "auth_token=guest2; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                     }
-                ]
-            }
+                }
             ```
             """
-            |> setLogLevelDev config
+                |> setLogLevelDev config
             )
         , let
-            userNames =
-                [ "Sakura-chan"
-                , "Guest2"
+            payload : JE.Value
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserEntered" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            , JE.object
+                                [ ( "display-name", JE.string "Guest2" )
+                                , ( "color", JE.string "#4b0082" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onWarunasubiKunMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            The client receives a message from the WS server.
+
+            ```json
+                  {{payload|block}}
+            ```
+            """
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+            )
+        , let
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
+                , { displayName = "Guest2"
+                  , color = "#4b0082"
+                  }
                 ]
           in
-          Scenario.todo warunasubiKunMainSession
+          onWarunasubiKunMainSession.chat.expectActiveUsers
+            { users = users
+            }
             (markup """
-              The "Active users" field says:
+            The "Active users" field says:
 
-              {{users|block}}
-              """
+            {{users|block}}
+            """
                 |> setParam "users"
                     (List.map
-                        (\name -> "- " ++ name)
-                        userNames
-                        |> String.join "\n"
-                    )
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Guest2"
-                    }
-                ]
-
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , let
-            message =
-                "Guest2 has entered."
-          in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              The Message Timeline area displays only one system message:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Guest2"
-                    }
-                ]
-
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , let
-            userNames =
-                [ "Sakura-chan"
-                , "Guest2"
-                ]
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              The "Active users" field is changed:
-
-              {{users|block}}
-              """
-                |> setParam "users"
-                    (List.map
-                        (\name -> "- " ++ name)
-                        userNames
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
                         |> String.join "\n"
                     )
             )
         , let
-            message =
-                "Guest2 has entered."
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
           in
-          Scenario.todo sakuraChanMainSession
+          onWarunasubiKunMainSession.chat.expectUserEnteredMessage
+            { user = user
+            }
             (markup """
-              A new system message is added to the Message TimeLine area:
+            The Message Timeline area displays a system message which notifies a new user:
 
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
+            > <span style="color: #{color|raw};">#{displayName}</span> has entered.
+            """
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
+            )
+        , let
+            payload : JE.Value
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserEntered" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            , JE.object
+                                [ ( "display-name", JE.string "Guest2" )
+                                , ( "color", JE.string "#4b0082" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onSakuraChanMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            2 The client receives a message from the WS server.
+
+            ```json
+                  {{payload|block}}
+            ```
+            """
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+            )
+        , let
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
+                , { displayName = "Guest2"
+                  , color = "#4b0082"
+                  }
+                ]
+          in
+          onSakuraChanMainSession.chat.expectActiveUsers
+            { users = users
+            }
+            (markup """
+            The "Active users" field changes:
+
+            {{users|block}}
+            """
+                |> setParam "users"
+                    (List.map
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
+                        |> String.join "\n"
+                    )
+            )
+        , let
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
+          in
+          onSakuraChanMainSession.chat.expectUserEnteredMessage
+            { user = user
+            }
+            (markup """
+            The Message Timeline area displays a system message which notifies another new user:
+
+            > <span style="color: #{color|raw};">#{displayName}</span> has entered.
+            """
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
             )
         , let
             message =
                 "Welcome, Warunasubi-kun!"
           in
-          Scenario.userTodo sakuraChanMainSession
-            (markup <| "Enter \"" ++ message ++ "\" in the message input field.")
-        , Scenario.userTodo sakuraChanMainSession
-            (markup <| "Enter \"Submit\" button.")
-
-        , Scenario.todo sakuraChanMainSession
-            (markup <| "The \"Submit\" button becomes disabled.")
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client sends a message to the WS server.
-
-            ```json
-            {
-                "action": "push-message",
-                "message": "Welcome, Warunasubi-kun!"
+          onSakuraChanMainSession.chat.changeNewMessageFormBody
+            { value = message
             }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo sakuraChanMainSession
             (markup """
-            The client receives a new message from the WS server.
-
-            ```json
-            {
-                "message": "new-message",
-                "value": "Welcome, Warunasubi-kun!"
-            }
-            ```
+            Enter "#{message}" in the message input field.
             """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client resets the message field value in localStorage.
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo sakuraChanMainSession
-            (markup <| "The \"Submit\" button becomes reenabled.")
-        , Scenario.todo sakuraChanMainSession
-            (markup <| "The message input field becomes empty.")
-
-        , let
-            message =
-                "Sakura-chan: Welcome, Warunasubi-kun!"
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              A new message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
                 |> setParam "message" message
             )
-
-        , Scenario.todo warunasubiKunMainSession
+        , onSakuraChanMainSession.chat.clickSubmitMessage
             (markup """
-            The client receives a new message from the WS server.
+            Click the "Submit" button.
+            """)
+        , onSakuraChanMainSession.chat.expectSubmitMessageButtonIsBusy True
+            (markup """
+            The "Submit" button becomes disabled.
+            """)
+        , let
+            event =
+                JE.object
+                    [ ( "result", JE.string "Success" )
+                    , ( "body", responseBody )
+                    ]
 
-            ```json
-            {
-                "message": "new-message",
-                "value": "Welcome, Warunasubi-kun!"
-            }
-            ```
+            response =
+                JE.object
+                    [ ( "response", JE.string "PushMessage" )
+                    , ( "status", JE.string "OK" )
+                    , ( "id", JE.string "{" )
+                    , ( "body", responseBody )
+                    ]
+
+            responseBody =
+                JE.object
+                    [ ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Sakura-chan" )
+                            , ( "color", JE.string "#ff69b4" )
+                            ]
+                      )
+                    , ( "value", JE.string "Welcome, Warunasubi-kun!" )
+                    ]
+          in
+          onSakuraChanMainSession.chat.receiveNewMessageResp event
+            (markup """
+            The WS server responds to the new message request.
+
+            - Request:
+
+                ```json
+                {
+                    "action": "PushMessage",
+                    "message": "Welcome, Warunasubi-kun!"
+                    "id": "{",
+                }
+                ```
+
+            - Response:
+
+                ```json
+                {{response|block}}
+                ```
             """
-            |> setLogLevelDev config
-            )
-
-        , let
-            message =
-                "Sakura-chan: Welcome, Warunasubi-kun!"
-          in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              A new message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
-        , let
-            message =
-                "Hi, Sakura-"
-          in
-          Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Refresh the page accidentally in the middle of writing \"" ++ message ++ "\" in the message input field.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup "The client saves the input to localStorage during input."
+                |> setParam "response"
+                    (JE.encode 4 response)
                 |> setLogLevelDev config
             )
-
-        , Scenario.closeApp warunasubiKunMainSession
-            (markup "The page is reloading.")
-
-        , Scenario.todo sakuraChanMainSession
+        , onSakuraChanMainSession.chat.expectNewMessageBodyIsCleared
             (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "user-left",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-            }
-            ```
+            The client clears the message field.
             """
-            |> setLogLevelDev config
+                |> setLogLevelDev config
             )
-
+        , onSakuraChanMainSession.chat.expectSubmitMessageButtonIsBusy False
+            (markup """
+            The "Submit" button comes back from busy.
+            """)
         , let
             message =
-                "Guest2 has left."
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              A new system message is added to the Message TimeLine area:
+                "Welcome, Warunasubi-kun!"
 
-              ```
-              {{message|block}}
-              ```
-              """
+            user =
+                { displayName = "Sakura-chan"
+                , color = "#ff69b4"
+                }
+          in
+          onSakuraChanMainSession.chat.expectUserMessage
+            { user = user
+            , value = message
+            }
+            (markup """
+            The submitted message is added to the Message TimeLine area:
+
+            > <span style="color: #{user.color|raw};">#{user.displayName}</span>: #{message}
+            """
+                |> setParam "user.color" user.color
+                |> setParam "user.displayName" user.displayName
                 |> setParam "message" message
             )
         , let
-            userNames =
-                [ "Sakura-chan"
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserMessage" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Sakura-chan" )
+                            , ( "color", JE.string "#ff69b4" )
+                            ]
+                      )
+                    , ( "value", JE.string "Welcome, Warunasubi-kun!" )
+                    ]
+          in
+          onWarunasubiKunMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            The client receives a new message from the WS server.
+
+            ```json
+            {{payload|block}}
+            ```
+            """
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+                |> setLogLevelDev config
+            )
+        , let
+            message =
+                "Welcome, Warunasubi-kun!"
+
+            user =
+                { displayName = "Sakura-chan"
+                , color = "#ff69b4"
+                }
+          in
+          onWarunasubiKunMainSession.chat.expectUserMessage
+            { user = user
+            , value = message
+            }
+            (markup """
+            A new message is added to the Message TimeLine area:
+
+            > <span style="color: #{user.color|raw};">#{user.displayName}</span>: #{message}
+            """
+                |> setParam "user.color" user.color
+                |> setParam "user.displayName" user.displayName
+                |> setParam "message" message
+            )
+        , Scenario.userComment warunasubiKun "Oops! I hit the reload button by mistake..."
+        , Scenario.closeApp warunasubiKunMainSession
+            (markup "The page is reloading.")
+        , let
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserLeft" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onSakuraChanMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            The client receives a message from the WS server.
+
+            ```json
+                  {{payload|block}}
+            ```
+            """
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+            )
+        , let
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
+          in
+          onSakuraChanMainSession.chat.expectUserLeftMessage
+            { user = user
+            }
+            (markup """
+            The Message Timeline area displays a system message indicating that a user has left:
+
+            > <span style="color: #{color|raw};">#{displayName}</span> has left.
+            """
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
+            )
+        , let
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
                 ]
           in
-          Scenario.todo sakuraChanMainSession
+          onSakuraChanMainSession.chat.expectActiveUsers
+            { users = users
+            }
             (markup """
-              The "Active users" field is changed:
+            The "Active users" field is changed:
 
-              {{users|block}}
-              """
+            {{users|block}}
+            """
                 |> setParam "users"
                     (List.map
-                        (\name -> "- " ++ name)
-                        userNames
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
                         |> String.join "\n"
                     )
             )
@@ -1410,7 +1619,7 @@ pageHomeCase2 config =
                 , headers =
                     Dict.fromList
                         [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
+                          , "auth_token=guest2; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                           )
                         ]
                 }
@@ -1418,10 +1627,10 @@ pageHomeCase2 config =
             responseBody =
                 here """
                 {
-                  "profile": {
-                    "id": "guest2",
-                    "name": "Guest2"
-                  }
+                    "profile": {
+                        "id": "guest2",
+                        "name": "Guest2"
+                    }
                 }
                 """
           in
@@ -1430,24 +1639,24 @@ pageHomeCase2 config =
                 Just ( responseMeta, responseBody )
             )
             (markup """
-              The backend responds to the profile request.
+            The backend responds to the profile request.
 
-              - Request:
+            - Request:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
+                ```json
+                {{requestMeta|block}}
+                ```
 
-              - Response:
+            - Response:
 
-                  ```json
-                  {{responseMeta|block}}
-                  ```
+                ```json
+                {{responseMeta|block}}
+                ```
 
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
+                ```json
+                {{responseBody|block}}
+                ```
+            """
                 |> setParam "requestMeta"
                     (ppr onSakuraChanMainSession.app.fetchProfileEndpoint)
                 |> setParam "responseMeta"
@@ -1459,681 +1668,341 @@ pageHomeCase2 config =
             { value = Session.LuckyHayOrchard
             }
             (markup """
-              Client receives random value for lucky hay: Orchard
-              """
+            Client receives random value for lucky hay: Orchard
+            """
                 |> setLogLevelDev config
             )
-
-        , Scenario.todo warunasubiKunMainSession
+        , onWarunasubiKunMainSession.chat.expectAvailable
             (markup "Display the chat page.")
-
-        , let
-            message = here """
-            Hi, Sakura-
-            """
-          in
-          Scenario.todo sakuraChanMainSession
+        , onWarunasubiKunMainSession.chat.expectRequestHandshake
             (markup """
-            The client checks localStorage to restore the previous user input.
-
-            Found:
-
-            ```
-            {{message|block}}
-            ```
-            """
-            |> setParam "message" message
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client sends a handshake request to the WS server.
-            """
-            |> setLogLevelDev config
-            )
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client receives an initialization message from the WS server.
+            The client sends a handshake request again to the WS server.
 
             ```json
-            {
-                "message": "initialized",
-                "users": [
-                    {
-                        "displayName": "Guest2"
+                {
+                    "url": "/ws/",
+                    "protocol": "wss",
+                    "headers": {
+                        "Cookie": "auth_token=guest2; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
                     }
-                ]
-            }
+                }
             ```
             """
-            |> setLogLevelDev config
+                |> setLogLevelDev config
             )
-
-        , Scenario.todo warunasubiKunMainSession
+        , let
+            payload : JE.Value
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserEntered" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            , JE.object
+                                [ ( "display-name", JE.string "Guest2" )
+                                , ( "color", JE.string "#4b0082" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onWarunasubiKunMainSession.chat.receiveChatServerEvent
+            payload
             (markup """
-            The client receives a system message from the WS server.
+            The client receives a message from the WS server.
 
             ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Guest2"
-                    }
-                ]
-
-            }
+                  {{payload|block}}
             ```
             """
-            |> setLogLevelDev config
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
             )
-
         , let
-            userNames =
-                [ "Sakura-chan"
-                , "Guest2"
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
+                , { displayName = "Guest2"
+                  , color = "#4b0082"
+                  }
                 ]
           in
-          Scenario.todo warunasubiKunMainSession
+          onWarunasubiKunMainSession.chat.expectActiveUsers
+            { users = users
+            }
             (markup """
-              The "Active users" field says:
+            The "Active users" field changes:
 
-              {{users|block}}
-              """
+            {{users|block}}
+            """
                 |> setParam "users"
                     (List.map
-                        (\name -> "- " ++ name)
-                        userNames
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
+                        |> String.join "\n"
+                    )
+            )
+        , onWarunasubiKunMainSession.chat.expectNumOfMessageFieldItems 1
+            (markup "" |> Scenario.hide True)
+        , let
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
+          in
+          onWarunasubiKunMainSession.chat.expectUserEnteredMessage
+            { user = user
+            }
+            (markup """
+            The Message Timeline area displays only one system message:
+
+            > <span style="color: #{color|raw};">#{displayName}</span> has entered.
+            """
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
+            )
+        , let
+            payload : JE.Value
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserEntered" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "active-users"
+                      , JE.list identity
+                            [ JE.object
+                                [ ( "display-name", JE.string "Sakura-chan" )
+                                , ( "color", JE.string "#ff69b4" )
+                                ]
+                            , JE.object
+                                [ ( "display-name", JE.string "Guest2" )
+                                , ( "color", JE.string "#4b0082" )
+                                ]
+                            ]
+                      )
+                    ]
+          in
+          onSakuraChanMainSession.chat.receiveChatServerEvent
+            payload
+            (markup """
+            The client receives a message from the WS server.
+
+            ```json
+                  {{payload|block}}
+            ```
+            """
+                |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+            )
+        , let
+            users =
+                [ { displayName = "Sakura-chan"
+                  , color = "#ff69b4"
+                  }
+                , { displayName = "Guest2"
+                  , color = "#4b0082"
+                  }
+                ]
+          in
+          onSakuraChanMainSession.chat.expectActiveUsers
+            { users = users
+            }
+            (markup """
+            The "Active users" field changes again:
+
+            {{users|block}}
+            """
+                |> setParam "users"
+                    (List.map
+                        (\user -> "- <span style=\"color: " ++ user.color ++ ";\">" ++ user.displayName ++ "</span>")
+                        users
                         |> String.join "\n"
                     )
             )
         , let
-            message =
-                "Guest2 has entered."
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
           in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              The Message Timeline area displays only one system message:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-        , let
-            message =
-                "Hi, Sakura-"
-          in
-          Scenario.todo warunasubiKunMainSession
-            (markup <| "The previous message \"" ++ message ++ "\" remains in the message input field.")
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Guest2"
-                    }
-                ]
-
+          onSakuraChanMainSession.chat.expectUserEnteredMessage
+            { user = user
             }
-            ```
+            (markup """
+            The Message Timeline area displays a system message which indicates that #{displayName} has entered again:
+
+            > <span style="color: #{color|raw};">#{displayName}</span> has entered.
             """
-            |> setLogLevelDev config
+                |> setParam "color" user.color
+                |> setParam "displayName" user.displayName
             )
-
-        , let
-            userNames =
-                [ "Sakura-chan"
-                , "Guest2"
-                ]
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              The "Active users" field is changed:
-
-              {{users|block}}
-              """
-                |> setParam "users"
-                    (List.map
-                        (\name -> "- " ++ name)
-                        userNames
-                        |> String.join "\n"
-                    )
-            )
-        , let
-            message =
-                "Guest2 has entered."
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              A new system message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
         , let
             message =
                 "Hi, Sakura-chan."
           in
-          Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Change the message input field value to \"" ++ message ++ "\".")
-        , Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Enter \"Submit\" button.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The \"Submit\" button becomes disabled.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client sends a message to the WS server.
-
-            ```json
-            {
-                "action": "push-message",
-                "message": "Hi, Sakura-chan."
+          onWarunasubiKunMainSession.chat.changeNewMessageFormBody
+            { value = message
             }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
             (markup """
-            The client receives a new message from the WS server.
-
-            ```json
-            {
-                "message": "new-message",
-                "value": "Hi, Sakura-chan."
-            }
-            ```
+            Enter "#{message}" in the message input field.
             """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client resets the message field value in localStorage.
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The \"Submit\" button becomes reenabled.")
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The message input field becomes empty.")
-
-        , let
-            message =
-                "Guest2: Hi, Sakura-chan."
-          in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              A new message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
                 |> setParam "message" message
             )
-
-        , Scenario.todo sakuraChanMainSession
+        , onWarunasubiKunMainSession.chat.clickSubmitMessage
             (markup """
-            The client receives a new message from the WS server.
-
-            ```json
-            {
-                "message": "new-message",
-                "value": "Hi, Sakura-chan."
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , let
-            message =
-                "Guest2: Hi, Sakura-chan."
-          in
-          Scenario.todo sakuraChanMainSession
+            Click the "Submit" button.
+            """)
+        , onWarunasubiKunMainSession.chat.expectSubmitMessageButtonIsBusy True
             (markup """
-              A new message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
-        , userComment sakuraChan "Looks good!"
-
-        , userComment warunasubiKun "I just thought of a fun prank. 😈"
-
-        , Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Click header.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup "Redirect to the home page.")
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "user-left",
-                "user": {
-                    "displayName": "Guest2"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
+            The "Submit" button becomes disabled.
+            """)
         , let
-            message =
-                "Guest2 has left."
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              A new system message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-        , let
-            userNames =
-                [ "Sakura-chan"
-                ]
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              The "Active users" field is changed:
-
-              {{users|block}}
-              """
-                |> setParam "users"
-                    (List.map
-                        (\name -> "- " ++ name)
-                        userNames
-                        |> String.join "\n"
-                    )
-            )
-
-        , let
-            value =
-                "Sakura-chan"
-          in
-          onWarunasubiKunMainSession.home.changeEditAccountFormAccountId
-            { value = value
-            }
-            (markup <| "Change the name input field value to \"" ++ value ++ "\".")
-
-        , onWarunasubiKunMainSession.home.clickSubmitEditAccount
-            (markup "Click the save button.")
-
-        , let
-            requestBody =
+            event =
                 JE.object
-                    [ ( "name", JE.string "Sakura-chan" )
+                    [ ( "result", JE.string "Success" )
+                    , ( "body", responseBody )
                     ]
 
-            responseMeta =
-                { url = "https://example.com/api/edit-account"
-                , statusCode = 200
-                , statusText = "OK"
-                , headers =
-                    Dict.fromList
-                        [ ( "Set-Cookie"
-                          , "auth_token=authenticated; Secure; HttpOnly; Domain=.example.com; Max-Age=2592000"
-                          )
-                        ]
-                }
+            response =
+                JE.object
+                    [ ( "response", JE.string "PushMessage" )
+                    , ( "status", JE.string "OK" )
+                    , ( "id", JE.string "}" )
+                    , ( "body", responseBody )
+                    ]
 
             responseBody =
-                here """
+                JE.object
+                    [ ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "value", JE.string "Hi, Sakura-chan." )
+                    ]
+          in
+          onWarunasubiKunMainSession.chat.receiveNewMessageResp event
+            (markup """
+            The WS server responds to the new message request.
+
+            - Request:
+
+                ```json
                 {
-                    "profile": {
-                        "name": "Sakura-chan"
-                    }
+                    "action": "PushMessage",
+                    "message": "Hi, Sakura-chan."
+                    "id": "}",
                 }
-                """
-          in
-          onWarunasubiKunMainSession.home.receiveEditAccountResp
-            (\body ->
-                if body == requestBody then
-                    Just ( responseMeta, responseBody )
+                ```
 
-                else
-                    Nothing
-            )
-            (markup """
-              The backend responds to the edit account request.
-              - Request:
+            - Response:
 
-                  ```json
-                  {{requestMeta|block}}
-                  ```
-
-              - Response:
-
-                  ```json
-                  {{responseMeta|block}}
-                  ```
-
-                  ```json
-                  {{responseBody|block}}
-                  ```
-              """
-                |> setParam "requestMeta"
-                    (ppr onSakuraChanMainSession.home.editAccountEndpoint)
-                |> setParam "responseMeta"
-                    (ppr responseMeta)
-                |> setParam "responseBody" responseBody
+                ```json
+                {{response|block}}
+                ```
+            """
+                |> setParam "response"
+                    (JE.encode 4 response)
                 |> setLogLevelDev config
             )
-        , Scenario.todo warunasubiKunMainSession
-            (markup "Click the \"Start Chat\" button.")
-        , Scenario.todo warunasubiKunMainSession
-            (markup "Redirect to chat page.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup "The client checks localStorage to restore the previous user input, but nothing is found."
+        , onWarunasubiKunMainSession.chat.expectNewMessageBodyIsCleared
+            (markup """
+            The client clears the message field.
+            """
                 |> setLogLevelDev config
             )
-
-        , Scenario.todo warunasubiKunMainSession
+        , onWarunasubiKunMainSession.chat.expectSubmitMessageButtonIsBusy False
             (markup """
-            The client sends a handshake request to the WS server.
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client receives an initialization message from the WS server.
-
-            ```json
-            {
-                "message": "initialized",
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , let
-            userNames =
-                [ "Sakura-chan"
-                , "Sakura-chan"
-                ]
-          in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              The "Active users" field says:
-
-              {{users|block}}
-              """
-                |> setParam "users"
-                    (List.map
-                        (\name -> "- " ++ name)
-                        userNames
-                        |> String.join "\n"
-                    )
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Sakura-chan"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
+            The "Submit" button comes back from busy.
+            """)
         , let
             message =
-                "Sakura-chan has entered."
+                "Hi, Sakura-chan."
+
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
           in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              The Message Timeline area displays only one system message:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives a system message from the WS server.
-
-            ```json
-            {
-                "message": "new-user",
-                "user": {
-                    "displayName": "Sakura-chan"
-                },
-                "users": [
-                    {
-                        "displayName": "Sakura-chan"
-                    },
-                    {
-                        "displayName": "Sakura-chan"
-                    }
-                ]
-
+          onWarunasubiKunMainSession.chat.expectUserMessage
+            { user = user
+            , value = message
             }
-            ```
+            (markup """
+            The submitted message is added to the Message TimeLine area:
+
+            > <span style="color: #{user.color|raw};">#{user.displayName}</span>: #{message}
             """
-            |> setLogLevelDev config
-            )
-
-
-        , let
-            userNames =
-                [ "Sakura-chan"
-                , "Sakura-chan"
-                ]
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              The "Active users" field is changed:
-
-              {{users|block}}
-              """
-                |> setParam "users"
-                    (List.map
-                        (\name -> "- " ++ name)
-                        userNames
-                        |> String.join "\n"
-                    )
-            )
-        , let
-            message =
-                "Sakura-chan has entered."
-          in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              A new system message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
+                |> setParam "user.color" user.color
+                |> setParam "user.displayName" user.displayName
                 |> setParam "message" message
             )
         , let
-            message =
-                "Guest2: Hi, Sakura-chan."
+            payload =
+                JE.object
+                    [ ( "event", JE.string "UserMessage" )
+                    , ( "user"
+                      , JE.object
+                            [ ( "display-name", JE.string "Guest2" )
+                            , ( "color", JE.string "#4b0082" )
+                            ]
+                      )
+                    , ( "value", JE.string "Hi, Sakura-chan." )
+                    ]
           in
-          Scenario.todo sakuraChanMainSession
-            (markup """
-              The display name of existing messages remain unchanged:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-        , let
-            message =
-                "Warunasubi-kun is smart and cool.🥰"
-          in
-          Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Enter \"" ++ message ++ "\" in the message input field.")
-        , Scenario.userTodo warunasubiKunMainSession
-            (markup <| "Enter \"Submit\" button.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The \"Submit\" button becomes disabled.")
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client sends a message to the WS server.
-
-            ```json
-            {
-                "action": "push-message",
-                "message": "Warunasubi-kun is smart and cool.🥰"
-            }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
+          onSakuraChanMainSession.chat.receiveChatServerEvent
+            payload
             (markup """
             The client receives a new message from the WS server.
 
             ```json
-            {
-                "message": "new-message",
-                "value": "Warunasubi-kun is smart and cool.🥰"
-            }
+            {{payload|block}}
             ```
             """
-            |> setLogLevelDev config
+                |> setParam "payload"
+                    (JE.encode 4 payload)
+                |> setLogLevelDev config
             )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup """
-            The client resets the message field value in localStorage.
-            """
-            |> setLogLevelDev config
-            )
-
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The \"Submit\" button becomes reenabled.")
-        , Scenario.todo warunasubiKunMainSession
-            (markup <| "The message input field becomes empty.")
-
         , let
             message =
-                "Sakura-chan: Warunasubi-kun is smart and cool.🥰"
+                "Hi, Sakura-chan."
+
+            user =
+                { displayName = "Guest2"
+                , color = "#4b0082"
+                }
           in
-          Scenario.todo warunasubiKunMainSession
-            (markup """
-              A new message is added to the Message TimeLine area:
-
-              ```
-              {{message|block}}
-              ```
-              """
-                |> setParam "message" message
-            )
-
-        , Scenario.todo sakuraChanMainSession
-            (markup """
-            The client receives a new message from the WS server.
-
-            ```json
-            {
-                "message": "new-message",
-                "value": "Warunasubi-kun is smart and cool.🥰"
+          onSakuraChanMainSession.chat.expectUserMessage
+            { user = user
+            , value = message
             }
-            ```
-            """
-            |> setLogLevelDev config
-            )
-
-
-        , let
-            message =
-                "Sakura-chan: Warunasubi-kun is smart and cool.🥰"
-          in
-          Scenario.todo sakuraChanMainSession
             (markup """
-              A new message is added to the Message TimeLine area:
+            A new message is added to the Message TimeLine area:
 
-              ```
-              {{message|block}}
-              ```
-              """
+            > <span style="color: #{user.color|raw};">#{user.displayName}</span>: #{message}
+            """
+                |> setParam "user.color" user.color
+                |> setParam "user.displayName" user.displayName
                 |> setParam "message" message
             )
-        , userComment sakuraChan "Hey Warunasubi-kun, I know you posted it. The display name is also Sakura-chan, but with a different color."
-        , userComment warunasubiKun "😋"
+        , userComment sakuraChan "Looks good!"
         ]
     }
 

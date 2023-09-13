@@ -1,6 +1,6 @@
 {
-    "name": "arowM/elm-procedure-architecture-spa-sample",
-    "summary": "Domain specific libraries for elm-procedure-architecture SPA sample app.",
+    "name": "arowM/tepa-sample",
+    "summary": "Domain specific libraries for the sample app.",
     "version": "1.0.0",
     "exposed-modules": [
         "App",
@@ -8,8 +8,12 @@
         "App.Path",
         "App.Session",
         "App.ZIndex",
+        "Page.HotFound",
         "Page.Home",
         "Page.Home.EditAccount",
+        "Page.Chat",
+        "Page.Chat.ChatServer",
+        "Page.Chat.NewMessage",
         "Page.Login",
         "Page.Login.Login",
         "Widget.Toast"

@@ -19,14 +19,18 @@ import NoExposingEverything
 import NoImportingEverything
 import NoMissingTypeAnnotation
 import NoMissingTypeExpose
+import NoUnoptimizedRecursion
 import NoUnused.CustomTypeConstructorArgs
 import NoUnused.CustomTypeConstructors
 import NoUnused.Dependencies
-import NoUnused.Exports
+import NoUnused.Exports exposing (annotatedBy)
 import NoUnused.Modules
 import NoUnused.Parameters
 import NoUnused.Patterns
 import NoUnused.Variables
+import NoDuplicatePorts
+import NoUnsafePorts
+import NoUnusedPorts
 import Simplify
 
 
@@ -43,10 +47,18 @@ config =
     , NoMissingTypeAnnotation.rule
     , NoMissingTypeExpose.rule
         |> Rule.ignoreErrorsForDirectories [ "src/Page" ]
+    , NoUnoptimizedRecursion.rule
+        (NoUnoptimizedRecursion.optOutWithComment "IGNORE TCO")
     , NoUnused.CustomTypeConstructorArgs.rule
     , NoUnused.CustomTypeConstructors.rule []
     , NoUnused.Dependencies.rule
-    , NoUnused.Exports.rule
+    , NoUnused.Exports.defaults
+        |> NoUnused.Exports.reportUnusedProductionExports
+            { isProductionFile =
+                \{ isInSourceDirectories } -> isInSourceDirectories
+            , exceptionsAre = [ annotatedBy "@test-helper" ]
+            }
+        |> NoUnused.Exports.toRule
         |> Rule.ignoreErrorsForDirectories
             [ "src/Widget"
             , "tests"
@@ -56,11 +68,10 @@ config =
     , NoUnused.Parameters.rule
     , NoUnused.Patterns.rule
     , NoUnused.Variables.rule
+    , NoDuplicatePorts.rule
+    , NoUnsafePorts.rule NoUnsafePorts.any
+    , NoUnusedPorts.rule
     , Simplify.defaults
-        |> Simplify.ignoreCaseOfForTypes
-            [ "Page.Home.EditAccount.FormError"
-            , "Scenario.Msg"
-            ]
         |> Simplify.rule
         |> Rule.ignoreErrorsForFiles
             [ "tests/VerifyExample.elm"

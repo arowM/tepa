@@ -72,7 +72,7 @@ type alias EditAccount_ =
     }
 
 
-{-| Request server for editing account.
+{-| Request server to update account.
 -}
 request : EditAccount -> Promise m Response
 request (EditAccount editAccount) =

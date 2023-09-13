@@ -25,8 +25,10 @@ import AppUrl exposing (AppUrl)
 import Dict
 import Json.Encode exposing (Value)
 import Mixin.Html as Html exposing (Html)
+import Page.Chat as PageChat
 import Page.Home as PageHome
 import Page.Login as PageLogin
+import Page.NotFound as PageNotFound
 import Tepa exposing (Document, Layer, NavKey, Promise)
 import Tepa.Http as Http
 import Tepa.Navigation as Nav
@@ -78,37 +80,116 @@ init =
 {-| -}
 type Page
     = PageLoading
-    | PageNotFound
-        { msession : Maybe Session
-        }
+    | PageNotFound (Layer PageNotFound.Memory)
     | PageLogin (Layer PageLogin.Memory)
     | PageHome (Layer PageHome.Memory)
+    | PageChat (Layer PageChat.Memory)
+
+
+type alias PageLayer m1 =
+    { get : Memory -> Maybe (Layer m1)
+    , set : Layer m1 -> Memory -> Memory
+    }
+
+
+pageNotFoundLayer : PageLayer PageNotFound.Memory
+pageNotFoundLayer =
+    { get =
+        \m ->
+            case m.page of
+                PageNotFound layer ->
+                    Just layer
+
+                _ ->
+                    Nothing
+    , set =
+        \layer m ->
+            { m | page = PageNotFound layer }
+    }
+
+
+getPageLoginLayer : Memory -> Maybe (Layer PageLogin.Memory)
+getPageLoginLayer m =
+    case m.page of
+        PageLogin layer ->
+            Just layer
+
+        _ ->
+            Nothing
+
+
+pageLoginLayer : PageLayer PageLogin.Memory
+pageLoginLayer =
+    { get = getPageLoginLayer
+    , set =
+        \layer m ->
+            { m | page = PageLogin layer }
+    }
+
+
+getPageHomeLayer : Memory -> Maybe (Layer PageHome.Memory)
+getPageHomeLayer m =
+    case m.page of
+        PageHome layer ->
+            Just layer
+
+        _ ->
+            Nothing
+
+
+pageHomeLayer : PageLayer PageHome.Memory
+pageHomeLayer =
+    { get = getPageHomeLayer
+    , set =
+        \layer m ->
+            { m | page = PageHome layer }
+    }
+
+
+getPageChatLayer : Memory -> Maybe (Layer PageChat.Memory)
+getPageChatLayer m =
+    case m.page of
+        PageChat layer ->
+            Just layer
+
+        _ ->
+            Nothing
+
+
+pageChatLayer : PageLayer PageChat.Memory
+pageChatLayer =
+    { get = getPageChatLayer
+    , set =
+        \layer m ->
+            { m | page = PageChat layer }
+    }
 
 
 
 -- View
 
 
-view : Layer Memory -> Document
-view =
-    Tepa.layerDocument <|
-        \{ state } ->
-            { title = "Sample App"
-            , body =
-                [ case state.page of
-                    PageLoading ->
-                        pageLoadingView
+view : Memory -> Document
+view state =
+    { title = "Sample App"
+    , body =
+        [ case state.page of
+            PageLoading ->
+                pageLoadingView
 
-                    PageNotFound _ ->
-                        pageNotFoundView
+            PageNotFound pageNotFound ->
+                PageNotFound.view pageNotFound
 
-                    PageLogin pageLogin ->
-                        PageLogin.view pageLogin
+            PageLogin pageLogin ->
+                PageLogin.view pageLogin
 
-                    PageHome pageHome ->
-                        PageHome.view pageHome
-                ]
-            }
+            PageHome pageHome ->
+                PageHome.view pageHome
+
+            PageChat pageHome ->
+                PageChat.view pageHome
+        ]
+    }
 
 
 
@@ -118,15 +199,6 @@ view =
 pageLoadingView : Html msg
 pageLoadingView =
     Html.text "Loading..."
-
-
-
--- -- PageNotFound
-
-
-pageNotFoundView : Html msg
-pageNotFoundView =
-    Html.text "Not found"
 
 
 
@@ -142,28 +214,46 @@ procedure _ url key =
 
 onUrlChange : Value -> AppUrl -> NavKey -> Promise Memory ()
 onUrlChange _ newUrl key =
-    Tepa.bind Tepa.currentState <|
-        \state ->
-            case state.page of
-                PageLoading ->
-                    [ Tepa.lazy <|
-                        \_ -> pageProcedure newUrl key Nothing
-                    ]
+    Tepa.bindAll
+        [ Tepa.bindAndThen Tepa.currentState <|
+            \{ page } ->
+                if page == PageLoading then
+                    Tepa.succeed <| Just Nothing
 
-                PageNotFound param ->
-                    [ Tepa.lazy <|
-                        \_ -> pageProcedure newUrl key param.msession
-                    ]
+                else
+                    Tepa.succeed Nothing
+        , onLeave pageNotFoundLayer PageNotFound.leave
+        , onLeave pageLoginLayer PageLogin.leave
+        , onLeave pageHomeLayer PageHome.leave
+        , onLeave pageChatLayer PageChat.leave
+        ]
+    <|
+        \results ->
+            let
+                msession =
+                    List.filterMap identity results
+                        |> List.head
+                        |> Maybe.withDefault Nothing
+            in
+            [ pageProcedure newUrl key msession
+            ]
 
-                PageLogin layer ->
-                    [ Tepa.bind (Tepa.layerState layer) <|
-                        \m1 -> [ pageProcedure newUrl key m1.msession ]
-                    ]
 
-                PageHome layer ->
-                    [ Tepa.bind (Tepa.layerState layer) <|
-                        \m1 -> [ pageProcedure newUrl key (Just m1.session) ]
-                    ]
+onLeave :
+    PageLayer m1
+    -> Promise m1 a
+    -> Promise Memory (Maybe a)
+onLeave pageLayer leave =
+    Tepa.onLayer pageLayer leave
+        |> Tepa.map
+            (\res ->
+                case res of
+                    Tepa.LayerOk a ->
+                        Just a
+
+                    _ ->
+                        Nothing
+            )
 
 
 onUrlRequest : Value -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
@@ -234,19 +324,7 @@ pageProcedure url key msession =
                 \newLayer ->
                     [ Tepa.modify <| \m -> { m | page = PageLogin newLayer }
                     , PageLogin.procedure key url
-                        |> Tepa.onLayer
-                            { get =
-                                \m ->
-                                    case m.page of
-                                        PageLogin layer ->
-                                            Just layer
-
-                                        _ ->
-                                            Nothing
-                            , set =
-                                \layer m ->
-                                    { m | page = PageLogin layer }
-                            }
+                        |> Tepa.onLayer pageLoginLayer
                         |> Tepa.void
                     ]
 
@@ -261,31 +339,37 @@ pageProcedure url key msession =
                         \newLayer ->
                             [ Tepa.modify <| \m -> { m | page = PageHome newLayer }
                             , PageHome.procedure key url
-                                |> Tepa.onLayer
-                                    { get =
-                                        \m ->
-                                            case m.page of
-                                                PageHome layer ->
-                                                    Just layer
+                                |> Tepa.onLayer pageHomeLayer
+                                |> Tepa.void
+                            ]
 
-                                                _ ->
-                                                    Nothing
-                                    , set =
-                                        \layer m ->
-                                            { m | page = PageHome layer }
-                                    }
+        Just [ "chat" ] ->
+            withSession <|
+                \session ->
+                    Tepa.bind
+                        (PageChat.init session
+                            |> Tepa.andThen Tepa.newLayer
+                        )
+                    <|
+                        \newLayer ->
+                            [ Tepa.modify <| \m -> { m | page = PageChat newLayer }
+                            , PageChat.procedure key url
+                                |> Tepa.onLayer pageChatLayer
                                 |> Tepa.void
                             ]
 
         _ ->
-            Tepa.modify <|
-                \m ->
-                    { m
-                        | page =
-                            PageNotFound
-                                { msession = msession
-                                }
-                    }
+            Tepa.bind
+                (PageNotFound.init msession
+                    |> Tepa.andThen Tepa.newLayer
+                )
+            <|
+                \newLayer ->
+                    [ Tepa.modify <| \m -> { m | page = PageNotFound newLayer }
+                    , PageNotFound.procedure key url
+                        |> Tepa.onLayer pageNotFoundLayer
+                        |> Tepa.void
+                    ]
 
 
 
@@ -296,6 +380,7 @@ pageProcedure url key msession =
 type alias ScenarioSet =
     { login : PageLogin.ScenarioSet Memory
     , home : PageHome.ScenarioSet Memory
+    , chat : PageChat.ScenarioSet Memory
     , app :
         { receiveProfile :
             (() -> Maybe ( Http.Metadata, String ))
@@ -321,30 +406,21 @@ scenario session =
         PageLogin.scenario
             { querySelf =
                 Scenario.appLayer
-                    |> Scenario.childLayer
-                        (\m ->
-                            case m.page of
-                                PageLogin l ->
-                                    Just l
-
-                                _ ->
-                                    Nothing
-                        )
+                    |> Scenario.childLayer getPageLoginLayer
             , session = session
             }
     , home =
         PageHome.scenario
             { querySelf =
                 Scenario.appLayer
-                    |> Scenario.childLayer
-                        (\m ->
-                            case m.page of
-                                PageHome l ->
-                                    Just l
-
-                                _ ->
-                                    Nothing
-                        )
+                    |> Scenario.childLayer getPageHomeLayer
+            , session = session
+            }
+    , chat =
+        PageChat.scenario
+            { querySelf =
+                Scenario.appLayer
+                    |> Scenario.childLayer getPageChatLayer
             , session = session
             }
     , app =

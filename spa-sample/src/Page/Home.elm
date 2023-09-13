@@ -4,6 +4,7 @@ module Page.Home exposing
     , ScenarioProps
     , ScenarioSet
     , init
+    , leave
     , procedure
     , scenario
     , view
@@ -16,6 +17,7 @@ module Page.Home exposing
 @docs ScenarioProps
 @docs ScenarioSet
 @docs init
+@docs leave
 @docs procedure
 @docs scenario
 @docs view
@@ -27,6 +29,7 @@ import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
+import Html.Attributes
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
@@ -40,6 +43,7 @@ import Test.Html.Event as HtmlEvent
 import Test.Html.Event.Extra as HtmlEvent
 import Test.Html.Query as Query
 import Test.Html.Selector as Selector
+import Widget.Header as Header
 import Widget.Toast as Toast
 
 
@@ -85,6 +89,14 @@ init session =
         |> Tepa.sync Time.here
 
 
+{-| -}
+leave : Promise Memory (Maybe Session)
+leave =
+    Tepa.currentState
+        |> Tepa.map .session
+        |> Tepa.map Just
+
+
 
 -- View
 
@@ -97,65 +109,77 @@ view =
             Html.div
                 [ localClass "page"
                 ]
-                [ clockView (Tepa.mapViewContext .clock context)
+                [ Header.view
+                    (localClass "header")
                 , Html.div
-                    [ localClass "luckyHay"
+                    [ localClass "top"
                     ]
-                    [ Html.span
-                        [ localClass "luckyHay_text"
+                    [ clockView (Tepa.mapViewContext .clock context)
+                    , Html.div
+                        [ localClass "greetingArea"
                         ]
-                        [ Html.text "Your lucky grass hay for today: "
-                        ]
-                    , Html.span
-                        [ localClass "luckyHay_value"
-                        ]
-                        [ displayLuckyHay context.state.session.luckyHay
-                            |> Html.text
+                        [ Html.div
+                            [ localClass "greetingArea_greeting"
+                            ]
+                            [ Html.span
+                                [ localClass "greetingArea_greeting_text"
+                                ]
+                                [ Html.text "Hi, "
+                                ]
+                            , Html.span
+                                [ localClass "greetingArea_greeting_name"
+                                ]
+                                [ Html.text context.state.session.profile.name
+                                ]
+                            , Html.span
+                                [ localClass "greetingArea_greeting_text"
+                                ]
+                                [ Html.text "!"
+                                ]
+                            ]
+                        , Html.div
+                            [ localClass "greetingArea_luckyHay"
+                            ]
+                            [ Html.span
+                                [ localClass "greetingArea_luckyHay_text"
+                                ]
+                                [ Html.text "Your lucky grass hay for today: "
+                                ]
+                            , Html.span
+                                [ localClass "greetingArea_luckyHay_value"
+                                ]
+                                [ displayLuckyHay context.state.session.luckyHay
+                                    |> Html.text
+                                ]
+                            ]
                         ]
                     ]
                 , Html.div
-                    [ localClass "greeting"
+                    [ localClass "body"
                     ]
-                    [ Html.span
-                        [ localClass "greeting_text"
+                    [ editAccountFormView (Tepa.mapViewContext .editAccountForm context)
+                    , Html.div
+                        [ localClass "dashboard_links"
                         ]
-                        [ Html.text "Hi, "
+                        [ Html.a
+                            [ localClass "dashboard_links_linkButton-chat"
+                            , Mixin.attribute "href"
+                                (AppUrl.toString
+                                    { path =
+                                        [ Path.prefix
+                                        , "chat"
+                                        ]
+                                    , queryParameters = Dict.empty
+                                    , fragment = Nothing
+                                    }
+                                )
+                            ]
+                            [ Html.text "Start Chat"
+                            ]
                         ]
-                    , Html.span
-                        [ localClass "greeting_name"
-                        ]
-                        [ context.state.session.profile.name
-                            |> Maybe.withDefault "(Unknown)"
-                            |> Html.text
-                        ]
-                    , Html.span
-                        [ localClass "greeting_text"
-                        ]
-                        [ Html.text "!"
-                        ]
+                    , Toast.view
+                        (Tepa.mapViewContext .toast context)
                     ]
-                , editAccountFormView (Tepa.mapViewContext .editAccountForm context)
-                , Html.div
-                    [ localClass "dashboard_links"
-                    ]
-                    [ Html.a
-                        [ localClass "dashboard_links_linkButton-users"
-                        , Mixin.attribute "href"
-                            (AppUrl.toString
-                                { path =
-                                    [ Path.prefix
-                                    , "users"
-                                    ]
-                                , queryParameters = Dict.empty
-                                , fragment = Nothing
-                                }
-                            )
-                        ]
-                        [ Html.text "Users"
-                        ]
-                    ]
-                , Toast.view
-                    (Tepa.mapViewContext .toast context)
                 ]
 
 
@@ -272,15 +296,22 @@ editAccountFormView { state, setKey, values } =
             (state.showError && not (List.isEmpty errors))
         ]
         [ Html.node "label"
-            [ localClass "editAccountForm_id_label"
+            [ localClass "editAccountForm_id"
             ]
-            [ Html.text "New name:"
+            [ Html.div
+                [ localClass "editAccountForm_id_label"
+                ]
+                [ Html.text "New name:"
+                ]
             , Html.node "input"
                 [ Mixin.attribute "type" "text"
                 , Mixin.disabled state.isBusy
                 , localClass "editAccountForm_id_input"
                 , setKey EditAccount.keys.editAccountFormName
                     |> Mixin.fromAttributes
+                , Mixin.boolAttribute "aria-invalid" <|
+                    state.showError
+                        && List.member EditAccount.IdRequired errors
                 ]
                 []
             ]
@@ -303,7 +334,9 @@ editAccountFormView { state, setKey, values } =
             Html.text ""
         , Html.node "button"
             [ localClass "editAccountForm_saveButton"
-            , Mixin.disabled state.isBusy
+            , Mixin.attribute "type" "button"
+            , Mixin.boolAttribute "aria-busy" state.isBusy
+            , Mixin.boolAttribute "aria-disabled" <| state.showError && not (List.isEmpty errors)
             , setKey keys.editAccountFormSaveButton
                 |> Mixin.fromAttributes
             ]
@@ -348,8 +381,7 @@ procedure key url =
         [ clockProcedure
         , Tepa.bind Tepa.currentState <|
             \{ session } ->
-                [ Tepa.setValue EditAccount.keys.editAccountFormName <|
-                    Maybe.withDefault "" session.profile.name
+                [ Tepa.setValue EditAccount.keys.editAccountFormName session.profile.name
                 , editAccountFormProcedure bucket
                 ]
         ]
@@ -372,17 +404,7 @@ clockProcedure =
 
 editAccountFormProcedure : Bucket -> Promise Memory ()
 editAccountFormProcedure bucket =
-    Tepa.sequence
-        [ Tepa.awaitViewEvent
-            { key = keys.editAccountFormSaveButton
-            , type_ = "click"
-            }
-        , Tepa.lazy <| \_ -> submitAccountProcedure bucket
-        ]
-
-
-submitAccountProcedure : Bucket -> Promise Memory ()
-submitAccountProcedure bucket =
+    -- IGNORE TCO
     let
         modifyEditAccountForm f =
             Tepa.modify <|
@@ -392,7 +414,11 @@ submitAccountProcedure bucket =
                     }
     in
     Tepa.sequence
-        [ modifyEditAccountForm <|
+        [ Tepa.awaitViewEvent
+            { key = keys.editAccountFormSaveButton
+            , type_ = "click"
+            }
+        , modifyEditAccountForm <|
             \m -> { m | isBusy = True }
         , Tepa.bind Tepa.getValues <|
             \form ->
@@ -466,7 +492,7 @@ submitAccountProcedure bucket =
                                                                     profile =
                                                                         session.profile
                                                                 in
-                                                                { profile | name = Just resp.name }
+                                                                { profile | name = resp.name }
                                                         }
                                                     , editAccountForm =
                                                         let
@@ -513,6 +539,8 @@ type alias ScenarioSet m =
         -> Scenario m
     , clickSubmitEditAccount :
         Scenario.Markup -> Scenario m
+    , clickStartChat :
+        Scenario.Markup -> Scenario m
     , receiveEditAccountResp :
         (Value -> Maybe ( Http.Metadata, String ))
         -> Scenario.Markup
@@ -556,6 +584,7 @@ scenario props =
     { layer = props.querySelf
     , changeEditAccountFormAccountId = changeEditAccountFormAccountId props
     , clickSubmitEditAccount = clickSubmitEditAccount props
+    , clickStartChat = clickStartChat props
     , receiveEditAccountResp = receiveEditAccountResp props
     , expectAvailable = expectAvailable props
     , expectEditAccountFormShowNoErrors = expectEditAccountFormShowNoErrors props
@@ -588,11 +617,49 @@ clickSubmitEditAccount props markup =
         { query =
             Query.find
                 [ localClassSelector "editAccountForm_saveButton"
-                , Selector.disabled False
+                , Selector.attribute <|
+                    Html.Attributes.attribute "aria-disabled" "false"
+                , Selector.attribute <|
+                    Html.Attributes.attribute "aria-busy" "false"
                 ]
         , operation =
             HtmlEvent.click
         }
+
+
+clickStartChat : ScenarioProps m -> Scenario.Markup -> Scenario m
+clickStartChat props markup =
+    let
+        href =
+            { path =
+                [ Path.prefix
+                , "chat"
+                ]
+            , queryParameters = Dict.empty
+            , fragment = Nothing
+            }
+    in
+    Scenario.sequence
+        [ Scenario.expectAppView props.session
+            (markup
+                |> Scenario.modifyContent (String.append "(Expectation)")
+                |> Scenario.hide True
+            )
+            { expectation =
+                \{ body } ->
+                    Query.fromHtml (Html.div [] body)
+                        |> Query.find
+                            [ localClassSelector "dashboard_links_linkButton-chat"
+                            ]
+                        |> Query.has
+                            [ Selector.tag "a"
+                            , Selector.attribute (Html.Attributes.href <| AppUrl.toString href)
+                            ]
+            }
+        , Scenario.pushPath props.session
+            href
+            markup
+        ]
 
 
 receiveEditAccountResp : ScenarioProps m -> (Value -> Maybe ( Http.Metadata, String )) -> Scenario.Markup -> Scenario m
@@ -655,10 +722,10 @@ expectGreetingMessage props { value } markup =
             \{ body } ->
                 Query.fromHtml (Html.div [] body)
                     |> Query.find
-                        [ localClassSelector "greeting"
+                        [ localClassSelector "greetingArea_greeting"
                         ]
                     |> Query.has
-                        [ localClassSelector "greeting_name"
+                        [ localClassSelector "greetingArea_greeting_name"
                         , Selector.exactText value
                         ]
         }
@@ -700,10 +767,10 @@ expectLuckyHayMessage props { value } markup =
             \{ body } ->
                 Query.fromHtml (Html.div [] body)
                     |> Query.find
-                        [ localClassSelector "luckyHay"
+                        [ localClassSelector "greetingArea_luckyHay"
                         ]
                     |> Query.has
-                        [ localClassSelector "luckyHay_value"
+                        [ localClassSelector "greetingArea_luckyHay_value"
                         , Selector.exactText value
                         ]
         }
@@ -715,14 +782,14 @@ expectLuckyHayMessage props { value } markup =
 
 localClass : String -> Mixin msg
 localClass name =
-    Mixin.class (classPrefix ++ name)
+    Mixin.class (pagePrefix ++ name)
 
 
 localClassSelector : String -> Selector.Selector
 localClassSelector name =
-    Selector.class (classPrefix ++ name)
+    Selector.class (pagePrefix ++ name)
 
 
-classPrefix : String
-classPrefix =
+pagePrefix : String
+pagePrefix =
     "page_home--"

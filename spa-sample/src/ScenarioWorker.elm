@@ -1,5 +1,6 @@
 port module ScenarioWorker exposing (main)
 
+import Json.Encode as JE exposing (Value)
 import Scenario exposing (MarkupConfig, sections)
 import Tepa.Scenario as Scenario
 
@@ -19,12 +20,13 @@ main =
                             }
                   in
                   output <|
-                    case result of
-                        Ok res ->
-                            res
+                    JE.string <|
+                        case result of
+                            Ok res ->
+                                res
 
-                        Err _ ->
-                            "Error"
+                            Err _ ->
+                                "Error"
                 )
         , update =
             \_ _ ->
@@ -33,4 +35,4 @@ main =
         }
 
 
-port output : String -> Cmd msg
+port output : Value -> Cmd msg

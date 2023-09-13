@@ -29,7 +29,7 @@ type alias Session =
 -}
 type alias Profile =
     { id : String
-    , name : Maybe String
+    , name : String
     }
 
 

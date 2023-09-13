@@ -2,12 +2,15 @@ import express from "express";
 import WebSocket, { WebSocketServer } from "ws";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+import cookie from "cookie";
 import z from "zod";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
+import type * as types from "./interface.js";
+import { ChatProfile, WsEvent, WsRequest } from "./interface.js";
 
 /* =============
  * Set up DB
@@ -19,39 +22,54 @@ const file = join(__dirname, "../db.json");
 
 // Configure lowdb to write to JSONFile
 type Data = {
-  users: Record<
-    string,
-    {
-      profile: Profile;
-    }
-  >;
+  users: Record<string, User>;
 };
-type Profile = {
-  name?: string;
-};
-const adapter = new JSONFile<Data>(file);
-const db = new Low(adapter);
 
-// Read data from JSON file, this will set db.data content
-await db.read();
+type User = {
+  profile: Profile;
+  color: string;
+  password: string;
+};
+
+type Profile = {
+  name: string;
+};
 
 /* ===========
  *  Migration
  * =========== */
 
-if (db.data === null) {
-  console.log("Migrate DB...");
-  db.data = {
-    users: {
-      guest: {
-        profile: {
-          name: "guest",
-        },
+const adapter = new JSONFile<Data>(file);
+console.log("Migrate DB...");
+const db = new Low(adapter, {
+  users: {
+    guest: {
+      profile: {
+        name: "Guest",
       },
+      // ⚠ Just for demo. DO NOT STORE PLAIN PASSWORD!
+      password: "guestPass",
+      color: "#ff69b4",
     },
-  };
-  db.write();
-}
+    guest2: {
+      profile: {
+        name: "Guest2",
+      },
+      // ⚠ Just for demo. DO NOT STORE PLAIN PASSWORD!
+      password: "guestPass2",
+      color: "#4b0082",
+    },
+  },
+});
+
+// Read data from JSON file, this will set db.data content
+await db.read();
+
+/* ========
+ * Constants
+ * ======== */
+
+const AUTH_TOKEN_KEY = "auth_token";
 
 /* ========
  * App
@@ -62,26 +80,47 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(morgan("combined"));
 
+type LoginResponse = {
+  profile: {
+    id: string;
+    name: string;
+  };
+};
+
+type LoginRequest = {
+  id: string;
+  pass: string;
+};
+
+const LoginRequest: z.ZodType<LoginRequest> = z.object({
+  id: z.string(),
+  pass: z.string(),
+});
+
 app.post("/api/login", (req, res) => {
-  if (req.body.id === "guest" && req.body.pass === "guestPass") {
-    const user = "guest";
+  const resBody = LoginRequest.safeParse(req.body);
+  if (!resBody.success) {
+    res.status(400).json({ code: "InvalidRequestBody" });
+    return;
+  }
+  const body: LoginRequest = resBody.data;
+  const userId: string = body.id;
+  const user: User | undefined = db.data?.users[userId];
+  if (user !== void 0 && body.pass === user.password) {
     // Just for demo. DO NOT use this logic in production.
-    res.cookie("auth_token", "authenticated", {
+    res.cookie(AUTH_TOKEN_KEY, userId, {
       httpOnly: true,
       secure: true,
     });
-    const profile: Profile | undefined = db.data?.users[user]?.profile;
-    if (profile === void 0) {
-      res.status(500).json({ code: "InternalError" });
-      return;
-    }
-    ensureType<Profile>(profile);
-    res.json({
-      profile: {
-        id: user,
-        ...profile,
-      },
-    });
+    const profile: Profile = user.profile;
+    res.json(
+      ensureTypeOf<LoginResponse>({
+        profile: {
+          id: userId,
+          name: profile.name,
+        },
+      })
+    );
     return;
   } else {
     res.status(401).json({ code: "IncorrectIdOrPassword" });
@@ -89,75 +128,101 @@ app.post("/api/login", (req, res) => {
   }
 });
 
+// Authorization
 app.use((req, res, next) => {
-  const authToken = req.cookies["auth_token"];
+  const userId = req.cookies[AUTH_TOKEN_KEY];
   // Just for demo. DO NOT use this logic in production.
-  const isAuthorized = authToken !== void 0 && authToken === "authenticated";
-  if (isAuthorized) {
-    res.locals["user"] = "guest";
-    next();
-  } else {
-    res.status(401).json({ code: "LoginRequired" });
-  }
-});
-
-app.get("/api/profile", (_req, res) => {
-  const userRes = z.string().safeParse(res.locals["user"]);
-  if (!userRes.success) {
+  const user: User | undefined = db.data?.users[userId];
+  if (user === void 0) {
     res.status(401).json({ code: "LoginRequired" });
     return;
   }
-  ensureType<true>(userRes.success);
-  const user: string = userRes.data;
-  const profile: Profile | undefined = db.data?.users[user]?.profile;
+  res.locals["user"] = userId;
+  next();
+});
+
+type ProfileResponse = {
+  profile: {
+    id: string;
+    name: string;
+  };
+};
+
+app.get("/api/profile", (_req, res) => {
+  const resUser = z.string().safeParse(res.locals["user"]);
+  if (!resUser.success) {
+    res.status(401).json({ code: "LoginRequired" });
+    return;
+  }
+  ensureType<true>(resUser.success);
+  const userId: string = resUser.data;
+  const profile: Profile | undefined = db.data?.users[userId]?.profile;
   if (profile === void 0) {
-    res.status(500).json({ code: "InternalError" });
+    delete res.locals["user"];
+    res.status(401).json({ code: "LoginRequired" });
     return;
   }
   ensureType<Profile>(profile);
-  res.json({
-    profile: {
-      id: user,
-      ...profile,
-    },
-  });
+  res.json(
+    ensureTypeOf<ProfileResponse>({
+      profile: {
+        id: userId,
+        name: profile.name,
+      },
+    })
+  );
   return;
 });
 
-app.post("/api/edit-profile-name", (req, res) => {
-  const RequestBody = z.object({
-    name: z.string(),
-  });
-  type RequestBody = z.infer<typeof RequestBody>;
-  const requestBodyRes = RequestBody.safeParse(req.body);
-  if (!requestBodyRes.success) {
+type EditProfileNameResponse = {
+  profile: {
+    id: string;
+    name: string;
+  };
+};
+
+type EditProfileNameRequest = {
+  name: string;
+};
+
+const EditProfileNameRequest: z.ZodType<EditProfileNameRequest> = z.object({
+  name: z.string(),
+});
+
+app.post("/api/edit-account", (req, res) => {
+  const resBody = EditProfileNameRequest.safeParse(req.body);
+  if (!resBody.success) {
     res.status(400).json({ code: "InvalidRequestBody" });
     return;
   }
-  ensureType<true>(requestBodyRes.success);
-  const requestBody: RequestBody = requestBodyRes.data;
-  const userRes = z.string().safeParse(res.locals["user"]);
-  if (!userRes.success) {
+  const body: EditProfileNameRequest = resBody.data;
+
+  const resUser = z.string().safeParse(res.locals["user"]);
+  if (!resUser.success) {
     res.status(401).json({ code: "LoginRequired" });
     return;
   }
-  ensureType<true>(userRes.success);
-  const user: string = userRes.data;
-
-  const userData = db.data?.users[user];
+  ensureType<true>(resUser.success);
+  const userId: string = resUser.data;
+  const userData = db.data?.users[userId];
   if (userData === void 0) {
-    res.status(500).json({ code: "InternalError" });
+    delete res.locals["user"];
+    res.status(401).json({ code: "LoginRequired" });
     return;
   }
-  userData.profile.name = requestBody.name;
+  ensureType<User>(userData);
+
+  userData.profile.name = body.name;
   db.write();
 
-  res.json({
-    profile: {
-      id: user,
-      ...userData.profile,
-    },
-  });
+  res.json(
+    ensureTypeOf<EditProfileNameResponse>({
+      profile: {
+        id: userId,
+        name: body.name,
+      },
+    })
+  );
   return;
 });
 
@@ -168,88 +233,33 @@ app.listen(8007);
  * WS App
  * ======== */
 
-type ChatProfile = {
-  displayName: string;
-};
-
-const ChatProfile: () => z.ZodType<ChatProfile> = () =>
-  z.object({
-    displayName: z.string(),
-  });
-
-type WsReceive =
-  | {
-      action: "push-message";
-      message: string;
-    }
-  | {
-      action: "init";
-      profile: ChatProfile;
-    };
-
-const WsReceive: z.ZodType<WsReceive> = z.union([
-  z.object({
-    action: z.literal("push-message"),
-    message: z.string(),
-  }),
-  z.object({
-    action: z.literal("init"),
-    profile: ChatProfile(),
-  }),
-]);
-
-type WsSend =
-  | {
-      message: "connected";
-      users: ChatProfile[];
-    }
-  | {
-      message: "new-message";
-      user: ChatProfile;
-      value: string;
-    }
-  | {
-      message: "new-user";
-      user: ChatProfile;
-      users: ChatProfile[];
-    }
-  | {
-      message: "user-left";
-      user: ChatProfile | undefined;
-      users: ChatProfile[];
-    };
-
 const wss = new WebSocketServer({
   port: 8008,
 });
 const decodeMessage: (raw: WebSocket.RawData) =>
   | {
       result: "Succeed";
-      value: WsReceive;
+      value: WsRequest;
     }
   | {
       result: "InvalidJSON";
       value: string;
-    }
-  | {
-      result: "InvalidMessage";
-      value: object;
     } = (raw) => {
   const rawStr = raw.toString();
   try {
-    const rawJson = JSON.parse(rawStr);
-    const resMessage = WsReceive.safeParse(rawJson);
+    const rawJson: object = JSON.parse(rawStr);
+    const resMessage = WsRequest().safeParse(rawJson);
     if (!resMessage.success) {
       return {
-        result: "InvalidMessage",
-        value: rawJson,
+        result: "InvalidJSON",
+        value: rawStr,
       };
     }
     return {
       result: "Succeed",
       value: resMessage.data,
     };
-  } catch (e) {
+  } catch {
     return {
       result: "InvalidJSON",
       value: rawStr,
@@ -258,86 +268,129 @@ const decodeMessage: (raw: WebSocket.RawData) =>
 };
 
 const wsClients: Map<WebSocket, ChatProfile> = new Map();
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
+  const cookies = cookie.parse(req.headers.cookie ?? "");
+  const userId: string | undefined = cookies[AUTH_TOKEN_KEY];
+  if (userId === void 0) {
+    ws.send(
+      JSON.stringify(
+        ensureTypeOf<WsEvent>({
+          event: "ConnectionError",
+          error: "LoginRequired",
+        })
+      )
+    );
+    ws.close();
+    return;
+  }
+  ensureType<string>(userId);
+  const user: User | undefined = db.data?.users[userId];
+  if (user === void 0) {
+    ws.send(
+      JSON.stringify(
+        ensureTypeOf<WsEvent>({
+          event: "ConnectionError",
+          error: "LoginRequired",
+        })
+      )
+    );
+    ws.close();
+    return;
+  }
+  ensureType<User>(user);
+  const chatProfile: ChatProfile = {
+    "display-name": user.profile.name,
+    color: user.color,
+  };
+
+  for (const [client] of wsClients) {
+    if (
+      client.readyState === WebSocket.CLOSING ||
+      client.readyState === WebSocket.CLOSED
+    ) {
+      wsClients.delete(client);
+    }
+  }
+  wsClients.set(ws, chatProfile);
+
+  // Handle client messages
   ws.on("message", (raw: WebSocket.RawData) => {
     const resDecode = decodeMessage(raw);
-    if (
-      resDecode.result === "InvalidJSON" ||
-      resDecode.result === "InvalidMessage"
-    ) {
+    if (resDecode.result === "InvalidJSON") {
       return;
     }
-    const message: WsReceive = resDecode.value;
+    const body: WsRequest = resDecode.value;
 
-    if (message.action === "init") {
-      wsClients.set(ws, message.profile);
-      for (const client of wss.clients) {
-        const prof: ChatProfile | undefined = wsClients.get(client);
-        if (prof === void 0) {
-          ws.close();
-          continue;
-        }
-        if (client === ws || client.readyState !== WebSocket.OPEN) continue;
-        client.send(
-          JSON.stringify(
-            ensureTypeOf<WsSend>({
-              message: "new-user",
-              user: message.profile,
-              users: Array.from(wsClients.values()),
-            })
-          )
-        );
-      }
-      ws.send(
-        JSON.stringify(
-          ensureTypeOf<WsSend>({
-            message: "connected",
-            users: Array.from(wsClients.values()),
-          })
-        )
-      );
-    }
-    if (message.action === "push-message") {
-      const profile = wsClients.get(ws);
-      if (profile === void 0) {
-        ws.close();
-        return;
-      }
+    if (body.action === "PushMessage") {
       for (const client of wss.clients) {
         if (client.readyState !== WebSocket.OPEN) continue;
+        if (client === ws) {
+          client.send(
+            JSON.stringify(
+              ensureTypeOf<types.PushMessageResponse>({
+                response: "PushMessage",
+                status: "OK",
+                id: body.id,
+                body: {
+                  user: chatProfile,
+                  value: body.message,
+                },
+              })
+            )
+          );
+          continue;
+        }
         client.send(
           JSON.stringify(
-            ensureTypeOf<WsSend>({
-              message: "new-message",
-              user: profile,
-              value: message.message,
+            ensureTypeOf<WsEvent>({
+              event: "UserMessage",
+              user: chatProfile,
+              value: body.message,
             })
           )
         );
       }
+      return;
     }
+
+    ensureType<never>(body.action);
   });
+
   ws.on("close", () => {
-    wsClients.delete(ws);
     for (const client of wss.clients) {
       if (client === ws || client.readyState !== WebSocket.OPEN) continue;
       const profile = wsClients.get(ws);
       wsClients.delete(ws);
-      client.send(
-        JSON.stringify(
-          ensureTypeOf<WsSend>({
-            message: "user-left",
-            user: profile,
-            users: Array.from(wsClients.values()),
-          })
-        )
-      );
+      if (profile !== void 0) {
+        client.send(
+          JSON.stringify(
+            ensureTypeOf<WsEvent>({
+              event: "UserLeft",
+              user: profile,
+              "active-users": Array.from(wsClients.values()),
+            })
+          )
+        );
+      }
     }
   });
+
+  // On connect
+  for (const client of wss.clients) {
+    if (client.readyState !== WebSocket.OPEN) continue;
+    client.send(
+      JSON.stringify(
+        ensureTypeOf<WsEvent>({
+          event: "UserEntered",
+          user: chatProfile,
+          "active-users": Array.from(wsClients.values()),
+        })
+      )
+    );
+  }
 });
-console.log(
-  `\x1b[35mBackend WebSocket server running at http://localhost:8008`
-);
+
+console.log(`\x1b[35mBackend WebSocket server running at ws://localhost:8008`);
 
 // eslint-disable-next-line @typescript-eslint/no-empty-function
 function ensureType<T>(_: T) {}

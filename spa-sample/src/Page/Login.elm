@@ -2,6 +2,7 @@ module Page.Login exposing
     ( Memory
     , ScenarioSet
     , init
+    , leave
     , procedure
     , scenario
     , view
@@ -12,6 +13,7 @@ module Page.Login exposing
 @docs Memory
 @docs ScenarioSet
 @docs init
+@docs leave
 @docs procedure
 @docs scenario
 @docs view
@@ -23,6 +25,7 @@ import App.Session as Session exposing (Session)
 import AppUrl exposing (AppUrl)
 import Dict
 import Expect
+import Html.Attributes
 import Json.Encode exposing (Value)
 import Mixin exposing (Mixin)
 import Mixin.Html as Html exposing (Html)
@@ -59,6 +62,13 @@ init msession =
             }
         )
         |> Tepa.sync Toast.init
+
+
+{-| -}
+leave : Promise Memory (Maybe Session)
+leave =
+    Tepa.currentState
+        |> Tepa.map .msession
 
 
 
@@ -208,8 +218,12 @@ loginFormView { state, setKey, values } =
             Html.text ""
         , Html.node "button"
             [ localClass "loginForm_loginButton"
+            , Mixin.attribute "type" "button"
             , Mixin.boolAttribute "aria-busy" state.isBusy
-            , Mixin.disabled (state.showError && not (List.isEmpty errors))
+
+            -- We intentionally use the `aria-disabled` attribute here instead of the `disabled` attribute.
+            -- If you use the `disabled` attribute, for example, if a user once presses the login button with an incorrect password, then corrects the password again and wants the tab key to focus on the login button, it will not focus properly.
+            , Mixin.boolAttribute "aria-disabled" <| state.showError && not (List.isEmpty errors)
             , setKey keys.loginFormLoginButton
                 |> Mixin.fromAttributes
             ]
@@ -257,6 +271,7 @@ procedure key url =
 
 loginFormProcedure : Bucket -> Promise Memory ()
 loginFormProcedure bucket =
+    -- IGNORE TCO
     let
         modifyLoginForm f =
             Tepa.modify <|
@@ -327,30 +342,27 @@ loginFormProcedure bucket =
                                                     , incorrectIdOrPass = True
                                                     , showError = True
                                                 }
-                                        , Tepa.syncAll
-                                            [ Tepa.lazy <|
-                                                \_ -> loginFormProcedure bucket
 
-                                            -- Remove "IncorrectIdOrPassword" error message when ID or password is changed.
-                                            , Tepa.bind
-                                                (Stream.firstOfAll
-                                                    [ Tepa.viewEventStream
-                                                        { key = Login.keys.loginFormId
-                                                        , type_ = "change"
-                                                        }
-                                                    , Tepa.viewEventStream
-                                                        { key = Login.keys.loginFormPassword
-                                                        , type_ = "change"
-                                                        }
-                                                    ]
-                                                    |> Tepa.void
-                                                )
-                                              <|
-                                                \_ ->
-                                                    [ modifyLoginForm <|
-                                                        \m -> { m | incorrectIdOrPass = False }
-                                                    ]
+                                        -- Remove "IncorrectIdOrPassword" error message when ID or password is changed.
+                                        , Tepa.bindAll
+                                            [ Tepa.viewEventStream
+                                                { key = Login.keys.loginFormId
+                                                , type_ = "change"
+                                                }
+                                            , Tepa.viewEventStream
+                                                { key = Login.keys.loginFormPassword
+                                                , type_ = "change"
+                                                }
                                             ]
+                                          <|
+                                            \streams ->
+                                                [ Stream.awaitFirst (Stream.union streams)
+                                                    |> Tepa.void
+                                                , modifyLoginForm <|
+                                                    \m -> { m | incorrectIdOrPass = False }
+                                                , Tepa.lazy <|
+                                                    \_ -> loginFormProcedure bucket
+                                                ]
                                         ]
 
                                     Login.GoodResponse resp ->
@@ -444,6 +456,8 @@ type alias ScenarioSet m =
         }
         -> Scenario.Markup
         -> Scenario m
+    , expectLoginButtonIsBusy :
+        Bool -> Scenario.Markup -> Scenario m
     , expectRequestLogin :
         Value -> Scenario.Markup -> Scenario m
     , toast : Toast.ScenarioSet m
@@ -473,6 +487,7 @@ scenario props =
     , expectRequestLogin = expectRequestLogin props
     , expectLoginFormShowNoErrors = expectLoginFormShowNoErrors props
     , expectLoginFormShowError = expectLoginFormShowError props
+    , expectLoginButtonIsBusy = expectLoginButtonIsBusy props
     , toast =
         Toast.scenario
             { querySelf =
@@ -518,7 +533,10 @@ clickSubmitLogin props markup =
         { query =
             Query.find
                 [ localClassSelector "loginForm_loginButton"
-                , Selector.disabled False
+                , Selector.attribute <|
+                    Html.Attributes.attribute "aria-disabled" "false"
+                , Selector.attribute <|
+                    Html.Attributes.attribute "aria-busy" "false"
                 ]
         , operation =
             HtmlEvent.click
@@ -628,20 +646,46 @@ expectLoginFormShowError props { error } markup =
         }
 
 
+expectLoginButtonIsBusy :
+    ScenarioProps m
+    -> Bool
+    -> Scenario.Markup
+    -> Scenario m
+expectLoginButtonIsBusy props isBusy markup =
+    Scenario.expectAppView props.session
+        markup
+        { expectation =
+            \{ body } ->
+                Query.fromHtml (Html.div [] body)
+                    |> Query.find
+                        [ localClassSelector "loginForm_loginButton"
+                        ]
+                    |> Query.has
+                        [ Selector.attribute <|
+                            Html.Attributes.attribute "aria-busy" <|
+                                if isBusy then
+                                    "true"
+
+                                else
+                                    "false"
+                        ]
+        }
+
+
 
 -- Helper functions
 
 
 localClass : String -> Mixin msg
 localClass name =
-    Mixin.class (classPrefix ++ name)
+    Mixin.class (pagePrefix ++ name)
 
 
 localClassSelector : String -> Selector.Selector
 localClassSelector name =
-    Selector.class (classPrefix ++ name)
+    Selector.class (pagePrefix ++ name)
 
 
-classPrefix : String
-classPrefix =
+pagePrefix : String
+pagePrefix =
     "page_login--"

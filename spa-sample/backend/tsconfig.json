@@ -17,7 +17,7 @@
     "noFallthroughCasesInSwitch": false,
     "strictNullChecks": true,
     "strictPropertyInitialization": false,
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "node"
   },
   "ts-node": {
     "esm": true,
