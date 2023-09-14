@@ -290,7 +290,7 @@ It takes three arguments:
   - New URL: Loaded new URL.
   - Navigation Key: Required by functions exposed by `Tepa.Navigation`.
 
-In [spa-sample](https://github.com/arowM/tepa/tree/main/spa-sample), the `onUrlChange` function retrieves the session information, such as the logged-in user data, and then calls the main procedure.
+In [sample application](https://github.com/arowM/tepa-sample), the `onUrlChange` function retrieves the session information, such as the logged-in user data, and then calls the main procedure.
 
 
 ## Layer
@@ -1141,7 +1141,7 @@ It is due to a slightly awkward behavior of the Elm runtime.
 We plan to improve this behavior in the near future, but for most applications,
 just setting the default values should be fine.
 
-You can see spa-sample's [`Page.Chat` module](https://github.com/arowM/tepa/blob/main/spa-sample/src/Page/Chat.elm) for a real example of resetting user input.
+You can see [`Page.Chat` module](https://github.com/arowM/tepa-sample/blob/main/src/Page/Chat.elm) of sample application for a real example of resetting user input.
 
 -}
 setValue : String -> String -> Promise m ()
@@ -1217,7 +1217,7 @@ newLayer =
 {-| Check if the both are on the same layer.
 One of the use cases is to find the target element from the list of layers.
 
-See [`Widget.Toast`](https://github.com/arowM/tepa/blob/main/spa-sample/src/Widget/Toast.elm) in the spa-sample for detail.
+See [`Widget.Toast`](https://github.com/arowM/tepa-sample/blob/main/src/Widget/Toast.elm) in the sample application for detail.
 
 -}
 isOnSameLayer : Layer m -> Layer m -> Bool

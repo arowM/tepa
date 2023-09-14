@@ -27,9 +27,31 @@ window.addEventListener("load", () => {
 
 In the above example, the main subject is the DOM element for the submit button. In such a design, it is not easy to get the information that is a natural requirement in an application: "Under what circumstances and after what events in the past did the user press this button? To get such information, we have to prepare a number of flags and variables, update them, analyze them all carefully, and then say like a detective, "Judging from the situation, this could possibly be a homicide."
 
+## Stateless, but Contextful
+
+The word "UX" is a word that I am sure more than 95% of people today are only aware of as "a cool word for UI," but in fact it means "user experience. Since it is an "experience," it is naturally based on the accumulated experiences of users.
+Ideally, the user's experience should be traced back to the kind of family he or she grew up in, the kind of community he or she was exposed to, and the kind of education he or she received at school. Yet, in today's application development, it is not easy to analyze even the context in which the user is operating the application after it has been loaded.
+
+The concept of _stateless_, which is so valued in application development these days, is a valuable one. The idea is to reduce bugs by successfully isolating various states, such as the current time that surrounds the application. On the other hand, if we isolate the context as well, we cannot develop applications that are user-friendly.
+
+TEPA is stateless, but contextful. Applications can be developed by following the flow of the user's actions.
+
+```elm
+tutorial =
+    Tepa.sequence
+        [ showWelcomeMessage
+        , awaitUserReactionToWelcomMessage <| \response ->
+            case response of
+                PoliteUserReaction ->
+                    priseUser
+                EvilUserReaction ->
+                    punishUser
+        ]
+```
+
 ## No exceptions
 
-Exceptions are inventions that impede the development and prosperity of humanity. We painfully understand that you certainly do not want to think about the unexpected. You must want to put it off. But it is you who will get into trouble later.
+The exception is a useful feature, but it drops the context. We certainly don't want to think about the unexpected things. We want to put it off. I understand that feeling. But you are the one who will be in trouble later.
 Suppose you are building an airplane. Wouldn't you carefully inspect every single screw and replace it right away if it was defective? If the airplane fell down after it was all assembled, you would never know what actually caused the problem because most of the context would be lost. Exception is convenient, but it is such a risky technique.
 
 Another bad part of exceptions is that they mess with static types. Even though TypeScript introduces static types to JavaScript, you still have to deal with values of `unknown` types that you have no way of knowing what they are at compile time.
@@ -45,8 +67,8 @@ Of course, being an emulator has its drawbacks. It does not actually render the 
 
 ## How to get started
 
-Although tutorials for TEPA are currently under construction, a sample application is already available. Please see the contents of the [spa-sample directory](https://github.com/arowM/tepa/tree/main/spa-sample).
+Humans seem to love tutorials. You know, the ones where you follow the instructions and you get something that looks good and you just feel like you understand everything. Unfortunately, TEPA does not have such a tutorial yet.
 
-The [Elm language specification](https://guide.elm-lang.jp/core_language.html) is very small and easy to learn, and with the help of type annotations, reading TEPA's [module documentation](https://package.elm-lang.org/packages/arowM/tepa/latest/Tepa) makes it easy to understand `spa-sample` codes.
+However, there is already a [Getting Started Guide](https://package.elm-lang.org/packages/arowM/tepa/latest/Tepa), which also serves as API documentation, and a [Sample App](https://github.com/arowM/tepa-sample) are already available. If you are a programmer in the habit of reading and understanding the official documentation, you will have no trouble.
 
 From the horizontal eyes of Sakura-chan, the goat, it seems that humans are creatures desperate to gain an advantage over others. Don't wait for the tutorial to be prepared, master TEPA before other humans do!
