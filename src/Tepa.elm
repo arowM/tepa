@@ -1412,7 +1412,7 @@ type alias ApplicationProps memory =
     }
 
 
-{-| A navigation key is needed to create navigation procedures exposed by the [Tepa.Navigation](./Navigation) module.
+{-| A navigation key is needed to create navigation procedures exposed by the [Tepa.Navigation](./Tepa-Navigation) module.
 
 You only get access to a `NavKey` when you create your program with `application`, guaranteeing that your program is equipped to detect these URL changes. If `NavKey` values were available in other kinds of programs, unsuspecting programmers would be sure to run into some [annoying bugs](https://github.com/elm/browser/blob/1.0.2/notes/navigation-in-elements.md) and learn a bunch of techniques the hard way!
 

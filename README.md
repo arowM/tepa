@@ -2,7 +2,7 @@
 
 [![test](https://github.com/arowM/tepa/actions/workflows/test.yaml/badge.svg)](https://github.com/arowM/tepa/actions/workflows/test.yaml)  
 [Document](https://package.elm-lang.org/packages/arowM/tepa/latest/)  
-[にほんご🥰(Japanese version)](./README-ja.md)
+[にほんご🥰(Japanese version)](https://github.com/arowM/tepa/blob/main/README-ja.md)
 
 ![logo](https://user-images.githubusercontent.com/1481749/115139779-de382400-a06e-11eb-80e7-22af97774bfa.jpg)
 

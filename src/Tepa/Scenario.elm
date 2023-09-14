@@ -1591,9 +1591,7 @@ closeApp (Session session) (Markup markup_) =
 
   - operation: Simulated event caused by user operation.
 
-    Use event builders that [Test.Html.Event](https://package.elm-lang.org/packages/elm-explorations/test/latest/Test-Html-Event) module exports.
-
-Simulate a custom event. The String is the event name, and the Value is the event object the browser would send to the event listener callback.
+    Simulate a custom event. The String is the event name, and the Value is the event object the browser would send to the event listener callback.
 
 Note that current version does not trigger page transition on clicking anchor elements.
 Alternatively, you can check the anchor has expected `href` value with `expectAppView`,
@@ -1688,7 +1686,7 @@ userOperation (Session session) (Markup markup_) param =
 
 {-| Wait for given micro seconds.
 
-It only affects Promises defined in `Tepa.Time`, so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA.
+_For TEA users: It only affects Promises defined in [Tepa.Time](./Tepa-Time), so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA._
 
 -}
 sleep :
@@ -1928,7 +1926,7 @@ type alias PortRequest =
     }
 
 
-{-| Simulate response to the `Tepa.Random.request`.
+{-| Simulate response to the [`Tepa.Random.request`](./Tepa-Random#request).
 
 Suppose your application requests random integer:
 
@@ -3394,7 +3392,7 @@ fromCoreHttpRequestBody core =
             BytesHttpRequestBody mime bytes
 
 
-{-| Simulate response to the `Tepa.Http.request` and `Tepa.Http.bytesRequest`.
+{-| Simulate response to the [`Tepa.Http.request`](./Tepa-Http#request) and [`Tepa.Http.bytesRequest`](./Tepa-Http#bytesRequest).
 
 If no Layers found for the query, it does nothing and just passes the test.
 

@@ -37,13 +37,13 @@ import Tepa.Stream exposing (Stream)
 import Time
 
 
-{-| Alias for [`Time.Posix`](https://package.elm-lang.org/packages/elm/time/latest/Time#Posix).
-
-A computer representation of time. It is the same all over Earth, so if we
+{-| A computer representation of time. It is the same all over Earth, so if we
 have a phone call or meeting at a certain POSIX time, there is no ambiguity.
 
 It is very hard for humans to _read_ a POSIX time though, so we use functions
 like [`toHour`](#toHour) and [`toMinute`](#toMinute) to `view` them.
+
+_This is an alias for [`Time.Posix`](https://package.elm-lang.org/packages/elm/time/latest/Time#Posix)._
 
 -}
 type alias Posix =
@@ -93,10 +93,10 @@ tick =
     Internal.tick
 
 
-{-| Same as [`Time.posixToMillis`](https://package.elm-lang.org/packages/elm/time/latest/Time#posixToMillis).
-
-Turn a `Posix` time into the number of milliseconds since 1970 January 1
+{-| Turn a `Posix` time into the number of milliseconds since 1970 January 1
 at 00:00:00 UTC. It was a Thursday.
+
+_This is same as [`Time.posixToMillis`](https://package.elm-lang.org/packages/elm/time/latest/Time#posixToMillis)._
 
 -}
 posixToMillis : Posix -> Int
@@ -104,9 +104,9 @@ posixToMillis =
     Time.posixToMillis
 
 
-{-| Same as [`Time.millisToPosix`](https://package.elm-lang.org/packages/elm/time/latest/Time#millisToPosix).
+{-| Turn milliseconds into a `Posix` time.
 
-Turn milliseconds into a `Posix` time.
+_This is same as [`Time.millisToPosix`](https://package.elm-lang.org/packages/elm/time/latest/Time#millisToPosix)._
 
 -}
 millisToPosix : Int -> Posix
@@ -118,9 +118,7 @@ millisToPosix =
 -- TIME ZONES
 
 
-{-| Alias for [`Time.Zone`](https://package.elm-lang.org/packages/elm/time/latest/Time#Zone).
-
-Information about a particular time zone.
+{-| Information about a particular time zone.
 
 Refer to the `Time.utc` documentation for more detailed notes.
 
@@ -129,16 +127,18 @@ obtain `Zone` values.
 
 [env]: /packages/elm/browser/latest/Browser#Env
 
+_This is an alias for [`Time.Zone`](https://package.elm-lang.org/packages/elm/time/latest/Time#Zone)._
+
 -}
 type alias Zone =
     Time.Zone
 
 
-{-| Alias for [`Time.utc`](https://package.elm-lang.org/packages/elm/time/latest/Time#utc).
-
-The time zone for Coordinated Universal Time ([UTC])
+{-| The time zone for Coordinated Universal Time ([UTC])
 
 Refer to the `Time.utc` documentation for more detailed notes.
+
+_This is an alias for [`Time.utc`](https://package.elm-lang.org/packages/elm/time/latest/Time#utc)._
 
 -}
 utc : Zone
@@ -173,9 +173,7 @@ here =
 -- DATES
 
 
-{-| Alias for [`Time.toYear`](https://package.elm-lang.org/packages/elm/time/latest/Time#toYear).
-
-What year is it?!
+{-| What year is it?!
 
     import Tepa.Time exposing (toYear, utc, millisToPosix)
 
@@ -184,15 +182,15 @@ What year is it?!
 
     -- pretend `nyc` is the `Zone` for America/New_York.
 
+_This is an alias for [`Time.toYear`](https://package.elm-lang.org/packages/elm/time/latest/Time#toYear)._
+
 -}
 toYear : Zone -> Posix -> Int
 toYear =
     Time.toYear
 
 
-{-| Alias for [`Time.toMonth`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMonth).
-
-What month is it?!
+{-| What month is it?!
 
     import Tepa.Time exposing (toMonth, utc, millisToPosix)
 
@@ -200,6 +198,8 @@ What month is it?!
     toMonth nyc (millisToPosix 0) == Dec
 
     -- pretend `nyc` is the `Zone` for America/New_York.
+
+_This is an alias for [`Time.toMonth`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMonth)._
 
 -}
 toMonth : Zone -> Posix -> Month
@@ -242,9 +242,7 @@ toMonth zone posix =
             Dec
 
 
-{-| Alias for [`Time.toDay`](https://package.elm-lang.org/packages/elm/time/latest/Time#toDay).
-
-What day is it?! (Days go from 1 to 31)
+{-| What day is it?! (Days go from 1 to 31)
 
     import Tepa.Time exposing (toDay, utc, millisToPosix)
 
@@ -252,6 +250,8 @@ What day is it?! (Days go from 1 to 31)
     toDay nyc (millisToPosix 0) == 31
 
     -- pretend `nyc` is the `Zone` for America/New_York.
+
+_This is an alias for [`Time.toDay`](https://package.elm-lang.org/packages/elm/time/latest/Time#toDay)._
 
 -}
 toDay : Zone -> Posix -> Int
@@ -296,9 +296,7 @@ toWeekday zone posix =
             Sun
 
 
-{-| Alias for [`Time.toHour`](https://package.elm-lang.org/packages/elm/time/latest/Time#toHour).
-
-What hour is it? (From 0 to 23)
+{-| What hour is it? (From 0 to 23)
 
     import Tepa.Time exposing (toHour, utc, millisToPosix)
 
@@ -307,15 +305,15 @@ What hour is it? (From 0 to 23)
 
     -- pretend `nyc` is the `Zone` for America/New_York.
 
+_This is an alias for [`Time.toHour`](https://package.elm-lang.org/packages/elm/time/latest/Time#toHour)._
+
 -}
 toHour : Zone -> Posix -> Int
 toHour =
     Time.toHour
 
 
-{-| Alias for [`Time.toMinute`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMinute).
-
-What minute is it? (From 0 to 59)
+{-| What minute is it? (From 0 to 59)
 
     import Tepa.Time exposing (toMinute, utc, millisToPosix)
 
@@ -324,15 +322,15 @@ What minute is it? (From 0 to 59)
 This can be different in different time zones. Some time zones are offset
 by 30 or 45 minutes!
 
+_This is an alias for [`Time.toMinute`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMinute)._
+
 -}
 toMinute : Zone -> Posix -> Int
 toMinute =
     Time.toMinute
 
 
-{-| Alias for [`Time.toSecond`](https://package.elm-lang.org/packages/elm/time/latest/Time#toSecond).
-
-What second is it?
+{-| What second is it?
 
     import Time exposing (toSecond, utc, millisToPosix)
 
@@ -340,19 +338,23 @@ What second is it?
     toSecond utc (millisToPosix 1234) == 1
     toSecond utc (millisToPosix 5678) == 5
 
+_This is an alias for [`Time.toSecond`](https://package.elm-lang.org/packages/elm/time/latest/Time#toSecond)._
+
 -}
 toSecond : Zone -> Posix -> Int
 toSecond =
     Time.toSecond
 
 
-{-| Alias for [`Time.toMillis`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMillis).
+{-|
 
     import Tepa.Time exposing (toMillis, utc, millisToPosix)
 
     toMillis utc (millisToPosix    0) == 0
     toMillis utc (millisToPosix 1234) == 234
     toMillis utc (millisToPosix 5678) == 678
+
+_This is an alias for [`Time.toMillis`](https://package.elm-lang.org/packages/elm/time/latest/Time#toMillis)._
 
 -}
 toMillis : Zone -> Posix -> Int
