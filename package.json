@@ -7,7 +7,7 @@
         "review": "elm-review --fix",
         "test": "npm run test:lib && npm run test:internal",
         "test:lib": "elm-review && elm-format --validate src && elm-verify-examples -r && test ! -d ./tests/VerifyExamples && elm make --docs=/tmp/docs.json",
-        "test:internal": "cd internal && elm make --docs=/tmp/docs.json",
+        "test:internal": "cd internal && elm make --docs=/tmp/docs.json"
     },
     "devDependencies": {
         "elm-doc-preview": "^5.0.3",
