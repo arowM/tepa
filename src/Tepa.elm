@@ -77,15 +77,14 @@ You specify the initial state of the Memory as the `init` property.
 
     -}
     type alias Memory =
-        { userName : String
+        { pageState : PageState
         }
 
     {-| Initial state of `Memory`. Pass it as `init` property to the `application` function.
     -}
     init : Memory
     init =
-        { userName = ""
-        , pageState = InitialPageState
+        { pageState = InitialPageState
         }
 
 
@@ -119,6 +118,7 @@ To build your procedure, you combine some _Promises_ that represent the eventual
 @docs Promise
 
 The main difference from Promise in JavaScript is that Promise in TEPA does not be rejected. When you represent rejected state, just return [`Result`](https://package.elm-lang.org/packages/elm/core/latest/Result#Result) value as its result.
+The rejection of JavaScript Promise is a sort of Exception, which drops context.
 
 
 #### Primitive Promises
@@ -699,7 +699,7 @@ void =
     sample : Promise m ()
     sample =
         sequence
-            [ execultedFirst
+            [ executedFirst
             , executedAfterFirstIsResolved
             ]
 
@@ -815,7 +815,7 @@ syncAll =
 
 {-| Construct a Promise that modifies the Memory state.
 
-Note that the update operation, passed as the second argument, is performed atomically; it means the state of the Memory is not updated by another process during it is read and written by the `modify`.
+Note that the update operation, passed as the second argument, is performed atomically; it means that the state of the Memory is not updated by another process during it is read and written by the `modify`.
 
 -}
 modify : (m -> m) -> Promise m ()
@@ -891,7 +891,7 @@ currentState =
 
 
 {-| Promise that never be resolved.
-You can use `neverResolved` to prevent the current Layer from expiring.
+You can use `neverResolved` to prevent the current _Layer_ (See [Layer](#layer)) from expiring.
 -}
 neverResolved : Promise m a
 neverResolved =
@@ -905,9 +905,11 @@ layerState (Core.Layer layer) =
     succeed layer.state
 
 
-{-| Build a Promise to send one outgoing [port](https://guide.elm-lang.org/interop/ports) Message and receive the corresponding incoming port Message only once.
+{-| Build a Promise to send a _port_ request and receive a single response for it.
+The _port_ is an concept to allow communication between Elm and JavaScript (or TypeScript).
+Ports are probably most commonly used for WebSockets and localStorage. You can see WebSocket examples in the [sample application](https://github.com/arowM/tepa-sample).
 
-For example, we can use `portRequest` to get localStorage value safely.
+Here, we use `portRequest` to get localStorage value safely.
 
 In JavaScript side:
 
@@ -969,6 +971,9 @@ In Elm side:
                       )
                     ]
             }
+
+As you can see, port is a mechanism for requesting a task to the JavaScript server running on the client machine.
+It is the same structure as requesting a task to the backend server via HTTP Web API.
 
 -}
 portRequest :
@@ -1179,7 +1184,14 @@ getChecks =
     Core.getChecks
 
 
-{-| -}
+{-| Set the user's check state for the radio/checkbox element identified by the key string.
+
+Note that it only sets initial state, but does not **overwrite** actual check state on DOM.
+It is due to a slightly awkward behavior of the Elm runtime.
+We plan to improve this behavior in the near future, but for most applications,
+just setting the default values should be fine.
+
+-}
 setCheck : String -> Bool -> Promise m ()
 setCheck =
     Core.setCheck
