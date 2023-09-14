@@ -1,24 +1,23 @@
 {
-  "private": true,
-  "scripts": {
-    "format": "elm-format src",
-    "start": "elm-doc-preview --port=8110",
-    "start:internal": "cd internal && elm-doc-preview --port=8111",
-    "review": "elm-review --fix",
-    "test": "npm run test:lib && npm run test:internal && npm run test:sample",
-    "test:lib": "elm-review && elm-format --validate src && elm-verify-examples -r && test ! -d ./tests/VerifyExamples && elm make --docs=/tmp/docs.json",
-    "test:internal": "cd internal && elm make --docs=/tmp/docs.json",
-    "test:sample": "cd spa-sample && npm test"
-  },
-  "devDependencies": {
-    "elm-doc-preview": "^5.0.3",
-    "elm-format": "^0.8.3",
-    "elm-review": "^2.6.1",
-    "elm-test": "^0.19.1-revision9",
-    "elm-verify-examples": "^5.2.0",
-    "rimraf": "^2.7.1"
-  },
-  "dependencies": {
-    "elm": "^0.19.1-5"
-  }
+    "private": true,
+    "scripts": {
+        "format": "elm-format src",
+        "start": "elm-doc-preview --port=8110",
+        "start:internal": "cd internal && elm-doc-preview --port=8111",
+        "review": "elm-review --fix",
+        "test": "npm run test:lib && npm run test:internal",
+        "test:lib": "elm-review && elm-format --validate src && elm-verify-examples -r && test ! -d ./tests/VerifyExamples && elm make --docs=/tmp/docs.json",
+        "test:internal": "cd internal && elm make --docs=/tmp/docs.json",
+    },
+    "devDependencies": {
+        "elm-doc-preview": "^5.0.3",
+        "elm-format": "^0.8.3",
+        "elm-review": "^2.6.1",
+        "elm-test": "^0.19.1-revision9",
+        "elm-verify-examples": "^5.2.0",
+        "rimraf": "^2.7.1"
+    },
+    "dependencies": {
+        "elm": "^0.19.1-5"
+    }
 }
