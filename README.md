@@ -4,7 +4,7 @@
 
 [にほんご🥰(Japanese version)](https://github.com/arowM/tepa/blob/main/README-ja.md)
 
-( Please give me a star on [GitHub](https://github.com/arowM/tepa/)! )  
+( Please give me a star on [GitHub](https://github.com/arowM/tepa/tree/main)! )  
 ![logo](https://user-images.githubusercontent.com/1481749/115139779-de382400-a06e-11eb-80e7-22af97774bfa.jpg)
 
 TEPA (pronounced /tíːpə/) is a framework for building robust, user-centric Web applications.

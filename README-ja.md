@@ -2,7 +2,7 @@
 
 [![test](https://github.com/arowM/tepa/actions/workflows/test.yaml/badge.svg)](https://github.com/arowM/tepa/actions/workflows/test.yaml) [![Elm package](https://img.shields.io/elm-package/v/arowM/tepa)](https://package.elm-lang.org/packages/arowM/tepa/latest/)
 
-( [GitHub](https://github.com/arowM/tepa/)のスターちょうだい！ )  
+( [GitHub](https://github.com/arowM/tepa/tree/main)のスターちょうだい！ )  
 ![logo](https://user-images.githubusercontent.com/1481749/115139779-de382400-a06e-11eb-80e7-22af97774bfa.jpg)
 
 TEPA（ティーパ）
