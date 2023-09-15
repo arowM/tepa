@@ -55,7 +55,91 @@ module Tepa exposing
 {-| This module provides core functionality for TEPA.
 
 
-# Application Entry point
+# Overall application structure
+
+TEPA application is written in the [Elm language](https://elm-lang.org/), and is converted to JavaScript, so you import it to use in your JavaScript (or TypeScript) file.
+If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file that contains the `main` function built with `application` as follows:
+
+    <!-- index.html -->
+
+    <html>
+      <body>
+        <script src="./index.js"></script>
+      </body>
+    </html>
+
+    // index.js
+
+    // Specify your file that contains `main` function here.
+    import { Elm } from "./Main.elm"
+
+    Elm.Main.init({
+      // Create a `div` node in body and pass it as the parent node in which to render your TEPA application.
+      node: document.body.appendChild(document.createElement("div")),
+      // Pass some JSON value to TEPA upon initialization.
+      flags: {
+        "loaded-at": Date.now()
+      }
+    })
+
+    -- Main.elm
+    -- (Details will be explained later.)
+
+    import Json.Decode (Value)
+    import Tepa exposing (AppUrl, NavKey, Program, Promise)
+
+    main : Program Memory
+    main =
+        Tepa.application
+            { init = init
+            , procedure = procedure
+            , view = view
+            , onUrlRequest = onUrlRequest
+            , onUrlChange = onUrlChange
+            }
+
+    {- Data type for representing your application state.
+    -}
+    type alias Memory =
+        { ...
+        , ...
+        }
+
+    {-| Your implementation for `init`.
+    -}
+    init : Memory
+    init =
+        Debug.todo ""
+
+    {-| Your implementation for `procedure`.
+    -}
+    procedure : Value -> AppUrl -> NavKey -> Promise Memory ()
+    procedure flags url key =
+        Debug.todo ""
+
+    {-| Your implementation for `view`.
+    -}
+    view : Layer Memory -> Document
+    view layer =
+        Debug.todo ""
+
+    {-| Your implementation for `onUrlRequest`.
+    -}
+    onUrlRequest : Value -> UrlRequest -> NavKey -> Promise memory ()
+    onUrlRequest flags url key =
+        Debug.todo ""
+
+    {-| Your implementation for `onUrlChange`.
+    -}
+    onUrlChange : Value -> AppUrl -> NavKey -> Promise memory ()
+    onUrlChange flags url key =
+        Debug.todo ""
+
+If you are not familiar with Elm language, we recommend you to check [Core Language](https://guide.elm-lang.org/core_language), [Types](https://guide.elm-lang.org/types/), and [Error Handling](https://guide.elm-lang.org/error_handling/) section of the Elm guide.
+API documentation for the core libraries of the language can be found on the [package site](https://package.elm-lang.org/packages/elm/core/latest/).
+Among the core libraries, `Platform`, `Platform.Cmd`, `Platform.Sub`, `Process`, and `Task` modules are not used by TEPA, so you can just ignore them.
+
+_For TEA users: If you have an existing TEA application, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into your TEA application._
 
 @docs application
 @docs ApplicationProps
@@ -1293,88 +1377,6 @@ mapViewContext f context =
 
 
 {-| Entry point for building your applications.
-
-TEPA application is converted to JavaScript, so you can import it to use in your JavaScript (or TypeScript) file.
-If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file that contains the `main` function built with `application`.
-
-    <!-- index.html -->
-
-    <html>
-      <body>
-        <script src="./index.js"></script>
-      </body>
-    </html>
-
-    // index.js
-
-    // Specify your file that contains `main` function here.
-    import { Elm } from "./Main.elm"
-
-    Elm.Main.init({
-      // Create a `div` node in body and pass it as the parent node in which to render your TEPA application.
-      node: document.body.appendChild(document.createElement("div")),
-      // Pass some JSON value to TEPA upon initialization.
-      flags: {
-        "loaded-at": Date.now()
-      }
-    })
-
-    -- Main.elm
-
-    import Json.Decode (Value)
-    import Tepa exposing (AppUrl, NavKey, Program, Promise)
-
-    main : Program Memory
-    main =
-        Tepa.application
-            { init = init
-            , procedure = procedure
-            , view = view
-            , onUrlRequest = onUrlRequest
-            , onUrlChange = onUrlChange
-            }
-
-    {- Data type for representing your application state.
-    -}
-    type alias Memory =
-        { ...
-        , ...
-        }
-
-    {-| Your implementation for `init`.
-    -}
-    init : Memory
-    init =
-        Debug.todo ""
-
-    {-| Your implementation for `procedure`.
-    -}
-    procedure : Value -> AppUrl -> NavKey -> Promise Memory ()
-    procedure flags url key =
-        Debug.todo ""
-
-    {-| Your implementation for `view`.
-    -}
-    view : Layer Memory -> Document
-    view layer =
-        Debug.todo ""
-
-    {-| Your implementation for `onUrlRequest`.
-    -}
-    onUrlRequest : Value -> UrlRequest -> NavKey -> Promise memory ()
-    onUrlRequest flags url key =
-        Debug.todo ""
-
-    {-| Your implementation for `onUrlChange`.
-    -}
-    onUrlChange : Value -> AppUrl -> NavKey -> Promise memory ()
-    onUrlChange flags url key =
-        Debug.todo ""
-
-If you are not familiar with Elm language, we recommend you to check [Core Language](https://guide.elm-lang.org/core_language), [Types](https://guide.elm-lang.org/types/), and [Error Handling](https://guide.elm-lang.org/error_handling/) section of the Elm guide.
-
-_For TEA users: If you have an existing TEA application, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into your TEA application._
-
 -}
 application :
     ApplicationProps memory
