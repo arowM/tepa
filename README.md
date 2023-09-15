@@ -1,7 +1,7 @@
 # TEPA
 
-[![test](https://github.com/arowM/tepa/actions/workflows/test.yaml/badge.svg)](https://github.com/arowM/tepa/actions/workflows/test.yaml)  
-[Document](https://package.elm-lang.org/packages/arowM/tepa/latest/)  
+[![test](https://github.com/arowM/tepa/actions/workflows/test.yaml/badge.svg)](https://github.com/arowM/tepa/actions/workflows/test.yaml) [![Elm package](https://img.shields.io/elm-package/v/arowM/tepa)](https://package.elm-lang.org/packages/arowM/tepa/latest/)
+
 [にほんご🥰(Japanese version)](https://github.com/arowM/tepa/blob/main/README-ja.md)
 
 ( Please give me a star on [GitHub](https://github.com/arowM/tepa/)! )  
