@@ -938,7 +938,7 @@ onLayer_ o (Promise prom1) =
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
                                 , subs = []
-                                , ports = context.ports
+                                , ports = []
                                 }
                     in
                     { newContext =
@@ -1040,7 +1040,7 @@ liftPromiseMemory o (Promise prom1) =
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
                         , subs = []
-                        , ports = context.ports
+                        , ports = []
                         }
             in
             { newContext =
