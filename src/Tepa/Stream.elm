@@ -33,7 +33,7 @@ module Tepa.Stream exposing
 
 -}
 
-import Internal.Core as Core exposing (PromiseState(..))
+import Internal.Core as Core
 import Tepa exposing (Promise)
 
 
@@ -61,10 +61,12 @@ map f stream =
                         ( List.map f data
                         , map f next
                         )
+                , dependencies = param.dependencies
+                , released = param.released
                 }
 
-        Core.EndOfStream ->
-            Core.EndOfStream
+        Core.EndOfStream param ->
+            Core.EndOfStream param
 
 
 {-| -}
@@ -95,10 +97,12 @@ filterMap f stream =
                         ( List.filterMap f data
                         , filterMap f next
                         )
+                , dependencies = param.dependencies
+                , released = param.released
                 }
 
-        Core.EndOfStream ->
-            Core.EndOfStream
+        Core.EndOfStream param ->
+            Core.EndOfStream param
 
 
 {-| Take first N data from the stream, and close the Stream.
@@ -138,12 +142,14 @@ take n stream =
 
                         else
                             ( List.take n data
-                            , Core.EndOfStream
+                            , cancel next
                             )
+                , dependencies = param.dependencies
+                , released = param.released
                 }
 
-        Core.EndOfStream ->
-            Core.EndOfStream
+        Core.EndOfStream param ->
+            Core.EndOfStream param
 
 
 {-| Combine two streams.
@@ -178,20 +184,32 @@ take n stream =
 -}
 union : List (Stream a) -> Stream a
 union =
-    List.foldl merge Core.EndOfStream
+    List.foldl merge
+        (Core.EndOfStream
+            { released = []
+            }
+        )
 
 
 merge : Stream a -> Stream a -> Stream a
 merge s1 s2 =
     case ( s1, s2 ) of
-        ( Core.EndOfStream, Core.EndOfStream ) ->
+        ( Core.EndOfStream param1, Core.EndOfStream param2 ) ->
             Core.EndOfStream
+                { released = param1.released ++ param2.released
+                }
 
-        ( Core.ActiveStream param1, Core.EndOfStream ) ->
-            Core.ActiveStream param1
+        ( Core.ActiveStream param1, Core.EndOfStream param2 ) ->
+            Core.ActiveStream
+                { param1
+                    | released = param1.released ++ param2.released
+                }
 
-        ( Core.EndOfStream, Core.ActiveStream param2 ) ->
-            Core.ActiveStream param2
+        ( Core.EndOfStream param1, Core.ActiveStream param2 ) ->
+            Core.ActiveStream
+                { param2
+                    | released = param1.released ++ param2.released
+                }
 
         ( Core.ActiveStream param1, Core.ActiveStream param2 ) ->
             Core.ActiveStream
@@ -207,7 +225,21 @@ merge s1 s2 =
                         ( data1 ++ data2
                         , merge next1 next2
                         )
+                , dependencies = param1.dependencies ++ param2.dependencies
+                , released = param1.released ++ param2.released
                 }
+
+
+cancel : Stream a -> Stream b
+cancel stream =
+    case stream of
+        Core.EndOfStream p ->
+            Core.EndOfStream
+                { released = p.released }
+
+        Core.ActiveStream p ->
+            Core.EndOfStream
+                { released = p.released ++ p.dependencies }
 
 
 {-| Scans the Stream till the _scanner_ function returns `Nothing`. The scanner function receives new Stream data `a`, and the past result `b`. If the scanner returns `Nothing`, resulting `Stream` ends.
@@ -228,7 +260,7 @@ scan f init stream =
                         in
                         if isComplete then
                             ( List.reverse reversed
-                            , Core.EndOfStream
+                            , cancel next
                             )
 
                         else
@@ -239,10 +271,14 @@ scan f init stream =
                                 )
                                 next
                             )
+                , dependencies = param.dependencies
+                , released = param.released
                 }
 
-        Core.EndOfStream ->
+        Core.EndOfStream param ->
             Core.EndOfStream
+                { released = param.released
+                }
 
 
 scanData : List b -> (a -> b -> Maybe b) -> b -> List a -> ( List b, Bool )
@@ -283,27 +319,21 @@ run :
     -> Promise m ()
 run f stream =
     case stream of
-        Core.EndOfStream ->
-            Tepa.none
+        Core.EndOfStream param ->
+            Core.releasePorts param.released
 
         Core.ActiveStream param ->
-            Core.Promise <|
-                \context ->
-                    let
-                        nextPromise : Core.Msg -> m -> Promise m ()
-                        nextPromise msg _ =
-                            let
-                                ( ls, nextStream ) =
-                                    param.unwrapMsg msg
-                            in
-                            Tepa.syncAll
-                                (List.map (Tepa.sequence << f) ls ++ [ run f nextStream ])
-                    in
-                    { newContext = context
-                    , realCmds = []
-                    , logs = []
-                    , state = AwaitMsg nextPromise
-                    }
+            Tepa.sequence
+                [ Core.releasePorts param.released
+                , Core.justAwaitPromise <|
+                    \msg _ ->
+                        let
+                            ( ls, nextStream ) =
+                                param.unwrapMsg msg
+                        in
+                        Tepa.syncAll
+                            (List.map (Tepa.sequence << f) ls ++ [ run f nextStream ])
+                ]
 
 
 
@@ -314,46 +344,17 @@ run f stream =
 -}
 awaitFirst : Stream a -> Promise m a
 awaitFirst stream =
-    let
-        next : Stream a -> Core.Msg -> m -> Promise m a
-        next stream_ msg _ =
-            case stream_ of
-                Core.EndOfStream ->
-                    Core.Promise <|
-                        \context ->
-                            { newContext = context
-                            , realCmds = []
-                            , logs = []
-                            , state = AwaitMsg <| next stream_
-                            }
+    take 1 stream
+        |> awaitAll
+        |> Tepa.andThen
+            (\ls ->
+                case ls of
+                    [] ->
+                        Tepa.neverResolved
 
-                Core.ActiveStream param ->
-                    let
-                        ( data, nextStream ) =
-                            param.unwrapMsg msg
-                    in
-                    case data of
-                        [] ->
-                            Core.Promise <|
-                                \context ->
-                                    { newContext = context
-                                    , realCmds = []
-                                    , logs = []
-                                    , state =
-                                        AwaitMsg <|
-                                            next nextStream
-                                    }
-
-                        a :: _ ->
-                            Tepa.succeed a
-    in
-    Core.Promise <|
-        \context ->
-            { newContext = context
-            , realCmds = []
-            , logs = []
-            , state = AwaitMsg <| next stream
-            }
+                    a :: _ ->
+                        Tepa.succeed a
+            )
 
 
 {-| Similar to `awaitFirst`, but also specifies the timeout in milliseconds.
@@ -367,91 +368,91 @@ awaitFirstWithTimeout timeout stream =
                 [ map Just stream
                 , map (\_ -> Nothing) tickStream
                 ]
-                |> awaitFirst
+                |> take 1
+                |> awaitAll
+                |> Tepa.andThen
+                    (\ls ->
+                        case ls of
+                            [] ->
+                                Tepa.succeed Nothing
+
+                            a :: _ ->
+                                Tepa.succeed a
+                    )
 
 
 {-| Run Stream and wait for all the data the Stream produces.
 Make sure that `awaitAll` is not resolved if the Stream continues to produce data indefinitely.
 -}
 awaitAll : Stream a -> Promise m (List a)
-awaitAll stream =
-    let
-        next : Stream a -> List a -> Core.Msg -> m -> Promise m (List a)
-        next stream_ reversed msg _ =
-            case stream_ of
-                Core.EndOfStream ->
-                    List.reverse reversed
-                        |> Tepa.succeed
+awaitAll =
+    awaitAll_ []
 
-                Core.ActiveStream param ->
-                    let
-                        ( data, nextStream ) =
-                            param.unwrapMsg msg
-                    in
-                    Core.Promise <|
-                        \context ->
-                            { newContext = context
-                            , realCmds = []
-                            , logs = []
-                            , state =
-                                AwaitMsg <|
-                                    next nextStream (List.reverse data ++ reversed)
-                            }
-    in
-    Core.Promise <|
-        \context ->
-            { newContext = context
-            , realCmds = []
-            , logs = []
-            , state = AwaitMsg <| next stream []
-            }
+
+awaitAll_ : List a -> Stream a -> Promise m (List a)
+awaitAll_ reversed stream =
+    case stream of
+        Core.EndOfStream param ->
+            Core.releasePorts param.released
+                |> Tepa.andThen
+                    (\() ->
+                        Tepa.succeed <|
+                            List.reverse reversed
+                    )
+
+        Core.ActiveStream param ->
+            Core.releasePorts param.released
+                |> Tepa.andThen
+                    (\() ->
+                        Core.justAwaitPromise <|
+                            \msg _ ->
+                                let
+                                    ( data, nextStream ) =
+                                        param.unwrapMsg msg
+                                in
+                                awaitAll_ (List.reverse data ++ reversed) nextStream
+                    )
 
 
 {-| Run Stream and continues to wait for all data as long as it meets the given condition.
 When the Stream has finished producing all data while satisfying the condition, `awaitWhile` resolves to the all data.
 -}
 awaitWhile : (a -> Bool) -> Stream a -> Promise m (List a)
-awaitWhile p stream =
-    let
-        next : Stream a -> List a -> Core.Msg -> m -> Promise m (List a)
-        next stream_ reversed msg _ =
-            case stream_ of
-                Core.EndOfStream ->
-                    List.reverse reversed
-                        |> Tepa.succeed
+awaitWhile =
+    awaitWhile_ []
 
-                Core.ActiveStream param ->
-                    let
-                        ( data, nextStream ) =
-                            param.unwrapMsg msg
 
-                        ( producedR, isComplete ) =
-                            awaitWhileHelper [] p data
-                    in
-                    Core.Promise <|
-                        \context ->
-                            { newContext = context
-                            , realCmds = []
-                            , logs = []
-                            , state =
-                                if isComplete then
-                                    Resolved
-                                        ((producedR ++ reversed)
-                                            |> List.reverse
-                                        )
+awaitWhile_ : List a -> (a -> Bool) -> Stream a -> Promise m (List a)
+awaitWhile_ reversed p stream =
+    case stream of
+        Core.EndOfStream param ->
+            Core.releasePorts param.released
+                |> Tepa.andThen
+                    (\() ->
+                        Tepa.succeed <|
+                            List.reverse reversed
+                    )
 
-                                else
-                                    AwaitMsg <|
-                                        next nextStream (producedR ++ reversed)
-                            }
-    in
-    Core.Promise <|
-        \context ->
-            { newContext = context
-            , realCmds = []
-            , logs = []
-            , state = AwaitMsg <| next stream []
-            }
+        Core.ActiveStream param ->
+            Core.releasePorts param.released
+                |> Tepa.andThen
+                    (\() ->
+                        Core.justAwaitPromise <|
+                            \msg _ ->
+                                let
+                                    ( data, nextStream ) =
+                                        param.unwrapMsg msg
+
+                                    ( producedR, isComplete ) =
+                                        awaitWhileHelper [] p data
+                                in
+                                awaitWhile_ (producedR ++ reversed) p <|
+                                    if isComplete then
+                                        Core.EndOfStream { released = param.dependencies }
+
+                                    else
+                                        nextStream
+                    )
 
 
 awaitWhileHelper :
@@ -507,37 +508,33 @@ while :
     -> Promise m ()
 while f stream =
     case stream of
-        Core.EndOfStream ->
-            Tepa.none
+        Core.EndOfStream param ->
+            Core.releasePorts param.released
 
         Core.ActiveStream param ->
-            Core.Promise <|
-                \context ->
-                    let
-                        nextPromise : Core.Msg -> m -> Promise m ()
-                        nextPromise msg _ =
-                            let
-                                ( data, nextStream ) =
-                                    param.unwrapMsg msg
+            Core.releasePorts param.released
+                |> Tepa.andThen
+                    (\() ->
+                        Core.justAwaitPromise <|
+                            \msg _ ->
+                                let
+                                    ( data, nextStream ) =
+                                        param.unwrapMsg msg
 
-                                ( reversed, isComplete ) =
-                                    whileHelper [] f data
-                            in
-                            Tepa.syncAll
-                                (List.reverse reversed
-                                    ++ (if isComplete then
-                                            []
+                                    ( reversed, isComplete ) =
+                                        whileHelper [] f data
+                                in
+                                Tepa.syncAll
+                                    (List.reverse reversed
+                                        ++ [ while f <|
+                                                if isComplete then
+                                                    Core.EndOfStream { released = param.dependencies }
 
-                                        else
-                                            [ while f nextStream ]
-                                       )
-                                )
-                    in
-                    { newContext = context
-                    , realCmds = []
-                    , logs = []
-                    , state = AwaitMsg nextPromise
-                    }
+                                                else
+                                                    nextStream
+                                           ]
+                                    )
+                    )
 
 
 whileHelper :

@@ -19,7 +19,7 @@ module Tepa exposing
     , syncAll
     , portRequest
     , PortRequest, PortResponse
-    , portStream
+    , portStream, customPortStream
     , map
     , liftMemory
     , andThen, bindAndThen
@@ -303,7 +303,7 @@ To send HTTP request to the backend server, you can use [`Tepa.Http`](./Tepa-Htt
 
 @docs portRequest
 @docs PortRequest, PortResponse
-@docs portStream
+@docs portStream, customPortStream
 
 
 #### Streams
@@ -1106,6 +1106,32 @@ portStream param =
         { ports =
             { request = param.request
             , response = param.response
+            , cancel = Nothing
+            , name = param.portName
+            }
+        , requestBody = param.requestBody
+        }
+
+
+{-| Advanced version of `portStream`.
+
+The `PortRequest` specified as `cancel` is called when the Layer expires or the Stream ends. You can use `portStreamWithCancel` to manage JavaScript resources, such as WebSocket connections.
+
+-}
+customPortStream :
+    { request : PortRequest Msg
+    , response : PortResponse Msg
+    , cancel : PortRequest Msg
+    , portName : String
+    , requestBody : Value
+    }
+    -> Promise m (Stream Value)
+customPortStream param =
+    Core.portStream
+        { ports =
+            { request = param.request
+            , response = param.response
+            , cancel = Just param.cancel
             , name = param.portName
             }
         , requestBody = param.requestBody

@@ -240,7 +240,6 @@ type alias TestContext m =
 {-| -}
 type alias SessionContext m =
     { model : Model m
-    , portRequests : List ( ( RequestId, LayerId ), Core.PortRequest ) -- reversed
     , httpRequests : List ( ( RequestId, LayerId ), Core.HttpRequest ) -- reversed
     , randomRequests : List ( ( RequestId, LayerId ), Core.RandomRequest ) -- reversed
     , timers : List Timer
@@ -1310,21 +1309,21 @@ expectPortRequest (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer1) ->
                                 List.filterMap
-                                    (\( ( _, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer1.id then
-                                            Just req
+                                    (\p ->
+                                        if p.layer == Core.unwrapThisLayerId layer1.id then
+                                            Just p
 
                                         else
                                             Nothing
                                     )
-                                    sessionContext.portRequests
+                                    (sessionPorts sessionContext)
                                     |> SeqTest.pass
                                     |> SeqTest.assert description
                                         (\requests ->
                                             List.map
-                                                (\request ->
-                                                    { name = request.portName
-                                                    , requestBody = request.body
+                                                (\p ->
+                                                    { name = p.name
+                                                    , requestBody = p.requestBody
                                                     }
                                                 )
                                                 requests
@@ -1338,6 +1337,15 @@ expectPortRequest (Session session) (Markup markup_) param =
                         { uniqueSessionName = session.uniqueName }
                         (Markup markup_)
         }
+
+
+sessionPorts : SessionContext m -> List Core.PortRequest
+sessionPorts sessionContext =
+    let
+        (Model model) =
+            sessionContext.model
+    in
+    model.context.ports
 
 
 {-| Describe your expectations for the unresolved Random requests at the time.
@@ -1849,16 +1857,16 @@ portResponse (Session session) (Markup markup_) param =
 
                             Just (Core.Layer layer) ->
                                 takeLastMatched
-                                    (\( ( rid, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer.id then
+                                    (\p ->
+                                        if p.layer == Core.unwrapThisLayerId layer.id then
                                             param.response
-                                                { name = req.portName
-                                                , requestBody = req.body
+                                                { name = p.name
+                                                , requestBody = p.requestBody
                                                 }
                                                 |> Maybe.map
                                                     (\resp ->
                                                         Core.PortResponseMsg
-                                                            { requestId = rid
+                                                            { requestId = p.request
                                                             , response = resp
                                                             }
                                                     )
@@ -1866,7 +1874,7 @@ portResponse (Session session) (Markup markup_) param =
                                         else
                                             Nothing
                                     )
-                                    sessionContext.portRequests
+                                    (sessionPorts sessionContext)
                                     |> Result.fromMaybe "portResponse: No listening ports found for the response."
                                     |> Result.andThen
                                         (\( msg, _ ) ->
@@ -2428,7 +2436,6 @@ toTest o =
                                                 context
                                                 newState.logs
                                                 { model = newState.nextModel
-                                                , portRequests = []
                                                 , httpRequests = []
                                                 , randomRequests = []
                                                 , timers = []
@@ -2509,7 +2516,6 @@ update config msg context =
             Core.update msg context.model
     in
     { model = newState.nextModel
-    , portRequests = context.portRequests
     , httpRequests = context.httpRequests
     , randomRequests = context.randomRequests
     , timers = context.timers
@@ -2593,13 +2599,6 @@ applyLog config log context =
                 )
                 context
 
-        Core.HandshakePortStream rid lid req ->
-            SessionUpdated
-                { context
-                    | portRequests =
-                        ( ( rid, lid ), req ) :: context.portRequests
-                }
-
         Core.IssueHttpRequest rid lid req ->
             SessionUpdated
                 { context
@@ -2632,17 +2631,6 @@ applyLog config log context =
                         ( ( rid, lid ), req ) :: context.randomRequests
                 }
 
-        Core.ResolvePortRequest rid ->
-            SessionUpdated
-                { context
-                    | portRequests =
-                        List.filter
-                            (\( ( rid_, _ ), _ ) ->
-                                rid_ /= rid
-                            )
-                            context.portRequests
-                }
-
         Core.ResolveHttpRequest rid ->
             SessionUpdated
                 { context
@@ -2668,11 +2656,7 @@ applyLog config log context =
         Core.LayerHasExpired lid ->
             SessionUpdated
                 { context
-                    | portRequests =
-                        List.filter
-                            (\( ( _, lid_ ), _ ) -> lid_ /= lid)
-                            context.portRequests
-                    , httpRequests =
+                    | httpRequests =
                         List.filter
                             (\( ( _, lid_ ), _ ) -> lid_ /= lid)
                             context.httpRequests

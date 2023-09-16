@@ -1,16 +1,16 @@
 module Internal.Core exposing
-    ( Model(..), Model_, memoryState, layerState
+    ( Model(..), Model_, Context, memoryState, layerState
     , Msg(..)
     , NavKey(..)
     , Promise(..)
     , PromiseState(..)
-    , succeedPromise
+    , succeedPromise, justAwaitPromise
     , mapPromise
     , andThenPromise
     , syncPromise
     , liftPromiseMemory
     , neverResolved
-    , portRequest, portStream, PortRequest
+    , portRequest, portStream, PortRequest, releasePorts
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..), RequestId(..)
     , now, here
@@ -18,7 +18,7 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayer
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayer, unwrapThisLayerId
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence, concurrent
@@ -38,7 +38,7 @@ module Internal.Core exposing
 
 # Core
 
-@docs Model, Model_, memoryState, layerState
+@docs Model, Model_, Context, memoryState, layerState
 @docs Msg
 
 
@@ -51,13 +51,13 @@ module Internal.Core exposing
 
 @docs Promise
 @docs PromiseState
-@docs succeedPromise
+@docs succeedPromise, justAwaitPromise
 @docs mapPromise
 @docs andThenPromise
 @docs syncPromise
 @docs liftPromiseMemory
 @docs neverResolved
-@docs portRequest, portStream, PortRequest
+@docs portRequest, portStream, PortRequest, releasePorts
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody, RequestId
 @docs now, here
@@ -65,7 +65,7 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, Layer_, ThisLayerId, mapLayer
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayer, unwrapThisLayerId
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence, concurrent
@@ -159,6 +159,18 @@ type alias Context m =
     , nextRequestId : RequestId
     , nextLayerId : LayerId
     , subs : List (m -> Maybe ( RequestId, Sub Msg ))
+    , ports : List PortRequest
+    }
+
+
+{-| -}
+type alias PortRequest =
+    { request : RequestId
+    , layer : LayerId
+    , release : Value -> Cmd Msg
+    , sub : Sub Msg
+    , name : String
+    , requestBody : Value
     }
 
 
@@ -310,9 +322,7 @@ type Log
     | RequestCurrentTime RequestId
     | RequestCurrentZone RequestId
     | IssueHttpRequest RequestId LayerId HttpRequest
-    | HandshakePortStream RequestId LayerId PortRequest
     | IssueRandomRequest RequestId LayerId RandomRequest
-    | ResolvePortRequest RequestId
     | ResolveHttpRequest RequestId
     | ResolveRandomRequest RequestId
     | LayerHasExpired LayerId
@@ -364,13 +374,6 @@ type RandomSpec a
         , unwrap : RandomValue -> Maybe a
         , wrap : a -> Result String RandomValue
         }
-
-
-{-| -}
-type alias PortRequest =
-    { portName : String
-    , body : Value
-    }
 
 
 
@@ -497,8 +500,12 @@ isRequestForSpec spec req =
 type Stream a
     = ActiveStream
         { unwrapMsg : Msg -> ( List a, Stream a )
+        , dependencies : List RequestId
+        , released : List RequestId
         }
     | EndOfStream
+        { released : List RequestId
+        }
 
 
 
@@ -880,9 +887,27 @@ onLayer_ o (Promise prom1) =
                     else
                         onLayer_ o (nextProm msg nextL1.state)
 
+        -- Release resources here.
+        layerExpired : Context m -> PromiseEffect m (LayerResult a)
         layerExpired ctx =
-            { newContext = ctx
-            , realCmds = []
+            { newContext =
+                { ctx
+                    | ports =
+                        List.filter
+                            (\p -> p.layer /= thisLayerId)
+                            ctx.ports
+                }
+            , realCmds =
+                List.filter
+                    (\p -> p.layer == thisLayerId)
+                    ctx.ports
+                    |> List.map
+                        (\p ->
+                            p.release <|
+                                JE.object
+                                    [ ( "id", JE.string <| stringifyRequestId p.request )
+                                    ]
+                        )
             , logs =
                 [ LayerHasExpired thisLayerId
                 ]
@@ -913,6 +938,7 @@ onLayer_ o (Promise prom1) =
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
                                 , subs = []
+                                , ports = context.ports
                                 }
                     in
                     { newContext =
@@ -941,6 +967,7 @@ onLayer_ o (Promise prom1) =
                                             |> Maybe.andThen f
                                     )
                                     eff1.newContext.subs
+                        , ports = context.ports ++ eff1.newContext.ports
                         }
                     , realCmds = eff1.realCmds
                     , logs = eff1.logs
@@ -952,6 +979,32 @@ onLayer_ o (Promise prom1) =
                             AwaitMsg nextProm ->
                                 AwaitMsg <| awaitMsg nextProm
                     }
+
+
+{-| -}
+releasePorts : List RequestId -> Promise m ()
+releasePorts released =
+    Promise <|
+        \context ->
+            { newContext =
+                { context
+                    | ports =
+                        List.filter
+                            (\p -> not <| List.member p.request released)
+                            context.ports
+                }
+            , realCmds =
+                List.filter (\p -> List.member p.request released) context.ports
+                    |> List.map
+                        (\p ->
+                            p.release <|
+                                JE.object
+                                    [ ( "id", JE.string <| stringifyRequestId p.request )
+                                    ]
+                        )
+            , logs = []
+            , state = Resolved ()
+            }
 
 
 {-| -}
@@ -987,6 +1040,7 @@ liftPromiseMemory o (Promise prom1) =
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
                         , subs = []
+                        , ports = context.ports
                         }
             in
             { newContext =
@@ -1012,6 +1066,7 @@ liftPromiseMemory o (Promise prom1) =
                                 o.get m |> f
                             )
                             eff1.newContext.subs
+                , ports = context.ports ++ eff1.newContext.ports
                 }
             , realCmds = eff1.realCmds
             , logs = eff1.logs
@@ -1320,6 +1375,7 @@ stringifyThisLayerId (ThisLayerId id) =
     SequenceId.toString id
 
 
+{-| -}
 unwrapThisLayerId : ThisLayerId m -> LayerId
 unwrapThisLayerId (ThisLayerId id) =
     LayerId id
@@ -1340,6 +1396,7 @@ portStream :
     { ports :
         { request : Value -> Cmd Msg
         , response : (Value -> Msg) -> Sub Msg
+        , cancel : Maybe (Value -> Cmd Msg)
         , name : String
         }
     , requestBody : Value
@@ -1349,6 +1406,7 @@ portStream o =
     Promise <|
         \context ->
             let
+                myRequestId : RequestId
                 myRequestId =
                     context.nextRequestId
 
@@ -1361,51 +1419,59 @@ portStream o =
                         (JD.field "id" JD.string)
                         (JD.field "body" JD.value)
 
-                nextStream : Msg -> ( List Value, Stream Value )
-                nextStream msg =
-                    case msg of
-                        PortResponseMsg streamMsg ->
-                            if streamMsg.requestId == myRequestId then
-                                ( [ streamMsg.response ]
-                                , ActiveStream { unwrapMsg = nextStream }
-                                )
+                activeStream : () -> Stream Value
+                activeStream () =
+                    ActiveStream
+                        { unwrapMsg =
+                            \msg ->
+                                case msg of
+                                    PortResponseMsg streamMsg ->
+                                        if streamMsg.requestId == myRequestId then
+                                            ( [ streamMsg.response ], activeStream () )
 
-                            else
-                                ( []
-                                , ActiveStream { unwrapMsg = nextStream }
-                                )
+                                        else
+                                            ( [], activeStream () )
 
-                        _ ->
-                            ( []
-                            , ActiveStream { unwrapMsg = nextStream }
-                            )
+                                    _ ->
+                                        ( [], activeStream () )
+                        , dependencies = [ myRequestId ]
+                        , released = []
+                        }
             in
             { newContext =
                 { context
                     | nextRequestId = incRequestId context.nextRequestId
-                    , subs =
-                        (\_ ->
-                            Just
-                                ( myRequestId
-                                , o.ports.response
-                                    (\rawResponse ->
-                                        case JD.decodeValue responseDecoder rawResponse of
-                                            Err _ ->
+                    , ports =
+                        { request = myRequestId
+                        , layer = thisLayerId
+                        , release =
+                            case o.ports.cancel of
+                                Nothing ->
+                                    \_ -> Cmd.none
+
+                                Just f ->
+                                    f
+                        , sub =
+                            o.ports.response
+                                (\rawResponse ->
+                                    case JD.decodeValue responseDecoder rawResponse of
+                                        Err _ ->
+                                            NoOp
+
+                                        Ok ( rawRequestId, body ) ->
+                                            if rawRequestId == stringifyRequestId myRequestId then
+                                                PortResponseMsg
+                                                    { requestId = myRequestId
+                                                    , response = body
+                                                    }
+
+                                            else
                                                 NoOp
-
-                                            Ok ( rawRequestId, body ) ->
-                                                if rawRequestId == stringifyRequestId myRequestId then
-                                                    PortResponseMsg
-                                                        { requestId = myRequestId
-                                                        , response = body
-                                                        }
-
-                                                else
-                                                    NoOp
-                                    )
                                 )
-                        )
-                            :: context.subs
+                        , name = o.ports.name
+                        , requestBody = o.requestBody
+                        }
+                            :: context.ports
                 }
             , realCmds =
                 [ o.ports.request <|
@@ -1414,18 +1480,9 @@ portStream o =
                         , ( "body", o.requestBody )
                         ]
                 ]
-            , logs =
-                [ HandshakePortStream myRequestId
-                    thisLayerId
-                    { portName = o.ports.name
-                    , body = o.requestBody
-                    }
-                ]
+            , logs = []
             , state =
-                Resolved <|
-                    ActiveStream
-                        { unwrapMsg = nextStream
-                        }
+                Resolved <| activeStream ()
             }
 
 
@@ -1623,24 +1680,30 @@ tick interval =
                         , timestamp = timestamp
                         }
 
-                nextStream : Msg -> ( List Posix, Stream Posix )
-                nextStream msg =
-                    case msg of
-                        IntervalMsg param ->
-                            if param.requestId == myRequestId then
-                                ( [ param.timestamp ]
-                                , ActiveStream { unwrapMsg = nextStream }
-                                )
+                nextStream : () -> Stream Posix
+                nextStream () =
+                    ActiveStream
+                        { unwrapMsg =
+                            \msg ->
+                                case msg of
+                                    IntervalMsg param ->
+                                        if param.requestId == myRequestId then
+                                            ( [ param.timestamp ]
+                                            , nextStream ()
+                                            )
 
-                            else
-                                ( []
-                                , ActiveStream { unwrapMsg = nextStream }
-                                )
+                                        else
+                                            ( []
+                                            , nextStream ()
+                                            )
 
-                        _ ->
-                            ( []
-                            , ActiveStream { unwrapMsg = nextStream }
-                            )
+                                    _ ->
+                                        ( []
+                                        , nextStream ()
+                                        )
+                        , dependencies = [ myRequestId ]
+                        , released = []
+                        }
             in
             { newContext =
                 newContext
@@ -1649,8 +1712,7 @@ tick interval =
                 [ StartTimeEvery myRequestId thisLayerId interval
                 ]
             , state =
-                Resolved <|
-                    ActiveStream { unwrapMsg = nextStream }
+                Resolved <| nextStream ()
             }
 
 
@@ -1867,9 +1929,6 @@ portRequest o =
                         PortResponseMsg param ->
                             if param.requestId == myRequestId then
                                 succeedPromise param.response
-                                    |> setLogs
-                                        [ ResolvePortRequest myRequestId
-                                        ]
 
                             else
                                 justAwaitPromise nextPromise
@@ -1880,29 +1939,31 @@ portRequest o =
             { newContext =
                 { context
                     | nextRequestId = incRequestId context.nextRequestId
-                    , subs =
-                        (\_ ->
-                            Just
-                                ( myRequestId
-                                , o.ports.response
-                                    (\rawResponse ->
-                                        case JD.decodeValue responseDecoder rawResponse of
-                                            Err _ ->
+                    , ports =
+                        { request = myRequestId
+                        , layer = thisLayerId
+                        , release = \_ -> Cmd.none
+                        , sub =
+                            o.ports.response
+                                (\rawResponse ->
+                                    case JD.decodeValue responseDecoder rawResponse of
+                                        Err _ ->
+                                            NoOp
+
+                                        Ok ( rawRequestId, body ) ->
+                                            if rawRequestId == stringifyRequestId myRequestId then
+                                                PortResponseMsg
+                                                    { requestId = myRequestId
+                                                    , response = body
+                                                    }
+
+                                            else
                                                 NoOp
-
-                                            Ok ( rawRequestId, body ) ->
-                                                if rawRequestId == stringifyRequestId myRequestId then
-                                                    PortResponseMsg
-                                                        { requestId = myRequestId
-                                                        , response = body
-                                                        }
-
-                                                else
-                                                    NoOp
-                                    )
                                 )
-                        )
-                            :: context.subs
+                        , name = o.ports.name
+                        , requestBody = o.requestBody
+                        }
+                            :: context.ports
                 }
             , realCmds =
                 [ o.ports.request <|
@@ -1911,13 +1972,7 @@ portRequest o =
                         , ( "body", o.requestBody )
                         ]
                 ]
-            , logs =
-                [ HandshakePortStream myRequestId
-                    thisLayerId
-                    { portName = o.ports.name
-                    , body = o.requestBody
-                    }
-                ]
+            , logs = []
             , state = AwaitMsg nextPromise
             }
 
@@ -2259,23 +2314,29 @@ customViewEventStream param =
                     unwrapThisLayerId
                         context.layer.id
 
-                nextStream : Msg -> ( List a, Stream a )
-                nextStream msg =
-                    case msg of
-                        ViewMsg r ->
-                            if r.layerId == thisLayerId && r.type_ == param.type_ then
-                                case JD.decodeValue param.decoder r.value of
-                                    Err _ ->
-                                        ( [], ActiveStream { unwrapMsg = nextStream } )
+                nextStream : () -> Stream a
+                nextStream () =
+                    ActiveStream
+                        { unwrapMsg =
+                            \msg ->
+                                case msg of
+                                    ViewMsg r ->
+                                        if r.layerId == thisLayerId && r.type_ == param.type_ then
+                                            case JD.decodeValue param.decoder r.value of
+                                                Err _ ->
+                                                    ( [], nextStream () )
 
-                                    Ok { value } ->
-                                        ( [ value ], ActiveStream { unwrapMsg = nextStream } )
+                                                Ok { value } ->
+                                                    ( [ value ], nextStream () )
 
-                            else
-                                ( [], ActiveStream { unwrapMsg = nextStream } )
+                                        else
+                                            ( [], nextStream () )
 
-                        _ ->
-                            ( [], ActiveStream { unwrapMsg = nextStream } )
+                                    _ ->
+                                        ( [], nextStream () )
+                        , dependencies = []
+                        , released = []
+                        }
             in
             { newContext =
                 { context
@@ -2306,7 +2367,7 @@ customViewEventStream param =
                 }
             , realCmds = []
             , logs = []
-            , state = Resolved <| ActiveStream { unwrapMsg = nextStream }
+            , state = Resolved <| nextStream ()
             }
 
 
@@ -2335,6 +2396,7 @@ initContext memory =
     , nextRequestId = initRequestId
     , nextLayerId = incLayerId initLayerId
     , subs = []
+    , ports = []
     }
 
 
@@ -2412,10 +2474,13 @@ documentView f model =
 {-| -}
 subscriptions : Model memory -> Sub Msg
 subscriptions (Model model) =
-    List.filterMap
+    [ List.filterMap
         (\f ->
             f model.context.layer.state
         )
         model.context.subs
         |> List.map Tuple.second
+    , List.map .sub model.context.ports
+    ]
+        |> List.concat
         |> Sub.batch
