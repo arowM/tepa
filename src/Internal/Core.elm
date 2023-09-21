@@ -22,7 +22,7 @@ module Internal.Core exposing
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence, concurrent
-    , modify, push, currentState, lazy
+    , modify, push, currentState, currentLayerId, lazy
     , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
     , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
@@ -73,7 +73,7 @@ module Internal.Core exposing
 
 # Primitive Procedures
 
-@docs modify, push, currentState, lazy
+@docs modify, push, currentState, currentLayerId, lazy
 @docs sleep, listenTimeEvery, tick, listenMsg
 @docs load, reload
 
@@ -1127,6 +1127,21 @@ currentState =
             , realCmds = []
             , logs = []
             , state = Resolved context.layer.state
+            }
+
+
+{-| -}
+currentLayerId : Promise m String
+currentLayerId =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds = []
+            , logs = []
+            , state =
+                context.layer.id
+                    |> stringifyThisLayerId
+                    |> Resolved
             }
 
 

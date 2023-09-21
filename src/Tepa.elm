@@ -26,10 +26,11 @@ module Tepa exposing
     , NavKey
     , UrlRequest(..)
     , Layer
-    , layerState
     , newLayer
     , onLayer, LayerResult(..)
     , isOnSameLayer
+    , currentLayerId
+    , layerState
     , Html
     , Mixin
     , layerView
@@ -382,10 +383,11 @@ In [sample application](https://github.com/arowM/tepa-sample), the `onUrlChange`
 The _Layer_ is the concept of an isolated space. You can create a new layer with the `newLayer` function, execute a procedure on a layer with the `onLayer` function, delete or overwrite the existing layer with `modify`.
 
 @docs Layer
-@docs layerState
 @docs newLayer
 @docs onLayer, LayerResult
 @docs isOnSameLayer
+@docs currentLayerId
+@docs layerState
 
 A main use of the layer is to manage page transition. See that you have the following `Page` type to represent your page state.
 
@@ -1348,6 +1350,12 @@ isOnSameLayer (Core.Layer layer1) (Core.Layer layer2) =
 
 
 {-| -}
+currentLayerId : Promise m String
+currentLayerId =
+    Core.currentLayerId
+
+
+{-| -}
 layerView :
     (ViewContext m -> view)
     -> Layer m
@@ -1369,10 +1377,17 @@ type alias Mixin =
 {-|
 
   - `state`: Current Memory state.
+
   - `setKey`: Set a key to the element.
+
   - `values`: Current values of the control elements, keyed by its key strings set with `setKey`.
+
   - `checks`: Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
+
   - `layerId`: Unique string that identifies current Layer.
+    The string consists of characters in the code point range U+0020 to U+D7FF.
+    Because it contains no ASCII whitespace, it is safe to use as a part of the ID attribute value in [HTML5](https://html.spec.whatwg.org/multipage/dom.html#the-id-attribute).
+
   - `setKey_`: _(Only for TEA users) TEA version of `setKey`._
 
 -}
