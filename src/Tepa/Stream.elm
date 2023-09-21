@@ -11,6 +11,7 @@ module Tepa.Stream exposing
     , take
     , union
     , scan
+    , oneOf, Case, inCase
     )
 
 {-| Handle data stream.
@@ -30,6 +31,11 @@ module Tepa.Stream exposing
 @docs take
 @docs union
 @docs scan
+
+
+# Handle cases
+
+@docs oneOf, Case, inCase
 
 -}
 
@@ -557,3 +563,70 @@ whileHelper acc f ls =
                         (Tepa.sequence (f x) :: acc)
                         f
                         xs
+
+
+
+-- Helper functions
+
+
+{-| Execute only one `Case` that is the first of all the cases to receive data on its stream.
+
+Suppose there is a popup with a Save button and a Close button.
+When the Save button is pressed, the client saves the input, leaves the popup open, and waits for the user to press the Save or Close button again.
+When the Close button is pressed, the input is discarded and the popup is closed.
+
+For such cases, `oneOf` and `inCase` is useful.
+
+    import Tepa exposing (Promise)
+    import Tepa.Stream as Stream
+
+    popupProcedure : Promise Memory ()
+    popupProcedure =
+        Stream.oneOf
+            [ Stream.inCase
+                (Tepa.viewEventStream
+                    { type_ = "click"
+                    , key = "popup_save"
+                    }
+                )
+              <|
+                \() ->
+                    [ Tepa.bind (Tepa.getValue "popup_input") <|
+                        \str ->
+                            [ saveInput str
+                            , Tepa.lazy <| \_ -> popupProcedure
+                            ]
+                    ]
+            , Stream.inCase
+                (Tepa.viewEventStream
+                    { type_ = "click"
+                    , key = "popup_close"
+                    }
+                )
+              <|
+                \() ->
+                    [ closePopup
+                    ]
+            ]
+
+-}
+oneOf : List (Case m) -> Promise m ()
+oneOf ls =
+    Tepa.bindAll (List.map (\(Case p) -> p) ls)
+        (union
+            >> take 1
+            >> run List.singleton
+            >> List.singleton
+        )
+
+
+{-| -}
+type Case m
+    = Case (Promise m (Stream (Promise m ())))
+
+
+{-| -}
+inCase : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
+inCase promise f =
+    Tepa.map (map (f >> Tepa.sequence)) promise
+        |> Case

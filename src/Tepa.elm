@@ -1349,7 +1349,9 @@ isOnSameLayer (Core.Layer layer1) (Core.Layer layer2) =
     layer1.id == layer2.id
 
 
-{-| -}
+{-| Request unique string for current Layer.
+The value is equivalent to the `layerId` value of the `ViewContext`.
+-}
 currentLayerId : Promise m String
 currentLayerId =
     Core.currentLayerId
