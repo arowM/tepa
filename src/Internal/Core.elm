@@ -2262,7 +2262,7 @@ awaitCustomViewEvent param =
                 state msg _ =
                     case msg of
                         ViewMsg r ->
-                            if r.layerId == thisLayerId && r.type_ == param.type_ then
+                            if r.layerId == thisLayerId && r.type_ == param.type_ && r.key == param.key then
                                 case JD.decodeValue param.decoder r.value of
                                     Err _ ->
                                         justAwaitPromise state
@@ -2336,7 +2336,7 @@ customViewEventStream param =
                             \msg ->
                                 case msg of
                                     ViewMsg r ->
-                                        if r.layerId == thisLayerId && r.type_ == param.type_ then
+                                        if r.layerId == thisLayerId && r.type_ == param.type_ && r.key == param.key then
                                             case JD.decodeValue param.decoder r.value of
                                                 Err _ ->
                                                     ( [], nextStream () )
