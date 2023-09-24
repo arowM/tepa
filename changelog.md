@@ -1,3 +1,7 @@
+# 1.3.0
+
+Add `Tepa.bindAndThen2`, `Tepa.bindAndThen3`, and `Tepa.bindAndThenAll`.
+
 # 1.2.1
 
 Bugfix about view events. It was unintentionally resolved with any key.
