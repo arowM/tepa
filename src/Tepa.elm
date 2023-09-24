@@ -22,7 +22,7 @@ module Tepa exposing
     , portStream, customPortStream
     , map
     , liftMemory
-    , andThen, bindAndThen
+    , andThen, bindAndThen, bindAndThen2, bindAndThen3, bindAndThenAll
     , NavKey
     , UrlRequest(..)
     , Layer
@@ -317,7 +317,7 @@ See [Tepa.Stream](./Tepa-Stream) for details.
 
 @docs map
 @docs liftMemory
-@docs andThen, bindAndThen
+@docs andThen, bindAndThen, bindAndThen2, bindAndThen3, bindAndThenAll
 
 
 ### Application Procedures
@@ -739,6 +739,58 @@ You can use `bindAndThen` to bind some Promise result to a variable:
 bindAndThen : Promise m a -> (a -> Promise m b) -> Promise m b
 bindAndThen p f =
     andThen f p
+
+
+{-| Run two Promises concurrently, and bind the results to variables when both are complete.
+
+    import Tepa exposing (Promise)
+    import Tepa.Time as Time
+
+    sample : Promise m ( Time.Zone, Time.Posix )
+    sample =
+        Tepa.bindAndThen2 Time.now Time.here <|
+            \now here ->
+                Tepa.succeed ( here, now )
+
+-}
+bindAndThen2 : Promise m a -> Promise m b -> (a -> b -> Promise m c) -> Promise m c
+bindAndThen2 pa pb f =
+    succeed f
+        |> sync pa
+        |> sync pb
+        |> andThen identity
+
+
+{-| Run three Promises concurrently, and bind the results to variables when all are complete.
+
+If you need to bind more Promises, use `bindAndThenAll` or `sync`.
+
+-}
+bindAndThen3 : Promise m a -> Promise m b -> Promise m c -> (a -> b -> c -> Promise m d) -> Promise m d
+bindAndThen3 pa pb pc f =
+    succeed f
+        |> sync pa
+        |> sync pb
+        |> sync pc
+        |> andThen identity
+
+
+{-| Run Promises concurrently, and bind the results to variables when all are complete.
+-}
+bindAndThenAll : List (Promise m a) -> (List a -> Promise m b) -> Promise m b
+bindAndThenAll ps f =
+    List.foldl
+        (\p acc ->
+            succeed (::)
+                |> sync p
+                |> sync acc
+        )
+        (succeed [])
+        ps
+        |> andThen
+            (\reversed ->
+                f <| List.reverse reversed
+            )
 
 
 {-| Run many Promises concurrently to reduce all results.
