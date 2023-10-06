@@ -25,6 +25,7 @@ module Internal.Core exposing
     , modify, push, currentState, currentLayerId, lazy
     , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
+    , assertionError
     , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
     , Stream(..)
     , onGoingProcedure
@@ -76,6 +77,7 @@ module Internal.Core exposing
 @docs modify, push, currentState, currentLayerId, lazy
 @docs sleep, listenTimeEvery, tick, listenMsg
 @docs load, reload
+@docs assertionError
 
 
 # Random
@@ -339,6 +341,7 @@ type Log
     | SetViewport RequestId
     | SetViewportOf RequestId String
     | RequestElement RequestId String
+    | AssertionError String
 
 
 {-| -}
@@ -577,6 +580,18 @@ primitivePromise state =
             , realCmds = []
             , logs = []
             , state = state
+            }
+
+
+{-| -}
+assertionError : String -> Promise m ()
+assertionError str =
+    Promise <|
+        \context ->
+            { newContext = context
+            , realCmds = []
+            , logs = [ AssertionError str ]
+            , state = Resolved ()
             }
 
 

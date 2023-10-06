@@ -42,6 +42,7 @@ module Tepa exposing
     , getFormState, FormState
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
+    , assertionError
     , headless
     , update
     , subscriptions
@@ -564,6 +565,15 @@ Note that the Procedure can only capture events in Views on the same Layer that 
 
 The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
 Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/Element/input/search) or capture the `input` event with `awaitCustomViewEvent` to handle this situation.
+
+
+# Assertion
+
+You may have a situation where you don't want a Promise to result in a certain result, such as when your `onLayer` result in `LayerNotExists` on a Layer that should exist at that moment. Assertion is a good practice to detect such logic bugs.
+
+@docs assertionError
+
+Assertion has no effect while the TEPA code is running as an application, but if the same code is used for scenario testing, the test will fail when an Assertion Error occurs.
 
 
 # Scenario
@@ -1468,6 +1478,41 @@ mapViewContext f context =
     , layerId = context.layerId
     , setKey_ = context.setKey_
     }
+
+
+
+-- Assertion
+
+
+{-| Cause the scenario test to fail.
+
+    import Tepa
+
+    sampleProcedure =
+        Tepa.bind
+            (Tepa.onLayer
+                { get = getMyLayer
+                , set = setMyLayer
+                }
+                promiseOnLayer
+            )
+        <|
+            \layerResult ->
+                case layerResult of
+                    Tepa.LayerOk a ->
+                        [ procedureOnSuccess
+                        ]
+
+                    _ ->
+                        [ Tepa.assertionError "Layer error on sampleProcedure"
+                        , sendErrorLog "Layer error on sampleProcedure"
+                        , handleError
+                        ]
+
+-}
+assertionError : String -> Promise memory ()
+assertionError =
+    Core.assertionError
 
 
 

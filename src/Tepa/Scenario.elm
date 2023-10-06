@@ -2970,6 +2970,11 @@ applyLog config log context =
                 )
                 context
 
+        Core.AssertionError str ->
+            SessionUpdateFailed <|
+                "Assertion Error: "
+                    ++ str
+
 
 putTimer : Timer -> List Timer -> List Timer
 putTimer new timers =
