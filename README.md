@@ -71,7 +71,7 @@ Of course, being an emulator has its drawbacks. It does not actually render the 
 
 ## Being Politically Incorrect
 
-You may have felt "Hmmm, this guy is a fool 🤓" or "Are you trying to pick a fight? 😡" while reading this document. If you felt this way, then you are not a target user for TEPA. How can this framework document, which repeatedly stresses the importance of "considering the feelings of the user," not consider the feelings of the readers?
+You may have felt "Hmmm, this guy is a fool 🤓" or "Are you trying to pick a fight? 😡" while reading this document. If you felt this way, then you are not a target user for TEPA. How can this framework document, which repeatedly stresses the importance of _considering the feelings of the user_, not consider the feelings of the readers?
 If you make judgments based only on what you can see now, without trying to guess the background and reasons for such a peculiar technical document, then TEPA's goal of "user-centered application development" is not for you.
 
 There are some industries in the world that force all works and organizations to follow a rule called "diversity" in order to be politically correct. In such industries, there is an overall loss of diversity, as all works and organizations become the same form according to the "diversity" as they think.
