@@ -1,3 +1,7 @@
+# 1.4.0
+
+Add `Tepa.assertionError` and `Tepa.onEachLayer`.
+
 # 1.3.0
 
 Add `Tepa.bindAndThen2`, `Tepa.bindAndThen3`, and `Tepa.bindAndThenAll`.
