@@ -1,3 +1,9 @@
+# 1.5.0
+
+- Add `Tepa.mapLayer`
+- Add `Tepa.Stream.break`, `Tepa.Stream.continue`, and `Tepa.Stream.customCase`
+- Make `Tepa.inCase` deprecated
+
 # 1.4.0
 
 Add `Tepa.assertionError` and `Tepa.onEachLayer`.
