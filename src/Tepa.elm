@@ -27,7 +27,7 @@ module Tepa exposing
     , UrlRequest(..)
     , Layer
     , newLayer
-    , onLayer, LayerResult(..)
+    , onLayer, onEachLayer, LayerResult(..)
     , isOnSameLayer
     , currentLayerId
     , layerState
@@ -385,7 +385,7 @@ The _Layer_ is the concept of an isolated space. You can create a new layer with
 
 @docs Layer
 @docs newLayer
-@docs onLayer, LayerResult
+@docs onLayer, onEachLayer, LayerResult
 @docs isOnSameLayer
 @docs currentLayerId
 @docs layerState
@@ -698,6 +698,52 @@ onLayer :
 onLayer o prom1 =
     Core.onLayer o prom1
         |> map fromCoreLayerResult
+
+
+{-| Helper function to run Promise on the specified Layers concurrently.
+-}
+onEachLayer :
+    { get : m -> List (Layer m1)
+    , set : List (Layer m1) -> m -> m
+    }
+    -> Promise m1 a
+    -> Promise m (List (LayerResult a))
+onEachLayer param action =
+    bindAndThen
+        (currentState
+            |> map param.get
+        )
+    <|
+        \layers ->
+            bindAndThenAll
+                (List.map
+                    (\layer ->
+                        onLayer
+                            { get =
+                                \m ->
+                                    param.get m
+                                        |> List.filter (\a -> isOnSameLayer a layer)
+                                        |> List.head
+                            , set =
+                                \new m ->
+                                    param.set
+                                        (param.get m
+                                            |> List.map
+                                                (\a ->
+                                                    if isOnSameLayer a layer then
+                                                        new
+
+                                                    else
+                                                        a
+                                                )
+                                        )
+                                        m
+                            }
+                            action
+                    )
+                    layers
+                )
+                succeed
 
 
 fromCoreLayerResult : Core.LayerResult a -> LayerResult a
