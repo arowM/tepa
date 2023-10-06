@@ -1464,7 +1464,7 @@ mapLayer :
     -> (Layer m -> Maybe (Layer m1))
     -> (Layer m -> Maybe (Layer m2))
 mapLayer =
-    Core.mapLayer
+    Core.mapLayerQuery
 
 
 

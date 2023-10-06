@@ -18,7 +18,7 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayer, unwrapThisLayerId
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence, concurrent
@@ -66,7 +66,7 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, Layer_, ThisLayerId, mapLayer, unwrapThisLayerId
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence, concurrent
@@ -1249,11 +1249,11 @@ type alias Layer_ m =
 
 
 {-| -}
-mapLayer :
+mapLayerQuery :
     (m1 -> m2)
     -> (Layer m -> Maybe (Layer m1))
     -> (Layer m -> Maybe (Layer m2))
-mapLayer f parent =
+mapLayerQuery f parent =
     \l ->
         parent l
             |> Maybe.map
@@ -1273,6 +1273,29 @@ mapLayer f parent =
                                 |> ThisLayerChecks
                         }
                 )
+
+
+{-| -}
+mapLayer :
+    (m1 -> m2)
+    -> Layer m1
+    -> Layer m2
+mapLayer f (Layer layer) =
+    Layer
+        { id =
+            unwrapThisLayerId layer.id
+                |> wrapThisLayerId
+        , state = f layer.state
+        , events =
+            unwrapThisLayerEvents layer.events
+                |> ThisLayerEvents
+        , values =
+            unwrapThisLayerValues layer.values
+                |> ThisLayerValues
+        , checks =
+            unwrapThisLayerChecks layer.checks
+                |> ThisLayerChecks
+        }
 
 
 {-| -}

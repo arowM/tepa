@@ -31,6 +31,7 @@ module Tepa exposing
     , isOnSameLayer
     , currentLayerId
     , layerState
+    , mapLayer
     , Html
     , Mixin
     , layerView
@@ -389,6 +390,7 @@ The _Layer_ is the concept of an isolated space. You can create a new layer with
 @docs isOnSameLayer
 @docs currentLayerId
 @docs layerState
+@docs mapLayer
 
 A main use of the layer is to manage page transition. See that you have the following `Page` type to represent your page state.
 
@@ -1466,6 +1468,12 @@ The value is equivalent to the `layerId` value of the `ViewContext`.
 currentLayerId : Promise m String
 currentLayerId =
     Core.currentLayerId
+
+
+{-| -}
+mapLayer : (a -> b) -> Layer a -> Layer b
+mapLayer =
+    Core.mapLayer
 
 
 {-| -}
