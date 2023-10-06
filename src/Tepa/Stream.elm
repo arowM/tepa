@@ -11,7 +11,8 @@ module Tepa.Stream exposing
     , take
     , union
     , scan
-    , oneOf, Case, inCase
+    , oneOf, Case, continue, break, customCase
+    , inCase
     )
 
 {-| Handle data stream.
@@ -35,7 +36,12 @@ module Tepa.Stream exposing
 
 # Handle cases
 
-@docs oneOf, Case, inCase
+@docs oneOf, Case, continue, break, customCase
+
+
+# DEPRECATED
+
+@docs inCase
 
 -}
 
@@ -575,15 +581,15 @@ Suppose there is a popup with a Save button and a Close button.
 When the Save button is pressed, the client saves the input, leaves the popup open, and waits for the user to press the Save or Close button again.
 When the Close button is pressed, the input is discarded and the popup is closed.
 
-For such cases, `oneOf` and `inCase` is useful.
+For such cases, `oneOf` and `continue` and `break` are useful.
 
     import Tepa exposing (Promise)
     import Tepa.Stream as Stream
 
     popupProcedure : Promise Memory ()
     popupProcedure =
-        Stream.oneOf
-            [ Stream.inCase
+        [ Stream.oneOf
+            [ Stream.break
                 (Tepa.viewEventStream
                     { type_ = "click"
                     , key = "popup_save"
@@ -591,13 +597,9 @@ For such cases, `oneOf` and `inCase` is useful.
                 )
               <|
                 \() ->
-                    [ Tepa.bind (Tepa.getValue "popup_input") <|
-                        \str ->
-                            [ saveInput str
-                            , Tepa.lazy <| \_ -> popupProcedure
-                            ]
-                    ]
-            , Stream.inCase
+                    -- Just stop waiting for data.
+                    []
+            , Stream.continue
                 (Tepa.viewEventStream
                     { type_ = "click"
                     , key = "popup_close"
@@ -607,26 +609,131 @@ For such cases, `oneOf` and `inCase` is useful.
                 \() ->
                     [ closePopup
                     ]
+            , Stream.continue
+                (Tepa.viewEventStream
+                    { type_ = "click"
+                    , key = "openPopupButton"
+                    }
+                )
+              <|
+                \() ->
+                    [ openPopup
+                    ]
             ]
+
+        -- This clause is evaluated after the user clicks the "Save" button
+        -- and all spawned procedures are completed.
+        , Tepa.bind (Tepa.getValue "popup_input") <|
+            \str ->
+                [ saveInput str
+                , Tepa.lazy <| \_ -> popupProcedure
+                ]
+        ]
 
 -}
 oneOf : List (Case m) -> Promise m ()
 oneOf ls =
-    Tepa.bindAll (List.map (\(Case p) -> p) ls)
-        (union
-            >> take 1
-            >> run List.singleton
-            >> List.singleton
-        )
+    Tepa.bindAll (List.map (\(Case p) -> p) ls) <|
+        \streams ->
+            [ union streams
+                |> while
+                    (\res ->
+                        case res of
+                            Err p ->
+                                [ p ]
+
+                            Ok p ->
+                                [ p ]
+                    )
+            ]
 
 
 {-| -}
 type Case m
-    = Case (Promise m (Stream (Promise m ())))
+    = Case (Promise m (Stream (Result (Promise m ()) (Promise m ()))))
 
 
-{-| -}
-inCase : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
-inCase promise f =
-    Tepa.map (map (f >> Tepa.sequence)) promise
+{-| Wait for other data, and execute the given procedure asynchronously.
+-}
+continue : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
+continue promise f =
+    Tepa.map (map (f >> Tepa.sequence >> Ok)) promise
         |> Case
+
+
+{-| Stop waiting for data immediately, and execute the given procedure.
+-}
+break : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
+break promise f =
+    Tepa.map (map (f >> Tepa.sequence >> Err)) promise
+        |> Case
+
+
+{-| Create custom case.
+
+    import Tepa
+    import Tepa.Stream as Stream exposing (Case)
+
+    breakAfterClickTwice : Case Memory
+    breakAfterClickTwice =
+        Stream.customCase
+            (Tepa.viewEventStream
+                { key = "twoStepButton"
+                , type_ = "click"
+                }
+            )
+        <|
+            \() curr ->
+                if curr.counter < 2 then
+                    { break = False
+                    , procedure =
+                        [ Tepa.modify <|
+                            \m ->
+                                { m | counter = m.counter + 1 }
+                        ]
+                    }
+
+                else
+                    { break = True
+                    , procedure = []
+                    }
+
+-}
+customCase :
+    Promise m (Stream a)
+    ->
+        (a
+         -> m
+         ->
+            { break : Bool
+            , procedure : List (Promise m ())
+            }
+        )
+    -> Case m
+customCase promise f =
+    Tepa.succeed
+        (\stream state ->
+            map
+                (\a ->
+                    let
+                        res =
+                            f a state
+                    in
+                    if res.break then
+                        Err <| Tepa.sequence res.procedure
+
+                    else
+                        Ok <| Tepa.sequence res.procedure
+                )
+                stream
+        )
+        |> Tepa.sync promise
+        |> Tepa.sync Tepa.currentState
+        |> Case
+
+
+{-| DEPRECATED: alias for `break`.
+-}
+inCase : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
+inCase =
+    break
