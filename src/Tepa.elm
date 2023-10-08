@@ -19,7 +19,7 @@ module Tepa exposing
     , syncAll
     , portRequest
     , PortRequest, PortResponse
-    , portStream, customPortStream
+    , portStream
     , map
     , liftMemory
     , andThen, bindAndThen, bindAndThen2, bindAndThen3, bindAndThenAll
@@ -314,7 +314,7 @@ To send HTTP request to the backend server, you can use [`Tepa.Http`](./Tepa-Htt
 
 @docs portRequest
 @docs PortRequest, PortResponse
-@docs portStream, customPortStream
+@docs portStream
 
 
 #### Streams
@@ -1220,34 +1220,14 @@ type alias PortResponse msg =
 {-| Similar to `portRequest`, but `portStream` can receive many responses.
 One of the use cases is to receive WebSocket messages.
 
+  - `request`: Request JavaScript port server for some tasks.
+  - `response`: Receive responses for the request from JavaScript port server.
+  - `cancel`: Called on the current Layer expires or the Stream ends. The main use is to free resources, such as closing WebSocket connections.
+
 Keep in mind that this Promise blocks subsequent Promises, so it is common practice to call asynchronously with the main Promise when you create a new layer. If you call `portStream` in recursive Promise, it spawns listeners many times!
 
 -}
 portStream :
-    { request : PortRequest Msg
-    , response : PortResponse Msg
-    , portName : String
-    , requestBody : Value
-    }
-    -> Promise m (Stream Value)
-portStream param =
-    Core.portStream
-        { ports =
-            { request = param.request
-            , response = param.response
-            , cancel = Nothing
-            , name = param.portName
-            }
-        , requestBody = param.requestBody
-        }
-
-
-{-| Advanced version of `portStream`.
-
-The `PortRequest` specified as `cancel` is called when the Layer expires or the Stream ends. You can use `portStreamWithCancel` to manage JavaScript resources, such as WebSocket connections.
-
--}
-customPortStream :
     { request : PortRequest Msg
     , response : PortResponse Msg
     , cancel : PortRequest Msg
@@ -1255,7 +1235,7 @@ customPortStream :
     , requestBody : Value
     }
     -> Promise m (Stream Value)
-customPortStream param =
+portStream param =
     Core.portStream
         { ports =
             { request = param.request

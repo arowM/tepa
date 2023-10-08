@@ -12,7 +12,6 @@ module Tepa.Stream exposing
     , union
     , scan
     , oneOf, Case, continue, break, customCase
-    , inCase
     )
 
 {-| Handle data stream.
@@ -37,11 +36,6 @@ module Tepa.Stream exposing
 # Handle cases
 
 @docs oneOf, Case, continue, break, customCase
-
-
-# DEPRECATED
-
-@docs inCase
 
 -}
 
@@ -730,10 +724,3 @@ customCase promise f =
         |> Tepa.sync promise
         |> Tepa.sync Tepa.currentState
         |> Case
-
-
-{-| DEPRECATED: alias for `break`.
--}
-inCase : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
-inCase =
-    break
