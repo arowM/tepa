@@ -180,7 +180,7 @@ import Dict exposing (Dict)
 import Expect exposing (Expectation)
 import File exposing (File)
 import Http
-import Internal.Core as Core exposing (LayerId, Model(..), RequestId)
+import Internal.Core as Core exposing (AppState(..), LayerId, Model(..), RequestId)
 import Internal.History as History exposing (History)
 import Internal.Template as Template
 import Json.Encode as JE exposing (Value)
@@ -206,9 +206,9 @@ import Test.Sequence as SeqTest
 The Scenario you built can be converted to tests with `toTest`, and to documents with `toMarkdown`.
 
 -}
-type Scenario memory
+type Scenario flags memory
     = Scenario
-        { test : TestConfig memory -> TestContext memory -> SeqTest.Sequence (TestContext memory)
+        { test : TestConfig (AppState flags memory) -> TestContext (AppState flags memory) -> SeqTest.Sequence (TestContext (AppState flags memory))
         , markup :
             RenderConfig -> ListBlock -> Result InvalidMarkup ListBlock
         }
@@ -288,7 +288,7 @@ stringifyInvalidMarkup err =
 
 {-| A Scenario that does nothing.
 -}
-none : Scenario m
+none : Scenario flags m
 none =
     Scenario
         { test = noneTest
@@ -304,7 +304,7 @@ noneTest _ =
 
 {-| Return a new Scenario that evaluates given Scenarios sequentially.
 -}
-sequence : List (Scenario m) -> Scenario m
+sequence : List (Scenario flags m) -> Scenario flags m
 sequence =
     List.foldl
         (\a acc ->
@@ -313,7 +313,7 @@ sequence =
         none
 
 
-mappend : Scenario m -> Scenario m -> Scenario m
+mappend : Scenario flags m -> Scenario flags m -> Scenario flags m
 mappend (Scenario s1) (Scenario s2) =
     Scenario
         { test =
@@ -355,7 +355,7 @@ In such case, you can declare common section, and refer to the title in `depende
                 ]
             }
 
-    commonScenario : Section Flags Command Memory Event
+    commonScenario : Section Flags Memory
     commonScenario =
         { title = "Common scenario"
         , content =
@@ -368,7 +368,7 @@ In such case, you can declare common section, and refer to the title in `depende
                 (Time.millisToPosix 1672531200000)
         }
 
-    caseA : Section Flags Command Memory Event
+    caseA : Section Flags Memory
     caseA =
         { title = "Case A"
         , content =
@@ -379,7 +379,7 @@ In such case, you can declare common section, and refer to the title in `depende
         , dependency = RunAfter commonScenario.title
         }
 
-    caseB : Section Flags Command Memory Event
+    caseB : Section Flags Memory
     caseB =
         { title = "Case B"
         , content =
@@ -391,9 +391,9 @@ In such case, you can declare common section, and refer to the title in `depende
         }
 
 -}
-type alias Section memory =
+type alias Section flags memory =
     { title : String
-    , content : List (Scenario memory)
+    , content : List (Scenario flags memory)
     , dependency : Dependency
     }
 
@@ -490,7 +490,7 @@ This Scenario only affects document generation, and is ignored for scenario test
 You can start with `userComment` and `systemComment` to build the skeleton of your scenario, and gradually replace `userComment` with Event Simulator and `systemComment` with Expectation.
 
 -}
-userComment : User -> String -> Scenario m
+userComment : User -> String -> Scenario flags m
 userComment (User user) commentText =
     comment
         (markup """
@@ -506,7 +506,7 @@ userComment (User user) commentText =
 This Scenario only affects document generation, and is ignored for scenario test generation.
 
 -}
-systemComment : Session -> String -> Scenario m
+systemComment : Session -> String -> Scenario flags m
 systemComment (Session session) commentText =
     comment
         (markup """
@@ -519,7 +519,7 @@ systemComment (Session session) commentText =
 
 {-| Lower level function to add detailed comments.
 -}
-comment : Markup -> Scenario m
+comment : Markup -> Scenario flags m
 comment markup_ =
     Scenario
         { test = noneTest
@@ -534,7 +534,7 @@ comment markup_ =
 You can create a scenario first with `todo` and later replace that `todo` with an actual test, which is the scenario driven development.
 
 -}
-todo : Session -> Markup -> Scenario m
+todo : Session -> Markup -> Scenario flags m
 todo (Session session) (Markup markup_) =
     let
         description =
@@ -560,7 +560,7 @@ todo (Session session) (Markup markup_) =
 It prepends the username to the markup.
 
 -}
-userTodo : Session -> Markup -> Scenario m
+userTodo : Session -> Markup -> Scenario flags m
 userTodo (Session session) (Markup markup_) =
     let
         (User user) =
@@ -898,6 +898,8 @@ Suppose your application has a counter:
 
 You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
+During the initialization phase of the application, or if no Layers are found for the query, it fails the test.
+
 -}
 expectMemory :
     Session
@@ -906,7 +908,7 @@ expectMemory :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : m1 -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectMemory (Session session) (Markup markup_) param =
     let
         description =
@@ -923,19 +925,27 @@ expectMemory (Session session) (Markup markup_) param =
                                     "expectMemory: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
+                        case maybeLoadedLayer sessionContext of
                             Nothing ->
                                 SeqTest.fail description <|
                                     \_ ->
-                                        Err (Core.memoryState sessionContext.model)
-                                            |> Expect.equal
-                                                (Ok "expectMemory: No layer found.")
+                                        Expect.fail
+                                            "expectMemory: The application is during initialization."
 
-                            Just (Core.Layer layer1) ->
-                                SeqTest.pass layer1.state
-                                    |> SeqTest.assert description
-                                        param.expectation
-                                    |> SeqTest.map (\_ -> context)
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        SeqTest.fail description <|
+                                            \_ ->
+                                                Err (Core.memoryState sessionContext.model)
+                                                    |> Expect.equal
+                                                        (Ok "expectMemory: No layer found.")
+
+                                    Just (Core.Layer layer1) ->
+                                        SeqTest.pass layer1.state
+                                            |> SeqTest.assert description
+                                                param.expectation
+                                            |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
                 appendMarkup <|
@@ -943,6 +953,29 @@ expectMemory (Session session) (Markup markup_) param =
                         { uniqueSessionName = session.uniqueName }
                         (Markup markup_)
         }
+
+
+maybeLoadedLayer : SessionContext (AppState flags m) -> Maybe (Layer m)
+maybeLoadedLayer sessionContext =
+    Core.maybeMapLayer
+        (\appState ->
+            case appState of
+                AppLoading ->
+                    Nothing
+
+                AppLoaded _ m ->
+                    Just m
+        )
+        (Core.layerState sessionContext.model)
+
+
+sessionLayerId : SessionContext (AppState flags m) -> Core.LayerId
+sessionLayerId sessionContext =
+    let
+        (Core.Layer layer) =
+            Core.layerState sessionContext.model
+    in
+    Core.unwrapThisLayerId layer.id
 
 
 appendMarkup :
@@ -1066,7 +1099,7 @@ expectAppView :
     ->
         { expectation : Tepa.Document -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectAppView (Session session) (Markup markup_) { expectation } =
     let
         description =
@@ -1102,6 +1135,8 @@ expectAppView (Session session) (Markup markup_) { expectation } =
 
 You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
+During the initialization phase of the application, or if no Layers are found for the query, it fails the test.
+
 -}
 expectValues :
     Session
@@ -1110,7 +1145,7 @@ expectValues :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : Dict String String -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectValues (Session session) (Markup markup_) param =
     let
         description =
@@ -1127,23 +1162,31 @@ expectValues (Session session) (Markup markup_) param =
                                     "expectValues: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
+                        case maybeLoadedLayer sessionContext of
                             Nothing ->
                                 SeqTest.fail description <|
                                     \_ ->
-                                        Err (Core.memoryState sessionContext.model)
-                                            |> Expect.equal
-                                                (Ok "expectValues: No layer found.")
+                                        Expect.fail
+                                            "expectValues: The application is during initialization."
 
-                            Just (Core.Layer layer1) ->
-                                let
-                                    (Core.ThisLayerValues dict) =
-                                        layer1.values
-                                in
-                                SeqTest.pass dict
-                                    |> SeqTest.assert description
-                                        param.expectation
-                                    |> SeqTest.map (\_ -> context)
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        SeqTest.fail description <|
+                                            \_ ->
+                                                Err (Core.memoryState sessionContext.model)
+                                                    |> Expect.equal
+                                                        (Ok "expectValues: No layer found.")
+
+                                    Just (Core.Layer layer1) ->
+                                        let
+                                            (Core.ThisLayerValues dict) =
+                                                layer1.values
+                                        in
+                                        SeqTest.pass dict
+                                            |> SeqTest.assert description
+                                                param.expectation
+                                            |> SeqTest.map (\_ -> context)
         , markup =
             \config ->
                 appendMarkup <|
@@ -1163,7 +1206,7 @@ Suppose you want to check current time after `sleep`.
     import TimeZone -- justinmimbs/timezone-data
 
 
-    sample : Section
+    sample : Section Flags Memory
     sample =
         { title = "Sample Scenario"
         , dependency =
@@ -1192,7 +1235,7 @@ expectCurrentTime :
     ->
         { expectation : Posix -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectCurrentTime (Markup markup_) { expectation } =
     let
         description =
@@ -1214,6 +1257,9 @@ expectCurrentTime (Markup markup_) { expectation } =
 
 You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it fails the test.
+
 -}
 expectHttpRequest :
     Session
@@ -1222,7 +1268,7 @@ expectHttpRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List HttpRequest -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectHttpRequest (Session session) (Markup markup_) param =
     let
         description =
@@ -1239,18 +1285,12 @@ expectHttpRequest (Session session) (Markup markup_) param =
                                     "expectHttpRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                SeqTest.fail description <|
-                                    \_ ->
-                                        Err (Core.memoryState sessionContext.model)
-                                            |> Expect.equal
-                                                (Ok "expectHttpRequest: No layer found.")
-
-                            Just (Core.Layer layer1) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 List.filterMap
-                                    (\( ( _, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer1.id then
+                                    (\( ( _, lid ), req ) ->
+                                        if lid == layerId then
                                             Just <| fromCoreHttpRequest req
 
                                         else
@@ -1261,6 +1301,22 @@ expectHttpRequest (Session session) (Markup markup_) param =
                                     |> SeqTest.assert description
                                         param.expectation
                                     |> SeqTest.map (\_ -> context)
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        SeqTest.fail description <|
+                                            \_ ->
+                                                Err (Core.memoryState sessionContext.model)
+                                                    |> Expect.equal
+                                                        (Ok "expectHttpRequest: No layer found.")
+
+                                    Just (Core.Layer layer1) ->
+                                        withLayerId (Core.unwrapThisLayerId layer1.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -1274,6 +1330,9 @@ expectHttpRequest (Session session) (Markup markup_) param =
 
 You use [Expect](https://package.elm-lang.org/packages/elm-explorations/test/latest/Expect) module to describe your expectation.
 
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it fails the test.
+
 -}
 expectPortRequest :
     Session
@@ -1282,7 +1341,7 @@ expectPortRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , expectation : List PortRequest -> Expectation
         }
-    -> Scenario m
+    -> Scenario flags m
 expectPortRequest (Session session) (Markup markup_) param =
     let
         description =
@@ -1299,18 +1358,12 @@ expectPortRequest (Session session) (Markup markup_) param =
                                     "expectPortRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                SeqTest.fail description <|
-                                    \_ ->
-                                        Err (Core.memoryState sessionContext.model)
-                                            |> Expect.equal
-                                                (Ok "expectPortRequest: No layer found.")
-
-                            Just (Core.Layer layer1) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 List.filterMap
                                     (\p ->
-                                        if p.layer == Core.unwrapThisLayerId layer1.id then
+                                        if p.layer == layerId then
                                             Just p
 
                                         else
@@ -1330,6 +1383,22 @@ expectPortRequest (Session session) (Markup markup_) param =
                                                 |> param.expectation
                                         )
                                     |> SeqTest.map (\_ -> context)
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        SeqTest.fail description <|
+                                            \_ ->
+                                                Err (Core.memoryState sessionContext.model)
+                                                    |> Expect.equal
+                                                        (Ok "expectPortRequest: No layer found.")
+
+                                    Just (Core.Layer layer1) ->
+                                        withLayerId (Core.unwrapThisLayerId layer1.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -1352,6 +1421,9 @@ sessionPorts sessionContext =
 
 You pass `Tepa.Random.Spec` to specify your expected request.
 
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it fails the test.
+
 -}
 expectRandomRequest :
     Session
@@ -1360,7 +1432,7 @@ expectRandomRequest :
         { layer : Layer m -> Maybe (Layer m1)
         , spec : Random.Spec a
         }
-    -> Scenario m
+    -> Scenario flags m
 expectRandomRequest (Session session) (Markup markup_) param =
     let
         description =
@@ -1377,18 +1449,12 @@ expectRandomRequest (Session session) (Markup markup_) param =
                                     "expectRandomRequest: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                SeqTest.fail description <|
-                                    \_ ->
-                                        Err (Core.memoryState sessionContext.model)
-                                            |> Expect.equal
-                                                (Ok "expectRandomRequest: No layer found.")
-
-                            Just (Core.Layer layer1) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 List.filterMap
-                                    (\( ( _, Core.LayerId lid ), val ) ->
-                                        if Core.ThisLayerId lid == layer1.id then
+                                    (\( ( _, lid ), val ) ->
+                                        if lid == layerId then
                                             Just val
 
                                         else
@@ -1409,6 +1475,22 @@ expectRandomRequest (Session session) (Markup markup_) param =
                                                 Expect.fail "randomResponse: No requests found for the Spec"
                                         )
                                     |> SeqTest.map (\_ -> context)
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        SeqTest.fail description <|
+                                            \_ ->
+                                                Err (Core.memoryState sessionContext.model)
+                                                    |> Expect.equal
+                                                        (Ok "expectRandomRequest: No layer found.")
+
+                                    Just (Core.Layer layer1) ->
+                                        withLayerId (Core.unwrapThisLayerId layer1.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -1517,7 +1599,7 @@ loadApp :
         { path : AppUrl
         , flags : Value
         }
-    -> Scenario m
+    -> Scenario flags m
 loadApp (Session session) (Markup markup_) o =
     let
         description =
@@ -1561,7 +1643,7 @@ loadApp (Session session) (Markup markup_) o =
 closeApp :
     Session
     -> Markup
-    -> Scenario m
+    -> Scenario flags m
 closeApp (Session session) (Markup markup_) =
     let
         description =
@@ -1613,7 +1695,7 @@ userOperation :
         { query : Single Msg -> Single Msg
         , operation : ( String, Value )
         }
-    -> Scenario m
+    -> Scenario flags m
 userOperation (Session session) (Markup markup_) param =
     let
         (User user) =
@@ -1700,7 +1782,7 @@ _For TEA users: It only affects Promises defined in [Tepa.Time](./Tepa-Time), so
 sleep :
     Markup
     -> Int
-    -> Scenario m
+    -> Scenario flags m
 sleep (Markup markup_) msec =
     let
         description =
@@ -1823,7 +1905,8 @@ Suppose your application requests to access localStorage via port request named 
         , Debug.todo "..."
         ]
 
-If no Layers found for the query, it does nothing and just passes the test.
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it does nothing and just passes the test.
 
 -}
 portResponse :
@@ -1833,7 +1916,7 @@ portResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : PortRequest -> Maybe Value
         }
-    -> Scenario m
+    -> Scenario flags m
 portResponse (Session session) (Markup markup_) param =
     let
         description =
@@ -1850,15 +1933,12 @@ portResponse (Session session) (Markup markup_) param =
                                     "portResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                -- It is natural to receive responses after the Layer has expired.
-                                SeqTest.pass context
-
-                            Just (Core.Layer layer) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 takeLastMatched
                                     (\p ->
-                                        if p.layer == Core.unwrapThisLayerId layer.id then
+                                        if p.layer == layerId then
                                             param.response
                                                 { name = p.name
                                                 , requestBody = p.requestBody
@@ -1913,6 +1993,19 @@ portResponse (Session session) (Markup markup_) param =
                                             SeqTest.fail description <|
                                                 \_ -> Expect.fail err
                                         )
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        -- It is natural to receive responses after the Layer has expired.
+                                        SeqTest.pass context
+
+                                    Just (Core.Layer layer) ->
+                                        withLayerId (Core.unwrapThisLayerId layer.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -1945,7 +2038,7 @@ Suppose your application requests random integer:
     oneToTen =
         Random.int 1 10
 
-    respondToOneToTenInt : Scenario m
+    respondToOneToTenInt : Scenario flags m
     respondToOneToTenInt =
         Scenario.randomResponse
             mySession
@@ -1957,7 +2050,8 @@ Suppose your application requests random integer:
 
     -- If there is no unresolved `oneToTen` request at the time, the test fails.
 
-If no Layers found for the query, it does nothing and just passes the test.
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it does nothing and just passes the test.
 
 -}
 randomResponse :
@@ -1968,7 +2062,7 @@ randomResponse :
         , spec : Random.Spec a
         , response : a
         }
-    -> Scenario m
+    -> Scenario flags m
 randomResponse (Session session) (Markup markup_) param =
     let
         description =
@@ -1985,15 +2079,12 @@ randomResponse (Session session) (Markup markup_) param =
                                     "randomResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                -- It is natural to receive responses after the Layer has expired.
-                                SeqTest.pass context
-
-                            Just (Core.Layer layer) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 takeLastMatched
-                                    (\( ( rid, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer.id && Core.isRequestForSpec param.spec req then
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == layerId && Core.isRequestForSpec param.spec req then
                                             Just rid
 
                                         else
@@ -2053,6 +2144,19 @@ randomResponse (Session session) (Markup markup_) param =
                                             SeqTest.fail description <|
                                                 \_ -> Expect.fail err
                                         )
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        -- It is natural to receive responses after the Layer has expired.
+                                        SeqTest.pass context
+
+                                    Just (Core.Layer layer) ->
+                                        withLayerId (Core.unwrapThisLayerId layer.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -2070,7 +2174,7 @@ If there are no pages to forward, the test fails.
 forward :
     Session
     -> Markup
-    -> Scenario m
+    -> Scenario flags m
 forward (Session session) (Markup markup_) =
     let
         description =
@@ -2141,7 +2245,7 @@ If there are no pages to back, the test fails.
 back :
     Session
     -> Markup
-    -> Scenario m
+    -> Scenario flags m
 back (Session session) (Markup markup_) =
     let
         description =
@@ -2223,7 +2327,7 @@ pushPath :
     Session
     -> AppUrl
     -> Markup
-    -> Scenario m
+    -> Scenario flags m
 pushPath (Session session) path (Markup markup_) =
     let
         description =
@@ -2303,7 +2407,7 @@ If the given value is `Nothing`, document generation and tests fails.
         ]
 
 -}
-fromJust : String -> Maybe a -> (a -> List (Scenario m)) -> Scenario m
+fromJust : String -> Maybe a -> (a -> List (Scenario flags m)) -> Scenario flags m
 fromJust description ma f =
     case ma of
         Nothing ->
@@ -2326,7 +2430,7 @@ fromJust description ma f =
 
 {-| Similar to `fromJust`, but extract `Ok` valur from `Result`.
 -}
-fromOk : String -> Result err a -> (a -> List (Scenario m)) -> Scenario m
+fromOk : String -> Result err a -> (a -> List (Scenario flags m)) -> Scenario flags m
 fromOk description res f =
     case res of
         Err _ ->
@@ -2354,8 +2458,8 @@ fromOk description res f =
 {-| Generate scenario tests.
 -}
 toTest :
-    { props : ApplicationProps memory
-    , sections : List (Section memory)
+    { props : ApplicationProps flags memory
+    , sections : List (Section flags memory)
     , origin :
         { secure : Bool
         , hostname : String
@@ -2380,9 +2484,15 @@ toTest o =
                                 , zone = zone
                                 , view =
                                     \layer ->
-                                        o.props.view layer.state
-                                            |> .body
-                                            |> Html.div []
+                                        case layer.state of
+                                            Core.AppLoading ->
+                                                o.props.initView.body
+                                                    |> Html.div []
+
+                                            Core.AppLoaded flags state ->
+                                                o.props.view flags state
+                                                    |> .body
+                                                    |> Html.div []
                                 }
 
                         RunAfter title ->
@@ -2400,37 +2510,48 @@ toTest o =
                             (\context ->
                                 test
                                     { view =
-                                        \m ->
-                                            let
-                                                document =
-                                                    o.props.view m
-                                            in
-                                            { title = document.title
-                                            , body = document.body
-                                            }
+                                        \appState ->
+                                            case appState of
+                                                Core.AppLoading ->
+                                                    o.props.initView
+
+                                                Core.AppLoaded flags state ->
+                                                    o.props.view flags state
                                     , init =
-                                        \flags url ->
+                                        \rawFlags initialPath ->
                                             let
                                                 procs =
-                                                    Tepa.syncAll
-                                                        [ Core.listenMsg <|
-                                                            \msg ->
-                                                                case msg of
-                                                                    Core.UrlRequest req ->
-                                                                        [ o.props.onUrlRequest flags (fromBrowserUrlRequest req) Core.SimKey
-                                                                        ]
+                                                    Tepa.bind
+                                                        (o.props.init rawFlags
+                                                            |> Core.liftPromiseMemory
+                                                                { get = \_ -> ()
+                                                                , set = \_ -> identity
+                                                                }
+                                                        )
+                                                    <|
+                                                        \( flags, memory ) ->
+                                                            [ Tepa.modify <| \_ -> Core.AppLoaded flags memory
+                                                            , Tepa.syncAll
+                                                                [ Core.listenMsg <|
+                                                                    \msg ->
+                                                                        case msg of
+                                                                            Core.UrlRequest req ->
+                                                                                [ o.props.onUrlRequest flags (fromBrowserUrlRequest req) Core.SimKey
+                                                                                ]
 
-                                                                    Core.UrlChange newUrl ->
-                                                                        [ o.props.onUrlChange flags newUrl Core.SimKey
-                                                                        ]
+                                                                            Core.UrlChange newUrl ->
+                                                                                [ o.props.onUrlChange flags newUrl Core.SimKey
+                                                                                ]
 
-                                                                    _ ->
-                                                                        []
-                                                        , o.props.procedure flags url Core.SimKey
-                                                        ]
+                                                                            _ ->
+                                                                                []
+                                                                , o.props.onLoad flags initialPath Core.SimKey
+                                                                ]
+                                                                |> liftLoadedProcedure flags
+                                                            ]
 
                                                 newState =
-                                                    Core.init o.props.init procs
+                                                    Core.init Core.AppLoading procs
                                             in
                                             applyLogs
                                                 context
@@ -2440,7 +2561,7 @@ toTest o =
                                                 , randomRequests = []
                                                 , timers = []
                                                 , history =
-                                                    History.init url
+                                                    History.init initialPath
                                                 }
                                     }
                                     context
@@ -2454,6 +2575,24 @@ toTest o =
         (SeqTest.pass Dict.empty)
         o.sections
         |> SeqTest.run "Scenario tests"
+
+
+liftLoadedProcedure : flags -> Tepa.Promise m () -> Tepa.Promise (Core.AppState flags m) ()
+liftLoadedProcedure flags =
+    Core.maybeLiftPromiseMemory
+        { get =
+            \m ->
+                case m of
+                    Core.AppLoading ->
+                        Nothing
+
+                    Core.AppLoaded _ a ->
+                        Just a
+        , set =
+            \a _ ->
+                Core.AppLoaded flags a
+        }
+        >> Tepa.void
 
 
 fromBrowserUrlRequest : Browser.UrlRequest -> Tepa.UrlRequest
@@ -2994,7 +3133,7 @@ putTimer new timers =
 -}
 toMarkdown :
     { title : String
-    , sections : List (Section m)
+    , sections : List (Section flags m)
     , config : RenderConfig
     }
     -> Result InvalidMarkup String
@@ -3383,7 +3522,8 @@ fromCoreHttpRequestBody core =
 
 {-| Simulate response to the [`Tepa.Http.request`](./Tepa-Http#request) and [`Tepa.Http.bytesRequest`](./Tepa-Http#bytesRequest).
 
-If no Layers found for the query, it does nothing and just passes the test.
+During the initialization phase of the application, the `layer` parameter is ignored, so it is common to set `\_ -> Nothing` in such case.
+After initialization, if no Layers are found for the query, it does nothing and just passes the test.
 
 -}
 httpResponse :
@@ -3393,7 +3533,7 @@ httpResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, String )
         }
-    -> Scenario m
+    -> Scenario flags m
 httpResponse (Session session) (Markup markup_) param =
     let
         description =
@@ -3410,15 +3550,12 @@ httpResponse (Session session) (Markup markup_) param =
                                     "httpResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                -- It is natural to receive responses after the Layer has expired.
-                                SeqTest.pass context
-
-                            Just (Core.Layer layer) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 takeLastMatched
-                                    (\( ( rid, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer.id then
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == layerId then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
                                                     (\resp ->
@@ -3471,6 +3608,19 @@ httpResponse (Session session) (Markup markup_) param =
                                             SeqTest.fail description <|
                                                 \_ -> Expect.fail err
                                         )
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        -- It is natural to receive responses after the Layer has expired.
+                                        SeqTest.pass context
+
+                                    Just (Core.Layer layer) ->
+                                        withLayerId (Core.unwrapThisLayerId layer.id)
         , markup =
             \config ->
                 appendMarkup <|
@@ -3489,7 +3639,7 @@ httpBytesResponse :
         { layer : Layer m -> Maybe (Layer m1)
         , response : HttpRequest -> Maybe ( Http.Metadata, Bytes )
         }
-    -> Scenario m
+    -> Scenario flags m
 httpBytesResponse (Session session) (Markup markup_) param =
     let
         description =
@@ -3506,15 +3656,12 @@ httpBytesResponse (Session session) (Markup markup_) param =
                                     "httpResponse: The application is not active in the session. Use `loadApp` beforehand."
 
                     Just sessionContext ->
-                        case param.layer <| Core.layerState sessionContext.model of
-                            Nothing ->
-                                -- It is natural to receive responses after the Layer has expired.
-                                SeqTest.pass context
-
-                            Just (Core.Layer layer) ->
+                        let
+                            withLayerId : LayerId -> SeqTest.Sequence (TestContext (AppState flags m))
+                            withLayerId layerId =
                                 takeLastMatched
-                                    (\( ( rid, Core.LayerId lid ), req ) ->
-                                        if Core.ThisLayerId lid == layer.id then
+                                    (\( ( rid, lid ), req ) ->
+                                        if lid == layerId then
                                             param.response (fromCoreHttpRequest req)
                                                 |> Maybe.map
                                                     (\resp ->
@@ -3566,6 +3713,19 @@ httpBytesResponse (Session session) (Markup markup_) param =
                                             SeqTest.fail description <|
                                                 \_ -> Expect.fail err
                                         )
+                        in
+                        case maybeLoadedLayer sessionContext of
+                            Nothing ->
+                                withLayerId (sessionLayerId sessionContext)
+
+                            Just loadedLayer ->
+                                case param.layer loadedLayer of
+                                    Nothing ->
+                                        -- It is natural to receive responses after the Layer has expired.
+                                        SeqTest.pass context
+
+                                    Just (Core.Layer layer) ->
+                                        withLayerId (Core.unwrapThisLayerId layer.id)
         , markup =
             \config ->
                 appendMarkup <|

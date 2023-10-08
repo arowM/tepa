@@ -45,13 +45,14 @@ module Tepa exposing
     , viewEventStream, customViewEventStream
     , assertionError
     , headless
+    , init
+    , view
     , update
     , subscriptions
-    , init
+    , onUrlRequest
+    , onUrlChange
     , Msg
     , Model
-    , onUrlChange
-    , onUrlRequest
     , unsafePush
     )
 
@@ -90,13 +91,15 @@ If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file tha
 
     import Json.Decode (Value)
     import Tepa exposing (AppUrl, NavKey, Program, Promise)
+    import Tepa.Time as Time
 
     main : Program Memory
     main =
         Tepa.application
             { init = init
-            , procedure = procedure
             , view = view
+            , initView = initView
+            , onLoad = onLoad
             , onUrlRequest = onUrlRequest
             , onUrlChange = onUrlChange
             }
@@ -108,34 +111,47 @@ If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file tha
         , ...
         }
 
+    {- Data type for representing _Flags_.
+    -}
+    type alias Flags =
+        { ...
+        , ...
+        }
+
     {-| Your implementation for `init`.
     -}
-    init : Memory
+    init : Value -> Promise () (Flags, Memory)
     init =
         Debug.todo ""
 
-    {-| Your implementation for `procedure`.
+    {-| Your implementation for `onLoad`.
     -}
-    procedure : Value -> AppUrl -> NavKey -> Promise Memory ()
-    procedure flags url key =
+    onLoad : Flags -> AppUrl -> NavKey -> Promise Memory ()
+    onLoad flags url key =
+        Debug.todo ""
+
+    {-| Your implementation for `onUrlRequest`.
+    -}
+    onUrlRequest : Flags -> UrlRequest -> NavKey -> Promise memory ()
+    onUrlRequest flags url key =
+        Debug.todo ""
+
+    {-| Your implementation for `onUrlChange`.
+    -}
+    onUrlChange : Flags -> AppUrl -> NavKey -> Promise memory ()
+    onUrlChange flags url key =
+        Debug.todo ""
+
+    {-| Your implementation for `initView`.
+    -}
+    initView : Document
+    initView layer =
         Debug.todo ""
 
     {-| Your implementation for `view`.
     -}
     view : Layer Memory -> Document
     view layer =
-        Debug.todo ""
-
-    {-| Your implementation for `onUrlRequest`.
-    -}
-    onUrlRequest : Value -> UrlRequest -> NavKey -> Promise memory ()
-    onUrlRequest flags url key =
-        Debug.todo ""
-
-    {-| Your implementation for `onUrlChange`.
-    -}
-    onUrlChange : Value -> AppUrl -> NavKey -> Promise memory ()
-    onUrlChange flags url key =
         Debug.todo ""
 
 If you are not familiar with Elm language, we recommend you to check [Core Language](https://guide.elm-lang.org/core_language), [Types](https://guide.elm-lang.org/types/), and [Error Handling](https://guide.elm-lang.org/error_handling/) section of the Elm guide.
@@ -156,7 +172,6 @@ _For TEA users: If you have an existing TEA application, you can use the [low le
 ## Memory
 
 TEPA has a single _Memory_ that holds all of the application state.
-You specify the initial state of the Memory as the `init` property.
 
     {-| Your own type that represents your application state.
 
@@ -165,13 +180,6 @@ You specify the initial state of the Memory as the `init` property.
     -}
     type alias Memory =
         { pageState : PageState
-        }
-
-    {-| Initial state of `Memory`. Pass it as `init` property to the `application` function.
-    -}
-    init : Memory
-    init =
-        { pageState = InitialPageState
         }
 
 
@@ -324,15 +332,23 @@ See [Tepa.Stream](./Tepa-Stream) for details.
 
 ### Application Procedures
 
-There are three type of procedures you specify as an `application` property.
+There are four types of procedures that you specify as the `application` property.
 
 
-### Main Procedure
+### `init`
 
-The main procedure, set as the value of the `procedure` property, is executed on every page load.
+The `init` Procedure is executed on page load to decode your Flags and set the initial Memory state.
+It takes a raw `Value` which you can _decode_ to your Flags using the [Json.Decode](https://package.elm-lang.org/packages/elm/json/latest/Json-Decode) module.
+
+Note that its type has `()` as a Memory type, so you cannot access memory state during initialization process.
+
+
+### `onLoad`
+
+The `onLoad` is the main Procedure that is executed on every page load right after `init`.
 It takes three arguments:
 
-  - Flags: JSON value passed by JavaScript on initialization.
+  - Flags: Flags value decoded by the `init` Procedure.
 
   - Application URL: The initial URL requested by a user.
 
@@ -343,12 +359,12 @@ It takes three arguments:
 @docs NavKey
 
 
-### Procedure to handle page transition requests.
+### `onUrlRequest`
 
-You specify the procedure for handling page transition requests as `onUrlRequest` property of `application`.
+You specify the `onUrlRequest` Procedure for handling page transition requests.
 It takes three arguments:
 
-  - Flags: JSON value passed by JavaScript on initialization.
+  - Flags: Flags value decoded by the `init` Procedure.
   - Requested URL: [`UrlRequest`](#UrlRequest) value that indecates requested URL.
   - Navigation Key: Required by functions exposed by `Tepa.Navigation`.
 
@@ -356,7 +372,7 @@ It takes three arguments:
 
 In most cases, you will declare the function as follows:
 
-    onUrlRequest : Value -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
+    onUrlRequest : Flags -> Tepa.UrlRequest -> NavKey -> Promise Memory ()
     onUrlRequest _ urlRequest key =
         case urlRequest of
             Tepa.InternalPath url ->
@@ -366,14 +382,14 @@ In most cases, you will declare the function as follows:
                 Nav.load href
 
 
-### Procedure executed after URL changed
+### `onUrlChange`
 
-Immediately after the URL is changed, `onUrlChange` property of `application` function is evaluated.
+Immediately after the URL is changed, `onUrlChange` Procedure is evaluated.
 A common use case is to change the page state based on the new URL.
 
 It takes three arguments:
 
-  - Flags: JSON value passed by JavaScript on initialization.
+  - Flags: Flags value decoded by the `init` Procedure.
   - New URL: Loaded new URL.
   - Navigation Key: Required by functions exposed by `Tepa.Navigation`.
 
@@ -384,18 +400,10 @@ In [sample application](https://github.com/arowM/tepa-sample), the `onUrlChange`
 
 The _Layer_ is the concept of an isolated space. You can create a new layer with the `newLayer` function, execute a procedure on a layer with the `onLayer` function, delete or overwrite the existing layer with `modify`.
 
-@docs Layer
-@docs newLayer
-@docs onLayer, onEachLayer, LayerResult
-@docs isOnSameLayer
-@docs currentLayerId
-@docs layerState
-@docs mapLayer
-
 A main use of the layer is to manage page transition. See that you have the following `Page` type to represent your page state.
 
-    import Page.Home as PageHome
-    import Page.Users as PageUsers
+    import Page.Home
+    import Page.Users
     import Tepa exposing (Layer)
 
     type alias Memory =
@@ -403,22 +411,22 @@ A main use of the layer is to manage page transition. See that you have the foll
         }
 
     type Page
-        = PageLoading
-        | PageHome PageHome.Memory
-        | PageUsers PageUsers.Memory
+        = PageNotFound
+        | PageHome Page.Home.Memory
+        | PageUsers Page.Users.Memory
 
-This approach may seem to work at first, but it may exhibit unexpected behavior, such as
+This approach may seem to work well at first, but it may exhibit unexpected behavior, such as
 
 1.  A user opens the home page.
-      - The main procedure is executed, replacing the `page` in memory with the `PageHome param` (where `param` is the initial value of `PageHome.Memory`).
-      - The main procedure continues to execute the procedure for the home page.
-      - The home procedure is executed to replace the image to be displayed every 20 seconds (process A).
+      - The `init` Procedure initializing the `page` in Memory to `PageHome param` (where `param` is the initial value of `PageHome.Memory`).
+      - The `onLoad` Procedure is called, and it execute the Procedure for the home page.
+      - The Procedure for the home page is executed to replace the top image to be displayed every 20 seconds (process A).
 2.  The user is redirected to the user list page.
-      - The `onChangeUrl` procedure is executed and the `page` in memory is replaced with `PageUsers param` (`param` is the initial value of `PageUsers.Memory`).
+      - The `onChangeUrl` Procedure is called and the `page` in memory is replaced with `PageUsers param` (`param` is the initial value of `PageUsers.Memory`).
       - At this point, process A is asleep.
 3.  The user immediately changes to the home page.
-      - The `onChangeUrl` procedure is executed, and the `page` in memory is again replaced with the `PageHome param` (`param` is the initial value of `PageHome.Memory`).
-      - The `onChangeUrl` procedure continues to execute a new procedure for the home page.
+      - The `onChangeUrl` Procedure is called, and the `page` in memory is again replaced with the `PageHome param` (`param` is the initial value of `PageHome.Memory`).
+      - The `onChangeUrl` Procedure continues to execute a new Procedure for the home page.
       - A new process (Process B) runs to update the display image every 20 seconds, overlapping with Process A.
       - Now it is time for Process A to refresh the image.
           - Because the memory state is still `PageHome`, Process A cannot detect that the page has changed in the middle of the process.
@@ -427,25 +435,35 @@ This approach may seem to work at first, but it may exhibit unexpected behavior,
 The reason for this unexpected behavior is that the process cannot determine that the page state has changed in the middle of a page based only on the memory state. To solve this problem, you can use _Layer_.
 
     type Page
-        = PageLoading
-        | PageHome (Layer PageHome.Memory)
-        | PageUsers (Layer PageUsers.Memory)
+        = PageNotFound
+        | PageHome (Layer Page.Home.Memory)
+        | PageUsers (Layer Page.Users.Memory)
 
-The new `Page' definition above uses`Layer' to wrap each page memory state. A procedure executed on a layer will be aborted when the layer has expired by being overwritten by another layer. This allows you to avoid running duplicate procedures.
+The new `Page` definition above uses `Layer` to wrap each page memory state. A procedure executed on a Layer will be aborted when the Layer has expired by being overwritten by another Layer. This allows you to avoid running duplicate procedures.
+
+@docs Layer
+@docs newLayer
+@docs onLayer, onEachLayer, LayerResult
+@docs isOnSameLayer
+@docs currentLayerId
+@docs layerState
+@docs mapLayer
 
 
 ## View
 
-The _View_ determines how your application is rendered in the web browser, based only on the current layer state.
+The _View_ determines how your application is rendered in the web browser, based only on the current Layer state.
 You use [Tepa.Html](Tepa-Html) and [Tepa.Mixin](Tepa-Mixin) to tell the web browser how to render the page.
 
 @docs Html
 @docs Mixin
 
+The `application` function takes two types of Views: `initView` for the View during the initialization on page load, and `view` for Views after the initialization process.
 
-### Define Views
 
-To define View function, you use `layerView`.
+### Define `view`
+
+To define `view` function, you use `layerView`.
 
 @docs layerView
 @docs ViewContext
@@ -460,7 +478,7 @@ To define View function, you use `layerView`.
                 { title = "Sample App"
                 , body =
                     [ case state.page of
-                        PageNotFound _ ->
+                        PageNotFound ->
                             pageNotFoundView
 
                         PageLogin pageLogin ->
@@ -516,9 +534,9 @@ Key is used to specify a specific View element.
             _ ->
                 Html.text ""
 
-This example uses the `setKey` of the `ViewContext` to set the key named "form\_name" to the name input, and "form\_submit" to the submit button. In this way, you can retrieve the user input value with the `values` field of the `ViewContext`.
+This example uses the `setKey` of the `ViewContext` to set the Key named "form\_name" to the name input, and "form\_submit" to the submit button. In this way, you can retrieve the user input value with the `values` field of the `ViewContext`.
 
-Note that keys on the same Layer must be unique.
+Note that Keys on the same Layer must be unique.
 
 _For TEA users: You can use `setKey` alternative for `Html.Attribute` that elm/html expose. It means you can use layout libraries such as neat-layout or elm-ui._
 
@@ -571,7 +589,7 @@ Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/E
 
 # Assertion
 
-You may have a situation where you don't want a Promise to result in a certain result, such as when your `onLayer` result in `LayerNotExists` on a Layer that should exist at that moment. Assertion is a good practice to detect such logic bugs.
+You may have a situation where you do not want a Promise to result in a certain result, such as when your `onLayer` result in `LayerNotExists` on a Layer that should exist at that moment. Assertion is a good practice to detect such logic bugs.
 
 @docs assertionError
 
@@ -592,13 +610,14 @@ To create user scenarios and generate tests for them, see the [`Tepa.Scenario`](
 
 _For TEA users: If you have an existing application built with TEA, you can partially replace it with TEPA._
 
+@docs init
+@docs view
 @docs update
 @docs subscriptions
-@docs init
+@docs onUrlRequest
+@docs onUrlChange
 @docs Msg
 @docs Model
-@docs onUrlChange
-@docs onUrlRequest
 
 
 # Unsafe functions
@@ -609,11 +628,13 @@ _For TEA users: If you have an existing application built with TEA, you can part
 
 import AppUrl exposing (AppUrl)
 import Browser
+import Browser.Navigation
 import Dict exposing (Dict)
 import Html exposing (Attribute)
 import Internal.Core as Core
     exposing
-        ( Msg(..)
+        ( AppState(..)
+        , Msg(..)
         , Stream
         )
 import Json.Decode as JD exposing (Decoder)
@@ -1094,13 +1115,6 @@ neverResolved =
     Core.neverResolved
 
 
-{-| Promise that requests the current Memory state of a Layer.
--}
-layerState : Layer m1 -> Promise m m1
-layerState (Core.Layer layer) =
-    succeed layer.state
-
-
 {-| Build a Promise to send a _port_ request and receive a single response for it.
 The _port_ is an concept to allow communication between Elm and JavaScript (or TypeScript).
 Ports are probably most commonly used for WebSockets and localStorage. You can see WebSocket examples in the [sample application](https://github.com/arowM/tepa-sample).
@@ -1470,6 +1484,13 @@ currentLayerId =
     Core.currentLayerId
 
 
+{-| Takes the current Memory state of a Layer.
+-}
+layerState : Layer m1 -> m1
+layerState (Core.Layer layer) =
+    layer.state
+
+
 {-| -}
 mapLayer : (a -> b) -> Layer a -> Layer b
 mapLayer =
@@ -1576,23 +1597,22 @@ assertionError =
 {-| Entry point for building your applications.
 -}
 application :
-    ApplicationProps memory
-    -> Program memory
+    ApplicationProps flags memory
+    -> Program flags memory
 application props =
     Browser.application
         { init =
-            \flags url key ->
-                init props.init
-                    { procedure =
-                        props.procedure flags (AppUrl.fromUrl url) (Core.RealKey key)
-                    , onUrlChange =
-                        \newUrl ->
-                            props.onUrlChange flags newUrl (Core.RealKey key)
-                    , onUrlRequest =
-                        \req ->
-                            props.onUrlRequest flags req (Core.RealKey key)
-                    }
-        , view = documentView props.view
+            init
+                { init = props.init
+                , onLoad = props.onLoad
+                , onUrlRequest = props.onUrlRequest
+                , onUrlChange = props.onUrlChange
+                }
+        , view =
+            view
+                { initView = props.initView
+                , view = props.view
+                }
         , update = update
         , subscriptions = subscriptions
         , onUrlRequest = onUrlRequest
@@ -1602,12 +1622,13 @@ application props =
 
 {-| Property values for your application.
 -}
-type alias ApplicationProps memory =
-    { init : memory
-    , procedure : Value -> AppUrl -> NavKey -> Promise memory ()
-    , view : memory -> Document
-    , onUrlRequest : Value -> UrlRequest -> NavKey -> Promise memory ()
-    , onUrlChange : Value -> AppUrl -> NavKey -> Promise memory ()
+type alias ApplicationProps flags memory =
+    { init : Value -> Promise () ( flags, memory )
+    , onLoad : flags -> AppUrl -> NavKey -> Promise memory ()
+    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory ()
+    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory ()
+    , initView : Document
+    , view : flags -> memory -> Document
     }
 
 
@@ -1627,8 +1648,8 @@ type alias NavKey =
 _An alias for [Platform.Program](https://package.elm-lang.org/packages/elm/core/latest/Platform#Program)._
 
 -}
-type alias Program memory =
-    Platform.Program Value (Model memory) Msg
+type alias Program flags memory =
+    Platform.Program Value (Model flags memory) Msg
 
 
 {-| This data specifies the `<title>` and all of the nodes that should go in the `<body>`. This means you can update the title as your application changes. Maybe your "single-page app" navigates to a "different page", maybe a calendar app shows an accurate date in the title, etc.
@@ -1668,17 +1689,34 @@ fromBrowserUrlRequest req =
 You can use `headless` to save your scenario document as a markdown file.
 -}
 headless :
-    { init : memory
-    , procedure : Value -> Promise memory ()
+    { init : Value -> Promise () ( flags, memory )
+    , onLoad : flags -> Promise memory ()
     }
-    -> Program memory
+    -> Program flags memory
 headless props =
     Platform.worker
         { init =
-            \flags ->
+            \rawFlags ->
                 let
+                    procs : Promise (AppState flags memory) ()
+                    procs =
+                        bind
+                            (props.init rawFlags
+                                |> Core.liftPromiseMemory
+                                    { get = \_ -> ()
+                                    , set = \_ -> identity
+                                    }
+                            )
+                        <|
+                            \( flags, memory ) ->
+                                [ modify <| \_ -> AppLoaded flags memory
+                                , props.onLoad flags
+                                    |> liftLoadedProcedure flags
+                                ]
+
+                    newState : Core.NewState (AppState flags memory)
                     newState =
-                        Core.init props.init (props.procedure flags)
+                        Core.init AppLoading procs
                 in
                 ( newState.nextModel
                 , newState.realCmds
@@ -1695,7 +1733,7 @@ headless props =
 
 {-| TEA update function to execute your Procedures.
 -}
-update : Msg -> Model memory -> ( Model memory, Cmd Msg )
+update : Msg -> Model flags memory -> ( Model flags memory, Cmd Msg )
 update msg model =
     let
         newState =
@@ -1708,14 +1746,26 @@ update msg model =
 
 
 {-| -}
-documentView : (memory -> Document) -> Model memory -> Document
-documentView =
-    Core.documentView
+view :
+    { initView : Document
+    , view : flags -> memory -> Document
+    }
+    -> Model flags memory
+    -> Document
+view props =
+    Core.documentView <|
+        \appState ->
+            case appState of
+                AppLoading ->
+                    props.initView
+
+                AppLoaded flags m ->
+                    props.view flags m
 
 
 {-| TEA subscriptions function to execute your Procedures.
 -}
-subscriptions : Model memory -> Sub Msg
+subscriptions : Model flags memory -> Sub Msg
 subscriptions =
     Core.subscriptions
 
@@ -1723,40 +1773,79 @@ subscriptions =
 {-| Construct the initial TEA data from Procedures.
 -}
 init :
-    memory
-    ->
-        { procedure : Promise memory ()
-        , onUrlChange : AppUrl -> Promise memory ()
-        , onUrlRequest : UrlRequest -> Promise memory ()
-        }
-    -> ( Model memory, Cmd Msg )
-init memory param =
+    { init : Value -> Promise () ( flags, memory )
+    , onLoad : flags -> AppUrl -> NavKey -> Promise memory ()
+    , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory ()
+    , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory ()
+    }
+    -> Value
+    -> Url
+    -> Browser.Navigation.Key
+    -> ( Model flags memory, Cmd Msg )
+init props rawFlags initialUrl rawKey =
     let
+        key =
+            Core.RealKey rawKey
+
+        initialPath =
+            AppUrl.fromUrl initialUrl
+
+        procs : Promise (AppState flags memory) ()
         procs =
-            syncAll
-                [ Core.listenMsg <|
-                    \msg ->
-                        case msg of
-                            Core.UrlRequest req ->
-                                [ param.onUrlRequest (fromBrowserUrlRequest req)
-                                ]
+            bind
+                (props.init rawFlags
+                    |> Core.liftPromiseMemory
+                        { get = \_ -> ()
+                        , set = \_ -> identity
+                        }
+                )
+            <|
+                \( flags, memory ) ->
+                    [ modify <| \_ -> AppLoaded flags memory
+                    , syncAll
+                        [ Core.listenMsg <|
+                            \msg ->
+                                case msg of
+                                    Core.UrlRequest req ->
+                                        [ props.onUrlRequest flags (fromBrowserUrlRequest req) key
+                                        ]
 
-                            Core.UrlChange url ->
-                                [ param.onUrlChange url
-                                ]
+                                    Core.UrlChange url ->
+                                        [ props.onUrlChange flags url key
+                                        ]
 
-                            _ ->
-                                []
-                , param.procedure
-                ]
+                                    _ ->
+                                        []
+                        , props.onLoad flags initialPath key
+                        ]
+                        |> liftLoadedProcedure flags
+                    ]
 
         newState =
-            Core.init memory procs
+            Core.init AppLoading procs
     in
     ( newState.nextModel
     , newState.realCmds
         |> Cmd.batch
     )
+
+
+liftLoadedProcedure : flags -> Promise m () -> Promise (AppState flags m) ()
+liftLoadedProcedure flags =
+    Core.maybeLiftPromiseMemory
+        { get =
+            \m ->
+                case m of
+                    AppLoading ->
+                        Nothing
+
+                    AppLoaded _ a ->
+                        Just a
+        , set =
+            \a _ ->
+                AppLoaded flags a
+        }
+        >> void
 
 
 {-| -}
@@ -1765,8 +1854,8 @@ type alias Msg =
 
 
 {-| -}
-type alias Model m =
-    Core.Model m
+type alias Model flags m =
+    Core.Model (AppState flags m)
 
 
 {-| TEA `onUrlChange` property value.

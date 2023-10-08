@@ -1,5 +1,5 @@
 module Internal.Core exposing
-    ( Model(..), Model_, Context, memoryState, layerState
+    ( Model(..), Model_, AppState(..), Context, memoryState, layerState
     , Msg(..)
     , NavKey(..)
     , Promise(..)
@@ -8,7 +8,7 @@ module Internal.Core exposing
     , mapPromise
     , andThenPromise
     , syncPromise
-    , liftPromiseMemory
+    , liftPromiseMemory, maybeLiftPromiseMemory
     , neverResolved
     , portRequest, portStream, PortRequest, releasePorts
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
@@ -18,7 +18,7 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence, concurrent
@@ -39,7 +39,7 @@ module Internal.Core exposing
 
 # Core
 
-@docs Model, Model_, Context, memoryState, layerState
+@docs Model, Model_, AppState, Context, memoryState, layerState
 @docs Msg
 
 
@@ -56,7 +56,7 @@ module Internal.Core exposing
 @docs mapPromise
 @docs andThenPromise
 @docs syncPromise
-@docs liftPromiseMemory
+@docs liftPromiseMemory, maybeLiftPromiseMemory
 @docs neverResolved
 @docs portRequest, portStream, PortRequest, releasePorts
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
@@ -66,7 +66,7 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence, concurrent
@@ -152,6 +152,12 @@ endOfModel context =
         { context = context
         , next = \_ -> endOfNewState
         }
+
+
+{-| -}
+type AppState flags memory
+    = AppLoading
+    | AppLoaded flags memory
 
 
 {-| Execution time context for Procedures
@@ -1023,6 +1029,92 @@ releasePorts released =
 
 
 {-| -}
+maybeLiftPromiseMemory :
+    { get : m -> Maybe m1
+    , set : m1 -> m -> m
+    }
+    -> Promise m1 a
+    -> Promise m (Maybe a)
+maybeLiftPromiseMemory o (Promise prom1) =
+    Promise <|
+        \context ->
+            case o.get context.layer.state of
+                Nothing ->
+                    { newContext = context
+                    , realCmds = []
+                    , logs = []
+                    , state = Resolved Nothing
+                    }
+
+                Just state1 ->
+                    let
+                        eff1 =
+                            prom1
+                                { layer =
+                                    { state = state1
+                                    , id =
+                                        coerceThisLayerId context.layer.id
+                                    , events =
+                                        unwrapThisLayerEvents context.layer.events
+                                            |> ThisLayerEvents
+                                    , values =
+                                        unwrapThisLayerValues context.layer.values
+                                            |> ThisLayerValues
+                                    , checks =
+                                        unwrapThisLayerChecks context.layer.checks
+                                            |> ThisLayerChecks
+                                    }
+                                , nextRequestId = context.nextRequestId
+                                , nextLayerId = context.nextLayerId
+                                , subs = []
+                                , ports = []
+                                }
+                    in
+                    { newContext =
+                        { layer =
+                            { state = o.set eff1.newContext.layer.state context.layer.state
+                            , id = context.layer.id
+                            , events =
+                                unwrapThisLayerEvents eff1.newContext.layer.events
+                                    |> ThisLayerEvents
+                            , values =
+                                unwrapThisLayerValues eff1.newContext.layer.values
+                                    |> ThisLayerValues
+                            , checks =
+                                unwrapThisLayerChecks eff1.newContext.layer.checks
+                                    |> ThisLayerChecks
+                            }
+                        , nextRequestId = eff1.newContext.nextRequestId
+                        , nextLayerId = eff1.newContext.nextLayerId
+                        , subs =
+                            context.subs
+                                ++ List.map
+                                    (\f m ->
+                                        o.get m |> Maybe.andThen f
+                                    )
+                                    eff1.newContext.subs
+                        , ports = context.ports ++ eff1.newContext.ports
+                        }
+                    , realCmds = eff1.realCmds
+                    , logs = eff1.logs
+                    , state =
+                        case eff1.state of
+                            Resolved a ->
+                                Resolved <| Just a
+
+                            AwaitMsg nextProm ->
+                                AwaitMsg <|
+                                    \msg m ->
+                                        case o.get m of
+                                            Just mNext ->
+                                                maybeLiftPromiseMemory o (nextProm msg mNext)
+
+                                            Nothing ->
+                                                succeedPromise Nothing
+                    }
+
+
+{-| -}
 liftPromiseMemory :
     { get : m -> m1
     , set : m1 -> m -> m
@@ -1296,6 +1388,33 @@ mapLayer f (Layer layer) =
             unwrapThisLayerChecks layer.checks
                 |> ThisLayerChecks
         }
+
+
+{-| -}
+maybeMapLayer :
+    (m1 -> Maybe m2)
+    -> Layer m1
+    -> Maybe (Layer m2)
+maybeMapLayer f (Layer layer) =
+    Maybe.map
+        (\m2 ->
+            Layer
+                { id =
+                    unwrapThisLayerId layer.id
+                        |> wrapThisLayerId
+                , state = m2
+                , events =
+                    unwrapThisLayerEvents layer.events
+                        |> ThisLayerEvents
+                , values =
+                    unwrapThisLayerValues layer.values
+                        |> ThisLayerValues
+                , checks =
+                    unwrapThisLayerChecks layer.checks
+                        |> ThisLayerChecks
+                }
+        )
+        (f layer.state)
 
 
 {-| -}
