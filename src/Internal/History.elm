@@ -139,12 +139,13 @@ back n (History history) =
                 Nothing
 
             p :: ps ->
-                back (n - 1) <|
-                    History
+                back (n - 1)
+                    (History
                         { prev = ps
                         , curr = p
                         , succ = history.curr :: history.succ
                         }
+                    )
 
     else
         case history.succ of
@@ -152,12 +153,13 @@ back n (History history) =
                 Nothing
 
             s :: ss ->
-                back (n + 1) <|
-                    History
+                back (n + 1)
+                    (History
                         { prev = history.curr :: history.prev
                         , curr = s
                         , succ = ss
                         }
+                    )
 
 
 {-| Push new path into browser History.

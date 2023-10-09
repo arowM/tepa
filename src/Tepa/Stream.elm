@@ -55,6 +55,7 @@ type alias Stream a =
 {-| -}
 map : (a -> b) -> Stream a -> Stream b
 map f stream =
+    -- IGNORE TCO
     case stream of
         Core.ActiveStream param ->
             Core.ActiveStream
@@ -91,6 +92,7 @@ filter p =
 {-| -}
 filterMap : (a -> Maybe b) -> Stream a -> Stream b
 filterMap f stream =
+    -- IGNORE TCO
     case stream of
         Core.ActiveStream param ->
             Core.ActiveStream
@@ -129,6 +131,7 @@ filterMap f stream =
 -}
 take : Int -> Stream a -> Stream a
 take n stream =
+    -- IGNORE TCO
     case stream of
         Core.ActiveStream param ->
             Core.ActiveStream
@@ -199,6 +202,7 @@ union =
 
 merge : Stream a -> Stream a -> Stream a
 merge s1 s2 =
+    -- IGNORE TCO
     case ( s1, s2 ) of
         ( Core.EndOfStream param1, Core.EndOfStream param2 ) ->
             Core.EndOfStream
@@ -252,6 +256,7 @@ cancel stream =
 -}
 scan : (a -> b -> Maybe b) -> b -> Stream a -> Stream b
 scan f init stream =
+    -- IGNORE TCO
     case stream of
         Core.ActiveStream param ->
             Core.ActiveStream
@@ -324,6 +329,7 @@ run :
     -> Stream a
     -> Promise m ()
 run f stream =
+    -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
             Core.releasePorts param.released
@@ -397,6 +403,7 @@ awaitAll =
 
 awaitAll_ : List a -> Stream a -> Promise m (List a)
 awaitAll_ reversed stream =
+    -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
             Core.releasePorts param.released
@@ -430,6 +437,7 @@ awaitWhile =
 
 awaitWhile_ : List a -> (a -> Bool) -> Stream a -> Promise m (List a)
 awaitWhile_ reversed p stream =
+    -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
             Core.releasePorts param.released
@@ -513,6 +521,7 @@ while :
     -> Stream (Result err a)
     -> Promise m ()
 while f stream =
+    -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
             Core.releasePorts param.released

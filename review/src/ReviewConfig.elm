@@ -11,7 +11,6 @@ when inside the directory containing this file.
 
 -}
 
-import Review.Rule as Rule exposing (Rule)
 import NoAlways
 import NoDebug.Log
 import NoDebug.TodoOrToString
@@ -19,6 +18,7 @@ import NoExposingEverything
 import NoImportingEverything
 import NoMissingTypeAnnotation
 import NoMissingTypeExpose
+import NoUnoptimizedRecursion
 import NoUnused.CustomTypeConstructorArgs
 import NoUnused.CustomTypeConstructors
 import NoUnused.Dependencies
@@ -27,6 +27,7 @@ import NoUnused.Modules
 import NoUnused.Parameters
 import NoUnused.Patterns
 import NoUnused.Variables
+import Review.Rule as Rule exposing (Rule)
 import Simplify
 
 
@@ -42,6 +43,8 @@ config =
         |> Rule.ignoreErrorsForFiles
             [ "src/Tepa.elm"
             ]
+    , NoUnoptimizedRecursion.rule
+        (NoUnoptimizedRecursion.optOutWithComment "IGNORE TCO")
     , NoUnused.CustomTypeConstructorArgs.rule
     , NoUnused.CustomTypeConstructors.rule []
     , NoUnused.Dependencies.rule
@@ -56,8 +59,8 @@ config =
     , Simplify.defaults
         |> Simplify.rule
     ]
-    |> List.map
-        ( Rule.ignoreErrorsForDirectories
-            [ "tests/VerifyExamples"
-            ]
-        )
+        |> List.map
+            (Rule.ignoreErrorsForDirectories
+                [ "tests/VerifyExamples"
+                ]
+            )

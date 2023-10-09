@@ -827,20 +827,21 @@ markup str =
 
 
 reduceIndent : String -> ( Int, String )
-reduceIndent str =
+reduceIndent =
+    reduceIndent_ 0
+
+
+reduceIndent_ : Int -> String -> ( Int, String )
+reduceIndent_ acc str =
     case String.uncons str of
         Nothing ->
-            ( 0, "" )
+            ( acc, "" )
 
         Just ( ' ', s ) ->
-            let
-                ( level, res ) =
-                    reduceIndent s
-            in
-            ( level + 1, res )
+            reduceIndent_ (acc + 1) s
 
         Just _ ->
-            ( 0, str )
+            ( acc, str )
 
 
 dropBlanks : List ( Int, String ) -> List ( Int, String )
@@ -1840,6 +1841,7 @@ advanceClock :
     -> SessionContext m
     -> SessionUpdateResult m
 advanceClock config msec context =
+    -- IGNORE TCO
     case context.timers of
         [] ->
             SessionUpdated context
@@ -3116,17 +3118,24 @@ applyLog config log context =
 
 
 putTimer : Timer -> List Timer -> List Timer
-putTimer new timers =
+putTimer =
+    putTimer_ []
+
+
+putTimer_ : List Timer -> Timer -> List Timer -> List Timer
+putTimer_ reversed new timers =
     case timers of
         [] ->
-            [ new ]
+            new
+                :: reversed
+                |> List.reverse
 
         t :: ts ->
             if new.runAfter <= t.runAfter then
-                new :: t :: ts
+                List.reverse reversed ++ new :: t :: ts
 
             else
-                t :: putTimer new ts
+                putTimer_ (t :: reversed) new ts
 
 
 {-| Generate scenario document markdown text.

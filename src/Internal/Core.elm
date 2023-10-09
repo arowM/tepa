@@ -298,6 +298,7 @@ type alias NewState m =
 
 endOfNewState : Context m -> NewState m
 endOfNewState context =
+    -- IGNORE TCO
     { nextModel =
         Model
             { context = context
@@ -557,6 +558,7 @@ type PromiseState m a
 {-| -}
 mapPromise : (a -> b) -> Promise m a -> Promise m b
 mapPromise f (Promise prom) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             let
@@ -648,6 +650,7 @@ neverResolved =
 -}
 syncPromise : Promise m a -> Promise m (a -> b) -> Promise m b
 syncPromise (Promise promA) (Promise promF) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             let
@@ -686,6 +689,7 @@ syncPromise (Promise promA) (Promise promF) =
 -}
 andRacePromise : Promise m a -> Promise m a -> Promise m a
 andRacePromise (Promise prom2) (Promise prom1) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             let
@@ -719,6 +723,7 @@ andRacePromise (Promise prom2) (Promise prom1) =
 -}
 andThenPromise : (a -> Promise m b) -> Promise m a -> Promise m b
 andThenPromise f (Promise promA) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             let
@@ -891,6 +896,7 @@ onLayer_ :
     -> Promise m1 a
     -> Promise m (LayerResult a)
 onLayer_ o (Promise prom1) =
+    -- IGNORE TCO
     let
         thisLayerId =
             unwrapThisLayerId o.layerId
@@ -1036,6 +1042,7 @@ maybeLiftPromiseMemory :
     -> Promise m1 a
     -> Promise m (Maybe a)
 maybeLiftPromiseMemory o (Promise prom1) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             case o.get context.layer.state of
@@ -1122,6 +1129,7 @@ liftPromiseMemory :
     -> Promise m1 a
     -> Promise m a
 liftPromiseMemory o (Promise prom1) =
+    -- IGNORE TCO
     Promise <|
         \context ->
             let
@@ -2574,6 +2582,7 @@ initContext memory =
 
 toModel : Context m -> Promise m () -> NewState m
 toModel context (Promise prom) =
+    -- IGNORE TCO
     let
         eff =
             prom context
