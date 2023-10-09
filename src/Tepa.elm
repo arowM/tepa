@@ -44,6 +44,7 @@ module Tepa exposing
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
     , assertionError
+    , LinkedMemory, onLinkedLayer, onEachLinkedLayer, modifyLink, modifyBody
     , headless
     , init
     , view
@@ -594,6 +595,14 @@ You may have a situation where you do not want a Promise to result in a certain 
 @docs assertionError
 
 Assertion has no effect while the TEPA code is running as an application, but if the same code is used for scenario testing, the test will fail when an Assertion Error occurs.
+
+
+# Linked Memory Pattern
+
+You may want to access another part of Memory from within a Layer. The _Linked Memory pattern_ is a common pattern to handle such situation.
+See [sample application](https://github.com/arowM/tepa-sample) for the real usage.
+
+@docs LinkedMemory, onLinkedLayer, onEachLinkedLayer, modifyLink, modifyBody
 
 
 # Scenario
@@ -1571,7 +1580,141 @@ assertionError =
 
 
 
--- Browser alternatives
+-- Linked Memory Pattern
+
+
+{-| Memory structure for accessing external Memory space from within Layer.
+-}
+type alias LinkedMemory link body =
+    { link : link
+    , body : body
+    }
+
+
+{-| Helper function to run Promise on the specified Layer which the Memory is linked to external space.
+-}
+onLinkedLayer :
+    { getLink : memory -> Maybe link
+    , setLink : link -> memory -> memory
+    , getBody : memory -> Maybe (Layer body)
+    , setBody : Layer body -> memory -> memory
+    }
+    -> Promise (LinkedMemory link body) a
+    -> Promise memory (LayerResult a)
+onLinkedLayer param =
+    onLayer (linkedLayer param)
+
+
+linkedLayer :
+    { getLink : m -> Maybe link
+    , setLink : link -> m -> m
+    , getBody : m -> Maybe (Layer body)
+    , setBody : Layer body -> m -> m
+    }
+    ->
+        { get : m -> Maybe (Layer (LinkedMemory link body))
+        , set : Layer (LinkedMemory link body) -> m -> m
+        }
+linkedLayer { getLink, setLink, getBody, setBody } =
+    { get =
+        \m ->
+            case ( getBody m, getLink m ) of
+                ( Just layerBody, Just link ) ->
+                    Just <|
+                        mapLayer
+                            (\body ->
+                                { link = link, body = body }
+                            )
+                            layerBody
+
+                _ ->
+                    Nothing
+    , set =
+        \layer m ->
+            let
+                state =
+                    layerState layer
+            in
+            setBody (mapLayer .body layer) m
+                |> setLink state.link
+    }
+
+
+{-| Helper function to run Promise on the specified Layer which the Memory is linked to external space.
+-}
+onEachLinkedLayer :
+    { getLink : memory -> Maybe link
+    , setLink : link -> memory -> memory
+    , getBodies : memory -> List (Layer body)
+    , setBodies : List (Layer body) -> memory -> memory
+    }
+    -> Promise (LinkedMemory link body) a
+    -> Promise memory (List (LayerResult a))
+onEachLinkedLayer param action =
+    bindAndThen
+        (currentState
+            |> map param.getBodies
+        )
+    <|
+        \layers ->
+            bindAndThenAll
+                (List.map
+                    (\layer ->
+                        onLayer
+                            { get =
+                                \m ->
+                                    Maybe.map2
+                                        (\link layerBody ->
+                                            mapLayer
+                                                (\body ->
+                                                    { link = link, body = body }
+                                                )
+                                                layerBody
+                                        )
+                                        (param.getLink m)
+                                        (param.getBodies m
+                                            |> List.filter (\a -> isOnSameLayer a layer)
+                                            |> List.head
+                                        )
+                            , set =
+                                \newLayer_ m ->
+                                    param.setBodies
+                                        (param.getBodies m
+                                            |> List.map
+                                                (\a ->
+                                                    if isOnSameLayer a layer then
+                                                        mapLayer .body newLayer_
+
+                                                    else
+                                                        a
+                                                )
+                                        )
+                                        m
+                                        |> param.setLink (layerState newLayer_).link
+                            }
+                            action
+                    )
+                    layers
+                )
+                succeed
+
+
+{-| Helper function to modify link part of `LinkedMemory`
+-}
+modifyLink : (link -> link) -> Promise (LinkedMemory link body) ()
+modifyLink f =
+    modify <|
+        \m ->
+            { m | link = f m.link }
+
+
+{-| Helper function to modify body part of `LinkedMemory`
+-}
+modifyBody : (body -> body) -> Promise (LinkedMemory link body) ()
+modifyBody f =
+    modify <|
+        \m ->
+            { m | body = f m.body }
 
 
 {-| Entry point for building your applications.
