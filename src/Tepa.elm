@@ -341,6 +341,8 @@ There are four types of procedures that you specify as the `application` propert
 The `init` Procedure is executed on page load to decode your Flags and set the initial Memory state.
 It takes a raw `Value` which you can _decode_ to your Flags using the [Json.Decode](https://package.elm-lang.org/packages/elm/json/latest/Json-Decode) module.
 
+    init : Value -> Promise () ( flags, memory )
+
 Note that its type has `()` as a Memory type, so you cannot access memory state during initialization process.
 
 
@@ -348,6 +350,8 @@ Note that its type has `()` as a Memory type, so you cannot access memory state 
 
 The `onLoad` is the main Procedure that is executed on every page load right after `init`.
 It takes three arguments:
+
+    onLoad : flags -> AppUrl -> NavKey -> Promise memory ()
 
   - Flags: Flags value decoded by the `init` Procedure.
 
@@ -364,6 +368,8 @@ It takes three arguments:
 
 You specify the `onUrlRequest` Procedure for handling page transition requests.
 It takes three arguments:
+
+    onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory ()
 
   - Flags: Flags value decoded by the `init` Procedure.
   - Requested URL: [`UrlRequest`](#UrlRequest) value that indecates requested URL.
@@ -389,6 +395,8 @@ Immediately after the URL is changed, `onUrlChange` Procedure is evaluated.
 A common use case is to change the page state based on the new URL.
 
 It takes three arguments:
+
+    onUrlChange : flags -> AppUrl -> NavKey -> Promise memory ()
 
   - Flags: Flags value decoded by the `init` Procedure.
   - New URL: Loaded new URL.
