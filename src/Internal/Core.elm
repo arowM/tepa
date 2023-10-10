@@ -166,6 +166,7 @@ type alias Context m =
     { layer : Layer_ m
     , nextRequestId : RequestId
     , nextLayerId : LayerId
+    , nextIntervalId : Dict Int Int
     , subs : List (m -> Maybe ( RequestId, Sub Msg ))
     , ports : List PortRequest
     }
@@ -964,6 +965,7 @@ onLayer_ o (Promise prom1) =
                                 { layer = layer1
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
+                                , nextIntervalId = context.nextIntervalId
                                 , subs = []
                                 , ports = context.ports
                                 }
@@ -978,6 +980,7 @@ onLayer_ o (Promise prom1) =
                             }
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
+                        , nextIntervalId = eff1.newContext.nextIntervalId
                         , subs =
                             context.subs
                                 ++ List.map
@@ -1073,6 +1076,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                                     }
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
+                                , nextIntervalId = context.nextIntervalId
                                 , subs = []
                                 , ports = context.ports
                                 }
@@ -1093,6 +1097,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                             }
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
+                        , nextIntervalId = eff1.newContext.nextIntervalId
                         , subs =
                             context.subs
                                 ++ List.map
@@ -1154,6 +1159,7 @@ liftPromiseMemory o (Promise prom1) =
                             }
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
+                        , nextIntervalId = context.nextIntervalId
                         , subs = []
                         , ports = context.ports
                         }
@@ -1174,6 +1180,7 @@ liftPromiseMemory o (Promise prom1) =
                     }
                 , nextRequestId = eff1.newContext.nextRequestId
                 , nextLayerId = eff1.newContext.nextLayerId
+                , nextIntervalId = eff1.newContext.nextIntervalId
                 , subs =
                     context.subs
                         ++ List.map
@@ -1841,18 +1848,32 @@ tick interval =
                     unwrapThisLayerId
                         context.layer.id
 
+                thisIntervalId : Int
+                thisIntervalId =
+                    Dict.get interval context.nextIntervalId
+                        |> Maybe.withDefault 0
+                        |> modBy 1000
+
                 newContext =
                     { context
                         | nextRequestId = incRequestId context.nextRequestId
+                        , nextIntervalId = Dict.insert interval (thisIntervalId + 1) context.nextIntervalId
                         , subs =
                             (\_ ->
                                 Just
                                     ( myRequestId
-                                    , Time.every (toFloat interval) toIntervalMsg
+                                    , Time.every (toKeyedInterval interval) toIntervalMsg
                                     )
                             )
                                 :: context.subs
                     }
+
+                -- Work around for bug about `Time.every`.
+                -- https://github.com/elm/time/issues/25
+                -- It add very small amount of value to indentify the subsctiption.
+                toKeyedInterval : Int -> Float
+                toKeyedInterval n =
+                    toFloat n + (toFloat thisIntervalId * 1.0e-6)
 
                 toIntervalMsg timestamp =
                     IntervalMsg
@@ -2575,6 +2596,7 @@ initContext memory =
         }
     , nextRequestId = initRequestId
     , nextLayerId = incLayerId initLayerId
+    , nextIntervalId = Dict.empty
     , subs = []
     , ports = []
     }
