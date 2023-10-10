@@ -965,7 +965,7 @@ onLayer_ o (Promise prom1) =
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
                                 , subs = []
-                                , ports = []
+                                , ports = context.ports
                                 }
                     in
                     { newContext =
@@ -994,7 +994,7 @@ onLayer_ o (Promise prom1) =
                                             |> Maybe.andThen f
                                     )
                                     eff1.newContext.subs
-                        , ports = context.ports ++ eff1.newContext.ports
+                        , ports = eff1.newContext.ports
                         }
                     , realCmds = eff1.realCmds
                     , logs = eff1.logs
@@ -1074,7 +1074,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
                                 , subs = []
-                                , ports = []
+                                , ports = context.ports
                                 }
                     in
                     { newContext =
@@ -1100,7 +1100,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                                         o.get m |> Maybe.andThen f
                                     )
                                     eff1.newContext.subs
-                        , ports = context.ports ++ eff1.newContext.ports
+                        , ports = eff1.newContext.ports
                         }
                     , realCmds = eff1.realCmds
                     , logs = eff1.logs
@@ -1155,7 +1155,7 @@ liftPromiseMemory o (Promise prom1) =
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
                         , subs = []
-                        , ports = []
+                        , ports = context.ports
                         }
             in
             { newContext =
@@ -1181,7 +1181,7 @@ liftPromiseMemory o (Promise prom1) =
                                 o.get m |> f
                             )
                             eff1.newContext.subs
-                , ports = context.ports ++ eff1.newContext.ports
+                , ports = eff1.newContext.ports
                 }
             , realCmds = eff1.realCmds
             , logs = eff1.logs
