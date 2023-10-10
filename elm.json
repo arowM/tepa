@@ -3,7 +3,7 @@
     "name": "arowM/tepa",
     "summary": "Framework for building robust, user-centric Web apps",
     "license": "MIT",
-    "version": "1.5.0",
+    "version": "2.0.0",
     "exposed-modules": [
         "Tepa",
         "Tepa.Dom",

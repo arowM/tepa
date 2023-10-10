@@ -1,3 +1,14 @@
+# 2.0.0
+
+Makes it easier to access the memory shared by each page of the SPA. 🎉
+
+- Change `ApplicationProps`.
+- Rename `Tepa.customPortStream` to `Tepa.portStream`
+- Clean up DEPRECATED functions
+- Add helper functions for "Linked Memory Pattern"
+- Bugfix about _cancel_ port request
+- Bugfix about `Tepa.Time.tick`
+
 # 1.5.0
 
 - Add `Tepa.mapLayer`
