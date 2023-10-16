@@ -210,7 +210,7 @@ request param =
         , timeout = param.timeout
         , tracker = Nothing
         }
-        |> Core.mapPromise fromCoreResult
+        |> Tepa.map fromCoreResult
 
 
 fromCoreResult : Result Core.HttpRequestError ( Metadata, a ) -> Response a
@@ -252,7 +252,7 @@ bytesRequest param =
         , timeout = param.timeout
         , tracker = Nothing
         }
-        |> Core.mapPromise fromCoreResult
+        |> Tepa.map fromCoreResult
 
 
 

@@ -3,7 +3,7 @@ module Internal.Core exposing
     , Msg(..)
     , NavKey(..)
     , Promise(..)
-    , PromiseState(..)
+    , PromiseState(..), LayerState(..)
     , succeedPromise, justAwaitPromise
     , mapPromise
     , andThenPromise
@@ -18,10 +18,10 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+    , Layer(..), LayerId(..), layerIdOf, layerIdStringOf, Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
-    , none, sequence, concurrent
+    , none, sequence
     , modify, push, currentState, currentLayerId, lazy
     , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
@@ -29,7 +29,7 @@ module Internal.Core exposing
     , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
     , Stream(..)
     , onGoingProcedure
-    , newLayer, onLayer, LayerResult(..)
+    , newLayer, onLayer
     , init, update, NewState, Log(..)
     , documentView, subscriptions
     )
@@ -51,7 +51,7 @@ module Internal.Core exposing
 # Promise
 
 @docs Promise
-@docs PromiseState
+@docs PromiseState, LayerState
 @docs succeedPromise, justAwaitPromise
 @docs mapPromise
 @docs andThenPromise
@@ -66,10 +66,10 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+@docs Layer, LayerId, layerIdOf, layerIdStringOf, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
-@docs none, sequence, concurrent
+@docs none, sequence
 
 
 # Primitive Procedures
@@ -97,7 +97,7 @@ module Internal.Core exposing
 
 # Layer
 
-@docs newLayer, onLayer, LayerResult
+@docs newLayer, onLayer
 
 
 # TEA
@@ -552,12 +552,24 @@ type alias PromiseEffect m a =
 {-| Represents current Promise state.
 -}
 type PromiseState m a
-    = Resolved a
+    = Resolved (LayerState a)
     | AwaitMsg (Msg -> m -> Promise m a)
 
 
+{-| Represents the ability to access lifted memory parts.
+By holding the state internally, it enables to continue processing procedures for a Layer even after the lifted memory becomes unreachable, or to continue processing proceduures for a Memory part even after the Layer has expired.
+
+See the `Tepa.maybeLiftMemory` and `Tepa.onLayer`.
+
+-}
+type LayerState a
+    = LayerExist a
+    | LayerUnreachable
+    | MemoryUnreachable
+
+
 {-| -}
-mapPromise : (a -> b) -> Promise m a -> Promise m b
+mapPromise : (LayerState a -> LayerState b) -> Promise m a -> Promise m b
 mapPromise f (Promise prom) =
     -- IGNORE TCO
     Promise <|
@@ -600,7 +612,7 @@ assertionError str =
             { newContext = context
             , realCmds = []
             , logs = [ AssertionError str ]
-            , state = Resolved ()
+            , state = Resolved (LayerExist ())
             }
 
 
@@ -617,7 +629,7 @@ setLogs logs (Promise f) =
 
 {-| Promise that just resolves to `a`.
 -}
-succeedPromise : a -> Promise m a
+succeedPromise : LayerState a -> Promise m a
 succeedPromise a =
     primitivePromise <| Resolved a
 
@@ -666,18 +678,78 @@ syncPromise (Promise promA) (Promise promF) =
             , logs = effF.logs ++ effA.logs
             , state =
                 case ( effF.state, effA.state ) of
-                    ( Resolved f, Resolved a ) ->
-                        Resolved <| f a
+                    ( Resolved (LayerExist f), Resolved (LayerExist a) ) ->
+                        Resolved <| LayerExist <| f a
 
-                    ( Resolved f, AwaitMsg nextPromA ) ->
+                    ( Resolved (LayerExist _), Resolved LayerUnreachable ) ->
+                        Resolved LayerUnreachable
+
+                    ( Resolved (LayerExist _), Resolved MemoryUnreachable ) ->
+                        Resolved MemoryUnreachable
+
+                    ( Resolved (LayerExist f), AwaitMsg nextPromA ) ->
                         AwaitMsg <|
                             \msg m ->
-                                mapPromise f (nextPromA msg m)
+                                mapPromise
+                                    (\state ->
+                                        case state of
+                                            LayerExist a ->
+                                                LayerExist <| f a
 
-                    ( AwaitMsg nextPromF, Resolved a ) ->
+                                            MemoryUnreachable ->
+                                                MemoryUnreachable
+
+                                            LayerUnreachable ->
+                                                LayerUnreachable
+                                    )
+                                    (nextPromA msg m)
+
+                    ( Resolved LayerUnreachable, Resolved _ ) ->
+                        Resolved LayerUnreachable
+
+                    ( Resolved LayerUnreachable, AwaitMsg nextPromA ) ->
                         AwaitMsg <|
                             \msg m ->
-                                mapPromise (\f -> f a) (nextPromF msg m)
+                                nextPromA msg m
+                                    |> mapPromise (\_ -> LayerUnreachable)
+
+                    ( Resolved MemoryUnreachable, Resolved _ ) ->
+                        Resolved MemoryUnreachable
+
+                    ( Resolved MemoryUnreachable, AwaitMsg nextPromA ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                nextPromA msg m
+                                    |> mapPromise (\_ -> MemoryUnreachable)
+
+                    ( AwaitMsg nextPromF, Resolved (LayerExist a) ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                mapPromise
+                                    (\res ->
+                                        case res of
+                                            LayerExist f ->
+                                                LayerExist <| f a
+
+                                            MemoryUnreachable ->
+                                                MemoryUnreachable
+
+                                            LayerUnreachable ->
+                                                LayerUnreachable
+                                    )
+                                    (nextPromF msg m)
+
+                    ( AwaitMsg nextPromF, Resolved LayerUnreachable ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                nextPromF msg m
+                                    |> mapPromise (\_ -> LayerUnreachable)
+
+                    ( AwaitMsg nextPromF, Resolved MemoryUnreachable ) ->
+                        AwaitMsg <|
+                            \msg m ->
+                                nextPromF msg m
+                                    |> mapPromise (\_ -> MemoryUnreachable)
 
                     ( AwaitMsg nextPromF, AwaitMsg nextPromA ) ->
                         AwaitMsg <|
@@ -686,10 +758,10 @@ syncPromise (Promise promA) (Promise promF) =
             }
 
 
-{-| Await one of the Promises to be completed.
+{-| Run monitor promise asyncronously.
 -}
-andRacePromise : Promise m a -> Promise m a -> Promise m a
-andRacePromise (Promise prom2) (Promise prom1) =
+andMonitor : Promise m a -> Promise m a -> Promise m a
+andMonitor (Promise prom2) (Promise prom1) =
     -- IGNORE TCO
     Promise <|
         \context ->
@@ -705,24 +777,27 @@ andRacePromise (Promise prom2) (Promise prom1) =
             , logs = eff1.logs ++ eff2.logs
             , state =
                 case ( eff1.state, eff2.state ) of
-                    ( Resolved a1, _ ) ->
-                        Resolved a1
-
-                    ( _, Resolved a2 ) ->
-                        Resolved a2
+                    ( Resolved (LayerExist a1), _ ) ->
+                        Resolved <| LayerExist a1
 
                     ( AwaitMsg nextProm1, AwaitMsg nextProm2 ) ->
                         AwaitMsg <|
                             \msg m ->
-                                andRacePromise
+                                andMonitor
                                     (nextProm2 msg m)
                                     (nextProm1 msg m)
+
+                    ( AwaitMsg nextProm1, _ ) ->
+                        AwaitMsg nextProm1
+
+                    ( Resolved _, _ ) ->
+                        eff1.state
             }
 
 
 {-| Run Promises sequentially.
 -}
-andThenPromise : (a -> Promise m b) -> Promise m a -> Promise m b
+andThenPromise : (LayerState a -> Promise m b) -> Promise m a -> Promise m b
 andThenPromise f (Promise promA) =
     -- IGNORE TCO
     Promise <|
@@ -759,221 +834,120 @@ andThenPromise f (Promise promA) =
 
 
 {-| -}
-type LayerResult a
-    = LayerOk a
-    | LayerNotExists
-    | LayerExpired
+type alias LayerMemory link body =
+    { link : Maybe link
+    , body : Maybe body
+    }
 
 
 {-| -}
 onLayer :
-    { get : m -> Maybe (Layer m1)
-    , set : Layer m1 -> m -> m
+    { getLink : m -> Maybe link
+    , setLink : link -> m -> m
+    , getBody : m -> Maybe (Layer body)
+    , setBody : Layer body -> m -> m
     }
-    -> Promise m1 a
-    -> Promise m (LayerResult a)
+    -> Promise (LayerMemory link body) a
+    -> Promise m (LayerState a)
 onLayer param prom1 =
-    bindAndThenPromise currentState <|
-        \state ->
-            case param.get state of
-                Nothing ->
-                    succeedPromise LayerNotExists
+    currentState
+        |> andThenPromise
+            (\res ->
+                case res of
+                    LayerUnreachable ->
+                        succeedPromise <| LayerExist LayerUnreachable
 
-                Just (Layer layer) ->
-                    onLayer_
-                        { get = param.get
-                        , set = param.set
-                        , layerId = layer.id
-                        }
-                        prom1
-                        |> andRacePromise
-                            (monitorChange
-                                { get = param.get
-                                , set = param.set
-                                , layerId = layer.id
-                                }
-                            )
+                    MemoryUnreachable ->
+                        succeedPromise <| LayerExist MemoryUnreachable
 
+                    LayerExist state ->
+                        case param.getBody state of
+                            Nothing ->
+                                succeedPromise <| LayerExist LayerUnreachable
 
-monitorChange :
-    { get : m -> Maybe (Layer m1)
-    , set : Layer m1 -> m -> m
-    , layerId : ThisLayerId m1
-    }
-    -> Promise m (LayerResult a)
-monitorChange param =
-    Promise <|
-        \context ->
-            let
-                state : Msg -> m -> Promise m (LayerResult a)
-                state msg _ =
-                    case msg of
-                        ViewMsg r ->
-                            if wrapThisLayerId r.layerId == param.layerId && r.type_ == "change" then
-                                Promise <|
-                                    \context_ ->
-                                        let
-                                            layer_ =
-                                                context_.layer
-                                        in
-                                        case param.get layer_.state of
-                                            Nothing ->
-                                                { newContext = context_
-                                                , realCmds = []
-                                                , logs = []
-                                                , state = Resolved LayerExpired
-                                                }
+                            Just (Layer layer) ->
+                                onLayer_
+                                    (unwrapThisLayerId layer.id)
+                                    { getLink = param.getLink
+                                    , setLink = param.setLink
+                                    , getBody =
+                                        \m ->
+                                            Maybe.andThen
+                                                (\(Layer layer_) ->
+                                                    if layer_.id == layer.id then
+                                                        Just (Layer layer_)
 
-                                            Just (Layer l1) ->
-                                                if l1.id /= param.layerId then
-                                                    { newContext = context_
-                                                    , realCmds = []
-                                                    , logs = []
-                                                    , state = Resolved LayerExpired
-                                                    }
-
-                                                else
-                                                    { newContext =
-                                                        { context_
-                                                            | layer =
-                                                                { layer_
-                                                                    | state =
-                                                                        param.set
-                                                                            ({ l1
-                                                                                | values =
-                                                                                    unwrapThisLayerValues l1.values
-                                                                                        |> (case JD.decodeValue Html.Events.targetValue r.value of
-                                                                                                Err _ ->
-                                                                                                    identity
-
-                                                                                                Ok value ->
-                                                                                                    Dict.insert r.key value
-                                                                                           )
-                                                                                        |> ThisLayerValues
-                                                                                , checks =
-                                                                                    unwrapThisLayerChecks l1.checks
-                                                                                        |> (case JD.decodeValue checkPropertyDecoder r.value of
-                                                                                                Err _ ->
-                                                                                                    identity
-
-                                                                                                Ok checks ->
-                                                                                                    Dict.insert r.key checks
-                                                                                           )
-                                                                                        |> ThisLayerChecks
-                                                                             }
-                                                                                |> Layer
-                                                                            )
-                                                                            layer_.state
-                                                                }
-                                                        }
-                                                    , realCmds = []
-                                                    , logs = []
-                                                    , state = AwaitMsg state
-                                                    }
-
-                            else
-                                justAwaitPromise state
-
-                        _ ->
-                            justAwaitPromise state
-            in
-            { newContext = context
-            , realCmds = []
-            , logs = []
-            , state = AwaitMsg state
-            }
+                                                    else
+                                                        Nothing
+                                                )
+                                                (param.getBody m)
+                                    , setBody = param.setBody
+                                    }
+                                    prom1
+            )
 
 
-bindAndThenPromise : Promise m a -> (a -> Promise m b) -> Promise m b
-bindAndThenPromise prom f =
-    andThenPromise f prom
-
-
+{-| Make sure to check LayerId in `getBody`.
+-}
 onLayer_ :
-    { get : m -> Maybe (Layer m1)
-    , set : Layer m1 -> m -> m
-    , layerId : ThisLayerId m1
-    }
-    -> Promise m1 a
-    -> Promise m (LayerResult a)
-onLayer_ o (Promise prom1) =
+    LayerId
+    ->
+        { getLink : m -> Maybe link
+        , setLink : link -> m -> m
+        , getBody : m -> Maybe (Layer body)
+        , setBody : Layer body -> m -> m
+        }
+    -> Promise (LayerMemory link body) a
+    -> Promise m (LayerState a)
+onLayer_ lid param (Promise prom1) =
     -- IGNORE TCO
-    let
-        thisLayerId =
-            unwrapThisLayerId o.layerId
-
-        awaitMsg : (Msg -> m1 -> Promise m1 a) -> Msg -> m -> Promise m (LayerResult a)
-        awaitMsg nextProm msg m =
-            case o.get m of
-                Nothing ->
-                    Promise layerExpired
-
-                Just (Layer nextL1) ->
-                    if nextL1.id /= o.layerId then
-                        Promise layerExpired
-
-                    else
-                        onLayer_ o (nextProm msg nextL1.state)
-
-        -- Release resources here.
-        layerExpired : Context m -> PromiseEffect m (LayerResult a)
-        layerExpired ctx =
-            { newContext =
-                { ctx
-                    | ports =
-                        List.filter
-                            (\p -> p.layer /= thisLayerId)
-                            ctx.ports
-                }
-            , realCmds =
-                List.filter
-                    (\p -> p.layer == thisLayerId)
-                    ctx.ports
-                    |> List.map
-                        (\p ->
-                            p.release <|
-                                JE.object
-                                    [ ( "id", JE.string <| stringifyRequestId p.request )
-                                    ]
-                        )
-            , logs =
-                [ LayerHasExpired thisLayerId
-                ]
-            , state = Resolved LayerExpired
-            }
-    in
     Promise <|
         \context ->
-            let
-                withTargetLayer action =
-                    case o.get context.layer.state of
-                        Nothing ->
-                            layerExpired context
-
-                        Just (Layer layer1) ->
-                            if layer1.id /= o.layerId then
-                                layerExpired context
-
-                            else
-                                action layer1
-            in
-            withTargetLayer <|
-                \layer1 ->
+            case param.getBody context.layer.state of
+                -- Layer has expired.
+                -- Run Promise for link on parent Layer.
+                Nothing ->
                     let
-                        eff1 =
-                            prom1
-                                { layer = layer1
-                                , nextRequestId = context.nextRequestId
-                                , nextLayerId = context.nextLayerId
-                                , nextIntervalId = context.nextIntervalId
-                                , subs = []
-                                , ports = context.ports
+                        context1 : Context (LayerMemory link body)
+                        context1 =
+                            { layer =
+                                { id = coerceThisLayerId context.layer.id
+                                , state =
+                                    { link = param.getLink context.layer.state
+                                    , body = Nothing
+                                    }
+                                , events = ThisLayerEvents Dict.empty
+                                , values = ThisLayerValues Dict.empty
+                                , checks = ThisLayerChecks Dict.empty
                                 }
+                            , nextRequestId =
+                                context.nextRequestId
+                            , nextLayerId =
+                                context.nextLayerId
+                            , nextIntervalId = context.nextIntervalId
+                            , subs = []
+                            , ports =
+                                List.filter
+                                    (\p ->
+                                        p.layer /= lid
+                                    )
+                                    context.ports
+                            }
+
+                        eff1 : PromiseEffect (LayerMemory link body) a
+                        eff1 =
+                            prom1 context1
                     in
                     { newContext =
                         { layer =
-                            { state = o.set (Layer eff1.newContext.layer) context.layer.state
-                            , id = context.layer.id
+                            { id = context.layer.id
+                            , state =
+                                case eff1.newContext.layer.state.link of
+                                    Nothing ->
+                                        context.layer.state
+
+                                    Just link ->
+                                        param.setLink link context.layer.state
                             , events = context.layer.events
                             , values = context.layer.values
                             , checks = context.layer.checks
@@ -985,30 +959,227 @@ onLayer_ o (Promise prom1) =
                             context.subs
                                 ++ List.map
                                     (\f m ->
-                                        o.get m
-                                            |> Maybe.andThen
-                                                (\(Layer l1) ->
-                                                    if l1.id /= o.layerId then
-                                                        Nothing
-
-                                                    else
-                                                        Just l1.state
-                                                )
-                                            |> Maybe.andThen f
+                                        f { link = param.getLink m, body = Nothing }
                                     )
                                     eff1.newContext.subs
-                        , ports = eff1.newContext.ports
+                        , ports =
+                            eff1.newContext.ports
+                        }
+                    , realCmds =
+                        List.filterMap
+                            (\p ->
+                                if p.layer == lid then
+                                    Just <|
+                                        p.release <|
+                                            JE.object
+                                                [ ( "id", JE.string <| stringifyRequestId p.request )
+                                                ]
+
+                                else
+                                    Nothing
+                            )
+                            context.ports
+                            ++ eff1.realCmds
+                    , logs = eff1.logs ++ [ LayerHasExpired lid ]
+                    , state =
+                        case eff1.state of
+                            Resolved (LayerExist _) ->
+                                Resolved <| LayerExist LayerUnreachable
+
+                            Resolved LayerUnreachable ->
+                                Resolved <| LayerExist LayerUnreachable
+
+                            Resolved MemoryUnreachable ->
+                                Resolved <| LayerExist MemoryUnreachable
+
+                            AwaitMsg nextProm ->
+                                AwaitMsg <|
+                                    \msg m ->
+                                        onLayer_ lid
+                                            param
+                                            (nextProm msg
+                                                { link = param.getLink m
+                                                , body = Nothing
+                                                }
+                                            )
+                    }
+
+                -- Layer exists
+                Just (Layer bodyLayer) ->
+                    let
+                        context1 : Context (LayerMemory link body)
+                        context1 =
+                            { layer =
+                                { id = coerceThisLayerId bodyLayer.id
+                                , state =
+                                    { link = param.getLink context.layer.state
+                                    , body = Just bodyLayer.state
+                                    }
+                                , events =
+                                    unwrapThisLayerEvents bodyLayer.events
+                                        |> ThisLayerEvents
+                                , values =
+                                    unwrapThisLayerValues bodyLayer.values
+                                        |> ThisLayerValues
+                                , checks =
+                                    unwrapThisLayerChecks bodyLayer.checks
+                                        |> ThisLayerChecks
+                                }
+                            , nextRequestId =
+                                context.nextRequestId
+                            , nextLayerId =
+                                context.nextLayerId
+                            , nextIntervalId = context.nextIntervalId
+                            , subs = []
+                            , ports = context.ports
+                            }
+
+                        eff1 : PromiseEffect (LayerMemory link body) a
+                        eff1 =
+                            prom1 context1
+                    in
+                    { newContext =
+                        { layer =
+                            { id = context.layer.id
+                            , state =
+                                (case eff1.newContext.layer.state.link of
+                                    Nothing ->
+                                        context.layer.state
+
+                                    Just link ->
+                                        param.setLink link context.layer.state
+                                )
+                                    |> (case eff1.newContext.layer.state.body of
+                                            Nothing ->
+                                                identity
+
+                                            Just newBody ->
+                                                param.setBody
+                                                    (Layer
+                                                        { id = coerceThisLayerId eff1.newContext.layer.id
+                                                        , state = newBody
+                                                        , events =
+                                                            unwrapThisLayerEvents eff1.newContext.layer.events
+                                                                |> ThisLayerEvents
+                                                        , values =
+                                                            unwrapThisLayerValues eff1.newContext.layer.values
+                                                                |> ThisLayerValues
+                                                        , checks =
+                                                            unwrapThisLayerChecks eff1.newContext.layer.checks
+                                                                |> ThisLayerChecks
+                                                        }
+                                                    )
+                                       )
+                            , events = context.layer.events
+                            , values = context.layer.values
+                            , checks = context.layer.checks
+                            }
+                        , nextRequestId = eff1.newContext.nextRequestId
+                        , nextLayerId = eff1.newContext.nextLayerId
+                        , nextIntervalId = eff1.newContext.nextIntervalId
+                        , subs =
+                            context.subs
+                                ++ List.map
+                                    (\f m ->
+                                        f
+                                            { link = param.getLink m
+                                            , body =
+                                                param.getBody m
+                                                    |> Maybe.map layerStateOf
+                                            }
+                                    )
+                                    eff1.newContext.subs
+                        , ports =
+                            eff1.newContext.ports
                         }
                     , realCmds = eff1.realCmds
                     , logs = eff1.logs
                     , state =
                         case eff1.state of
                             Resolved a ->
-                                Resolved (LayerOk a)
+                                Resolved <| LayerExist a
 
                             AwaitMsg nextProm ->
-                                AwaitMsg <| awaitMsg nextProm
+                                AwaitMsg <|
+                                    \msg m ->
+                                        onLayer_ lid
+                                            param
+                                            (nextProm msg
+                                                { link = param.getLink m
+                                                , body =
+                                                    param.getBody m
+                                                        |> Maybe.map layerStateOf
+                                                }
+                                                |> (case ( param.getBody m, msg ) of
+                                                        ( Just (Layer layer), ViewMsg r ) ->
+                                                            if unwrapThisLayerId layer.id == r.layerId && r.type_ == "change" then
+                                                                monitorChange r
+
+                                                            else
+                                                                identity
+
+                                                        _ ->
+                                                            identity
+                                                   )
+                                            )
                     }
+
+
+monitorChange :
+    { layerId : LayerId
+    , key : String
+    , type_ : String
+    , value : Value
+    , decoder :
+        Decoder
+            { stopPropagation : Bool
+            , preventDefault : Bool
+            }
+    }
+    -> Promise (LayerMemory link body) a
+    -> Promise (LayerMemory link body) a
+monitorChange r (Promise prom) =
+    Promise <|
+        \context ->
+            if unwrapThisLayerId context.layer.id == r.layerId then
+                let
+                    layer =
+                        context.layer
+                in
+                prom
+                    { context
+                        | layer =
+                            { layer
+                                | values =
+                                    unwrapThisLayerValues layer.values
+                                        |> (case JD.decodeValue Html.Events.targetValue r.value of
+                                                Err _ ->
+                                                    identity
+
+                                                Ok value ->
+                                                    Dict.insert r.key value
+                                           )
+                                        |> ThisLayerValues
+                                , checks =
+                                    unwrapThisLayerChecks layer.checks
+                                        |> (case JD.decodeValue checkPropertyDecoder r.value of
+                                                Err _ ->
+                                                    identity
+
+                                                Ok checks ->
+                                                    Dict.insert r.key checks
+                                           )
+                                        |> ThisLayerChecks
+                            }
+                    }
+
+            else
+                prom context
+
+
+layerStateOf : Layer m -> m
+layerStateOf (Layer layer) =
+    layer.state
 
 
 {-| -}
@@ -1033,7 +1204,7 @@ releasePorts released =
                                     ]
                         )
             , logs = []
-            , state = Resolved ()
+            , state = Resolved (LayerExist ())
             }
 
 
@@ -1043,7 +1214,7 @@ maybeLiftPromiseMemory :
     , set : m1 -> m -> m
     }
     -> Promise m1 a
-    -> Promise m (Maybe a)
+    -> Promise m a
 maybeLiftPromiseMemory o (Promise prom1) =
     -- IGNORE TCO
     Promise <|
@@ -1053,7 +1224,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                     { newContext = context
                     , realCmds = []
                     , logs = []
-                    , state = Resolved Nothing
+                    , state = Resolved MemoryUnreachable
                     }
 
                 Just state1 ->
@@ -1112,7 +1283,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                     , state =
                         case eff1.state of
                             Resolved a ->
-                                Resolved <| Just a
+                                Resolved a
 
                             AwaitMsg nextProm ->
                                 AwaitMsg <|
@@ -1122,7 +1293,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                                                 maybeLiftPromiseMemory o (nextProm msg mNext)
 
                                             Nothing ->
-                                                succeedPromise Nothing
+                                                succeedPromise MemoryUnreachable
                     }
 
 
@@ -1211,7 +1382,7 @@ liftPromiseMemory o (Promise prom1) =
 {-| -}
 none : Promise m ()
 none =
-    succeedPromise ()
+    succeedPromise (LayerExist ())
 
 
 {-| -}
@@ -1221,21 +1392,17 @@ sequence =
         (\a acc ->
             acc
                 |> andThenPromise
-                    (\_ ->
-                        a
+                    (\res ->
+                        case res of
+                            MemoryUnreachable ->
+                                succeedPromise <| MemoryUnreachable
+
+                            LayerUnreachable ->
+                                succeedPromise <| LayerUnreachable
+
+                            LayerExist () ->
+                                a
                     )
-        )
-        none
-
-
-{-| -}
-concurrent : List (Promise m ()) -> Promise m ()
-concurrent =
-    List.foldl
-        (\a acc ->
-            succeedPromise (\_ _ -> ())
-                |> syncPromise acc
-                |> syncPromise a
         )
         none
 
@@ -1248,7 +1415,7 @@ currentState =
             { newContext = context
             , realCmds = []
             , logs = []
-            , state = Resolved context.layer.state
+            , state = Resolved <| LayerExist context.layer.state
             }
 
 
@@ -1263,26 +1430,8 @@ currentLayerId =
             , state =
                 context.layer.id
                     |> stringifyThisLayerId
+                    |> LayerExist
                     |> Resolved
-            }
-
-
-{-| -}
-genNewLayerId : Promise m LayerId
-genNewLayerId =
-    Promise <|
-        \context ->
-            let
-                newLayerId =
-                    context.nextLayerId
-
-                newContext =
-                    { context | nextLayerId = incLayerId newLayerId }
-            in
-            { newContext = newContext
-            , realCmds = []
-            , logs = []
-            , state = Resolved newLayerId
             }
 
 
@@ -1295,7 +1444,7 @@ onGoingProcedure f =
                 { newContext = context
                 , realCmds = []
                 , logs = []
-                , state = Resolved ()
+                , state = Resolved <| LayerExist ()
                 }
 
 
@@ -1343,6 +1492,18 @@ lazy f =
 {-| -}
 type Layer m
     = Layer (Layer_ m)
+
+
+{-| -}
+layerIdOf : Layer m -> LayerId
+layerIdOf (Layer layer) =
+    unwrapThisLayerId layer.id
+
+
+{-| -}
+layerIdStringOf : Layer m -> String
+layerIdStringOf (Layer layer) =
+    stringifyThisLayerId layer.id
 
 
 {-| -}
@@ -1435,17 +1596,29 @@ maybeMapLayer f (Layer layer) =
 {-| -}
 newLayer : m1 -> Promise m (Layer m1)
 newLayer m1 =
-    genNewLayerId
-        |> mapPromise
-            (\layerId ->
-                Layer
-                    { id = wrapThisLayerId layerId
-                    , state = m1
-                    , events = ThisLayerEvents Dict.empty
-                    , values = ThisLayerValues Dict.empty
-                    , checks = ThisLayerChecks Dict.empty
-                    }
-            )
+    Promise <|
+        \context ->
+            let
+                newLayerId =
+                    context.nextLayerId
+
+                newContext =
+                    { context | nextLayerId = incLayerId newLayerId }
+            in
+            { newContext = newContext
+            , realCmds = []
+            , logs = []
+            , state =
+                Resolved <|
+                    LayerExist <|
+                        Layer
+                            { id = wrapThisLayerId newLayerId
+                            , state = m1
+                            , events = ThisLayerEvents Dict.empty
+                            , values = ThisLayerValues Dict.empty
+                            , checks = ThisLayerChecks Dict.empty
+                            }
+            }
 
 
 {-| -}
@@ -1669,7 +1842,7 @@ portStream o =
                 ]
             , logs = []
             , state =
-                Resolved <| activeStream ()
+                Resolved <| LayerExist <| activeStream ()
             }
 
 
@@ -1683,11 +1856,11 @@ listenMsg handler =
             let
                 awaitForever : Msg -> m -> Promise m ()
                 awaitForever msg _ =
-                    concurrent
-                        [ justAwaitPromise awaitForever
-                        , handler msg
-                            |> sequence
-                        ]
+                    justAwaitPromise awaitForever
+                        |> andMonitor
+                            (handler msg
+                                |> sequence
+                            )
             in
             { newContext = context
             , realCmds = []
@@ -1713,7 +1886,7 @@ sleep msec =
                     case msg of
                         WakeUpMsg wakeUpMsg ->
                             if wakeUpMsg.requestId == myRequestId then
-                                succeedPromise ()
+                                succeedPromise <| LayerExist ()
 
                             else
                                 justAwaitPromise nextPromise
@@ -1749,7 +1922,7 @@ load url =
             , logs =
                 [ LoadUrl
                 ]
-            , state = Resolved ()
+            , state = Resolved <| LayerExist ()
             }
 
 
@@ -1769,7 +1942,7 @@ reload force =
             , logs =
                 [ Reload
                 ]
-            , state = Resolved ()
+            , state = Resolved <| LayerExist ()
             }
 
 
@@ -1813,11 +1986,11 @@ listenTimeEvery interval handler =
                     case msg of
                         IntervalMsg param ->
                             if param.requestId == myRequestId then
-                                concurrent
-                                    [ justAwaitPromise awaitForever
-                                    , handler param.timestamp
-                                        |> sequence
-                                    ]
+                                justAwaitPromise awaitForever
+                                    |> andMonitor
+                                        (handler param.timestamp
+                                            |> sequence
+                                        )
 
                             else
                                 justAwaitPromise awaitForever
@@ -1913,7 +2086,7 @@ tick interval =
                 [ StartTimeEvery myRequestId thisLayerId interval
                 ]
             , state =
-                Resolved <| nextStream ()
+                Resolved <| LayerExist <| nextStream ()
             }
 
 
@@ -1970,7 +2143,7 @@ httpRequest request =
                     case msg of
                         HttpResponseMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise param.response
+                                succeedPromise (LayerExist param.response)
                                     |> setLogs
                                         [ ResolveHttpRequest myRequestId
                                         ]
@@ -2033,7 +2206,7 @@ httpBytesRequest request =
                     case msg of
                         HttpBytesResponseMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise param.response
+                                succeedPromise (LayerExist param.response)
                                     |> setLogs
                                         [ ResolveHttpRequest myRequestId
                                         ]
@@ -2129,7 +2302,7 @@ portRequest o =
                     case msg of
                         PortResponseMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise param.response
+                                succeedPromise (LayerExist param.response)
 
                             else
                                 justAwaitPromise nextPromise
@@ -2192,7 +2365,7 @@ now =
                     case msg of
                         CurrentTimeMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise param.timestamp
+                                succeedPromise (LayerExist param.timestamp)
 
                             else
                                 justAwaitPromise nextPromise
@@ -2235,7 +2408,7 @@ here =
                     case msg of
                         CurrentZoneMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise param.zone
+                                succeedPromise (LayerExist param.zone)
 
                             else
                                 justAwaitPromise nextPromise
@@ -2275,6 +2448,7 @@ getValue key =
             , state =
                 unwrapThisLayerValues context.layer.values
                     |> Dict.get key
+                    |> LayerExist
                     |> Resolved
             }
 
@@ -2290,6 +2464,7 @@ getCheck key =
             , state =
                 unwrapThisLayerChecks context.layer.checks
                     |> Dict.get key
+                    |> LayerExist
                     |> Resolved
             }
 
@@ -2304,6 +2479,7 @@ getValues =
             , logs = []
             , state =
                 unwrapThisLayerValues context.layer.values
+                    |> LayerExist
                     |> Resolved
             }
 
@@ -2318,6 +2494,7 @@ getChecks =
             , logs = []
             , state =
                 unwrapThisLayerChecks context.layer.checks
+                    |> LayerExist
                     |> Resolved
             }
 
@@ -2343,7 +2520,7 @@ setValue key val =
                 }
             , realCmds = []
             , logs = []
-            , state = Resolved ()
+            , state = Resolved <| LayerExist ()
             }
 
 
@@ -2368,7 +2545,7 @@ setCheck key val =
                 }
             , realCmds = []
             , logs = []
-            , state = Resolved ()
+            , state = Resolved <| LayerExist ()
             }
 
 
@@ -2404,7 +2581,7 @@ customRequest newPromise_ realCmd log =
                 nextPromise msg m =
                     case newPromise_ myRequestId msg m of
                         Just ( a, logs ) ->
-                            succeedPromise a
+                            succeedPromise (LayerExist a)
                                 |> setLogs logs
 
                         Nothing ->
@@ -2454,7 +2631,7 @@ awaitCustomViewEvent param =
                                         justAwaitPromise state
 
                                     Ok { value } ->
-                                        succeedPromise value
+                                        succeedPromise (LayerExist value)
 
                             else
                                 justAwaitPromise state
@@ -2568,7 +2745,7 @@ customViewEventStream param =
                 }
             , realCmds = []
             , logs = []
-            , state = Resolved <| nextStream ()
+            , state = Resolved <| LayerExist <| nextStream ()
             }
 
 
@@ -2589,7 +2766,7 @@ initContext : m -> Context m
 initContext memory =
     { layer =
         { state = memory
-        , id = ThisLayerId SequenceId.init
+        , id = wrapThisLayerId initLayerId
         , events = ThisLayerEvents Dict.empty
         , values = ThisLayerValues Dict.empty
         , checks = ThisLayerChecks Dict.empty

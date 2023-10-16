@@ -21,17 +21,20 @@ module Tepa exposing
     , PortRequest, PortResponse
     , portStream
     , map
-    , liftMemory
+    , liftMemory, maybeLiftMemory
     , andThen, bindAndThen, bindAndThen2, bindAndThen3, bindAndThenAll
     , NavKey
     , UrlRequest(..)
     , Layer
-    , newLayer
-    , onLayer, onEachLayer, LayerResult(..)
-    , isOnSameLayer
-    , currentLayerId
-    , layerState
+    , layerStateOf, layerIdOf
     , mapLayer
+    , newLayer
+    , currentLayerId
+    , LayerMemory
+    , onLink, onBody
+    , linkSequence, bodySequence
+    , modifyLink, modifyBody
+    , onLayer, onEachLayer, ResultOnLayer(..)
     , Html
     , Mixin
     , layerView
@@ -44,7 +47,6 @@ module Tepa exposing
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
     , assertionError
-    , LinkedMemory, onLinkedLayer, onEachLinkedLayer, modifyLink, modifyBody
     , headless
     , init
     , view
@@ -327,7 +329,7 @@ See [Tepa.Stream](./Tepa-Stream) for details.
 #### Lower level functions
 
 @docs map
-@docs liftMemory
+@docs liftMemory, maybeLiftMemory
 @docs andThen, bindAndThen, bindAndThen2, bindAndThen3, bindAndThenAll
 
 
@@ -407,16 +409,23 @@ In [sample application](https://github.com/arowM/tepa-sample), the `onUrlChange`
 
 ## Layer
 
+
+### Motivation
+
 The _Layer_ is the concept of an isolated space. You can create a new layer with the `newLayer` function, execute a procedure on a layer with the `onLayer` function, delete or overwrite the existing layer with `modify`.
 
 A main use of the layer is to manage page transition. See that you have the following `Page` type to represent your page state.
 
+    import MyApp.Profile exposing (Profile)
     import Page.Home
     import Page.Users
     import Tepa exposing (Layer)
 
     type alias Memory =
         { page : Page
+        , session :
+            { mprofile : Maybe Profile
+            }
         }
 
     type Page
@@ -445,18 +454,91 @@ The reason for this unexpected behavior is that the process cannot determine tha
 
     type Page
         = PageNotFound
-        | PageHome (Layer Page.Home.Memory)
-        | PageUsers (Layer Page.Users.Memory)
+        | PageHome (Layer Page.Home.MemoryBody)
+        | PageUsers (Layer Page.Users.MemoryBody)
 
 The new `Page` definition above uses `Layer` to wrap each page memory state. A procedure executed on a Layer will be aborted when the Layer has expired by being overwritten by another Layer. This allows you to avoid running duplicate procedures.
 
 @docs Layer
-@docs newLayer
-@docs onLayer, onEachLayer, LayerResult
-@docs isOnSameLayer
-@docs currentLayerId
-@docs layerState
+@docs layerStateOf, layerIdOf
 @docs mapLayer
+@docs newLayer
+@docs currentLayerId
+
+
+### Layer Memory
+
+On each Layer you define Memory with `LayerMemory`.
+
+@docs LayerMemory
+
+The `LayerMemory` has two parameters:
+
+  - `link`: External Memory state which this Layer depends on.
+  - `body`: The Memory body for the Layer.
+
+For example, you can declare `Memory` for the home page as follows:
+
+    module Page.Home exposing
+        ( Memory
+        , MemoryBody
+        )
+
+    import MyApp.Profile exposing (Profile)
+    import Tepa exposing (LayerMemory, Promise)
+
+    {-| Memory structure for home page.
+    -}
+    type alias Memory =
+        LayerMemory
+            { profile : Profile
+            }
+            MemoryBody
+
+    {-| Memory body
+    -}
+    type alias MemoryBody =
+        { clicked : Bool
+        }
+
+Now you can declare your Procedures.
+
+    init : Promise m MemoryBody
+    init =
+        Tepa.succeed
+            { clicked = False
+            }
+
+    onLoad : Promise Memory ()
+    onLoad =
+        Tepa.bind
+            (Tepa.awaitViewEvent
+                { key = "myButton"
+                , type_ = "click"
+                }
+            )
+        <|
+            \() ->
+                [ Tepa.bodySequence
+                    [ Tepa.modify <| \m -> { m | clicked = True }
+                    ]
+                , Tepa.linkSequence
+                    [ Tepa.modify <|
+                        \({ profile } as m) ->
+                            { m
+                                | profile =
+                                    { profile | hasClickedHomeButton = True }
+                            }
+                    ]
+                ]
+
+@docs onLink, onBody
+@docs linkSequence, bodySequence
+@docs modifyLink, modifyBody
+
+To call Procedures on `LayerMemory`, you can use `onLayer`.
+
+@docs onLayer, onEachLayer, ResultOnLayer
 
 
 ## View
@@ -605,14 +687,6 @@ You may have a situation where you do not want a Promise to result in a certain 
 Assertion has no effect while the TEPA code is running as an application, but if the same code is used for scenario testing, the test will fail when an Assertion Error occurs.
 
 
-# Linked Memory Pattern
-
-You may want to access another part of Memory from within a Layer. The _Linked Memory pattern_ is a common pattern to handle such situation.
-See [sample application](https://github.com/arowM/tepa-sample) for the real usage.
-
-@docs LinkedMemory, onLinkedLayer, onEachLinkedLayer, modifyLink, modifyBody
-
-
 # Scenario
 
 To create user scenarios and generate tests for them, see the [`Tepa.Scenario`](./Tepa-Scenario) module.
@@ -673,14 +747,25 @@ This is usefull for building Promise for concurrent operations with `sync`.
 -}
 succeed : a -> Promise memory a
 succeed =
-    Core.succeedPromise
+    Core.LayerExist >> Core.succeedPromise
 
 
 {-| Transform a resulting value produced by a Promise.
 -}
 map : (a -> b) -> Promise m a -> Promise m b
-map =
+map f =
     Core.mapPromise
+        (\state ->
+            case state of
+                Core.LayerExist a ->
+                    Core.LayerExist <| f a
+
+                Core.LayerUnreachable ->
+                    Core.LayerUnreachable
+
+                Core.MemoryUnreachable ->
+                    Core.MemoryUnreachable
+        )
 
 
 {-| Transform the Promise Memory.
@@ -695,115 +780,29 @@ liftMemory =
     Core.liftPromiseMemory
 
 
-{-| Run Promise on the specified Layer.
-
-It determines the Layer to execute a given Promise with the parameter `get` based on the current memory state.
-
-For example, consider the following situation:
-
-    Tepa.bind
-        (PageLogin.init msession
-            |> Tepa.andThen Tepa.newLayer
-        )
-    <|
-        \newLayer ->
-            [ Tepa.modify <| \m -> { m | page = PageLogin newLayer }
-            , PageLogin.procedure key url
-                |> Tepa.onLayer
-                    { get =
-                        \m ->
-                            case m.page of
-                                PageLogin layer ->
-                                    Just layer
-
-                                _ ->
-                                    Nothing
-                    , set =
-                        \layer m ->
-                            { m | page = PageLogin layer }
-                    }
-            ]
-
-Here, `modify` is called just before `onLayer`, and the `bind` guarantees that the `onLayer` request is generated based on the result of `modify`, even if there is another Promise to be executed in concurrently.
-
-If the target layer disappears during the execution of a given Promise, the rest of the process is aborted, and if the result of the `get` parameter is `Nothing` at the time `onLayer` is called, the process is also aborted there.
-
+{-| Similar to `liftMemory`, but for the memory which may not exist.
+When the memory part is unreachable during execution, it resolved to `Nothing`.
 -}
-onLayer :
-    { get : m -> Maybe (Layer m1)
-    , set : Layer m1 -> m -> m
+maybeLiftMemory :
+    { get : m0 -> Maybe m1
+    , set : m1 -> m0 -> m0
     }
     -> Promise m1 a
-    -> Promise m (LayerResult a)
-onLayer o prom1 =
-    Core.onLayer o prom1
-        |> map fromCoreLayerResult
+    -> Promise m0 (Maybe a)
+maybeLiftMemory param p =
+    Core.maybeLiftPromiseMemory param p
+        |> Core.mapPromise
+            (\state ->
+                case state of
+                    Core.LayerExist a ->
+                        Core.LayerExist <| Just a
 
+                    Core.MemoryUnreachable ->
+                        Core.LayerExist Nothing
 
-{-| Helper function to run Promise on the specified Layers concurrently.
--}
-onEachLayer :
-    { get : m -> List (Layer m1)
-    , set : List (Layer m1) -> m -> m
-    }
-    -> Promise m1 a
-    -> Promise m (List (LayerResult a))
-onEachLayer param action =
-    bindAndThen
-        (currentState
-            |> map param.get
-        )
-    <|
-        \layers ->
-            bindAndThenAll
-                (List.map
-                    (\layer ->
-                        onLayer
-                            { get =
-                                \m ->
-                                    param.get m
-                                        |> List.filter (\a -> isOnSameLayer a layer)
-                                        |> List.head
-                            , set =
-                                \new m ->
-                                    param.set
-                                        (param.get m
-                                            |> List.map
-                                                (\a ->
-                                                    if isOnSameLayer a layer then
-                                                        new
-
-                                                    else
-                                                        a
-                                                )
-                                        )
-                                        m
-                            }
-                            action
-                    )
-                    layers
-                )
-                succeed
-
-
-fromCoreLayerResult : Core.LayerResult a -> LayerResult a
-fromCoreLayerResult res =
-    case res of
-        Core.LayerOk a ->
-            LayerOk a
-
-        Core.LayerNotExists ->
-            LayerNotExists
-
-        Core.LayerExpired ->
-            LayerExpired
-
-
-{-| -}
-type LayerResult a
-    = LayerOk a
-    | LayerNotExists
-    | LayerExpired
+                    Core.LayerUnreachable ->
+                        Core.LayerUnreachable
+            )
 
 
 {-| _Layer_ is a concept that deals with a part of the application. It can successfully represent elements that are created or removed during the application runtime. Especially, it matches well with Pages in SPAs. The application itself is also a Layer.
@@ -819,8 +818,19 @@ type alias Layer m =
 {-| Build a new Promise that evaluate two Promises sequentially.
 -}
 andThen : (a -> Promise m b) -> Promise m a -> Promise m b
-andThen =
+andThen f =
     Core.andThenPromise
+        (\state ->
+            case state of
+                Core.LayerExist a ->
+                    f a
+
+                Core.LayerUnreachable ->
+                    Core.succeedPromise Core.LayerUnreachable
+
+                Core.MemoryUnreachable ->
+                    Core.succeedPromise Core.MemoryUnreachable
+        )
 
 
 {-| Flipped version of `andThen`.
@@ -1043,8 +1053,23 @@ none =
 {-| Run Procedures concurrently, and await all to be completed.
 -}
 syncAll : List (Promise m ()) -> Promise m ()
-syncAll =
-    Core.concurrent
+syncAll proms =
+    (case proms of
+        [] ->
+            Core.succeedPromise <| Core.LayerExist ()
+
+        p0 :: ps ->
+            List.foldl
+                (\p acc ->
+                    succeed
+                        (\_ _ -> ())
+                        |> Core.syncPromise p
+                        |> Core.syncPromise acc
+                )
+                p0
+                ps
+    )
+        |> Core.mapPromise (\_ -> Core.LayerExist ())
 
 
 {-| Construct a Promise that modifies the Memory state.
@@ -1462,15 +1487,15 @@ newLayer =
     Core.newLayer
 
 
-{-| Check if the both are on the same layer.
+{-| Takes the unique ID for the Layer.
 One of the use cases is to find the target element from the list of layers.
 
 See [`Widget.Toast`](https://github.com/arowM/tepa-sample/blob/main/src/Widget/Toast.elm) in the sample application for detail.
 
 -}
-isOnSameLayer : Layer m -> Layer m -> Bool
-isOnSameLayer (Core.Layer layer1) (Core.Layer layer2) =
-    layer1.id == layer2.id
+layerIdOf : Layer m -> String
+layerIdOf =
+    Core.layerIdStringOf
 
 
 {-| Request unique string for current Layer.
@@ -1483,8 +1508,8 @@ currentLayerId =
 
 {-| Takes the current Memory state of a Layer.
 -}
-layerState : Layer m1 -> m1
-layerState (Core.Layer layer) =
+layerStateOf : Layer m1 -> m1
+layerStateOf (Core.Layer layer) =
     layer.state
 
 
@@ -1552,6 +1577,220 @@ mapViewContext f context =
     }
 
 
+{-| Memory structure for accessing external Memory space from within Layer.
+-}
+type LayerMemory link body
+    = LayerMemory
+        { link : Maybe link
+        , body : Maybe body
+        }
+
+
+{-| Represents result for `onLayer`.
+
+  - `SucceedOnLayer`: The Promise has been successfully resolved.
+  - `BodyExpired`: The layer has been expired during execution.
+  - `LinkExpired`: The link which the layer depends on has been expired during execution.
+
+-}
+type ResultOnLayer a
+    = SucceedOnLayer a
+    | BodyExpired
+    | LinkExpired
+
+
+{-| Run Promise on the specified Layer.
+
+It determines the Layer to execute a given Promise with the parameter `get` based on the current memory state.
+
+For example, consider the following situation:
+
+    Tepa.bind
+        (PageLogin.init msession
+            |> Tepa.andThen Tepa.newLayer
+        )
+    <|
+        \newLayer ->
+            [ Tepa.modify <| \m -> { m | page = PageLogin newLayer }
+            , PageLogin.procedure key url
+                |> Tepa.onLayer
+                    { getLink =
+                        \m ->
+                            Maybe.map
+                                (\profile ->
+                                    { profile = profile
+                                    }
+                                )
+                                m.session.mprofile
+                    , setLink =
+                        \link ({ session } as m) ->
+                            { m
+                                | session =
+                                    { session
+                                        | mprofile = Just link.profile
+                                    }
+                            }
+                    , getBody =
+                        \m ->
+                            case m.page of
+                                PageLogin layer ->
+                                    Just layer
+
+                                _ ->
+                                    Nothing
+                    , setBody =
+                        \layer m ->
+                            { m | page = PageLogin layer }
+                    }
+            ]
+
+Here, `modify` is called just before `onLayer`, and the `bind` guarantees that the `onLayer` request is generated based on the result of `modify`, even if there is another Promise to be executed in concurrently.
+
+If the target layer disappears during the execution of a given Promise, the rest of the process is aborted, and returns `Nothing`.
+
+-}
+onLayer :
+    { getLink : memory -> Maybe link
+    , setLink : link -> memory -> memory
+    , getBody : memory -> Maybe (Layer body)
+    , setBody : Layer body -> memory -> memory
+    }
+    -> Promise (LayerMemory link body) a
+    -> Promise memory (ResultOnLayer a)
+onLayer param proc =
+    Core.onLayer param
+        (Core.liftPromiseMemory
+            { get = LayerMemory
+            , set = \(LayerMemory a) _ -> a
+            }
+            proc
+        )
+        |> map
+            (\state ->
+                case state of
+                    Core.LayerExist a ->
+                        SucceedOnLayer a
+
+                    Core.MemoryUnreachable ->
+                        LinkExpired
+
+                    Core.LayerUnreachable ->
+                        BodyExpired
+            )
+
+
+{-| Helper function to run Promises on the specified Layers concurrently.
+-}
+onEachLayer :
+    { getLink : memory -> Maybe link
+    , setLink : link -> memory -> memory
+    , getBodies : memory -> List (Layer body)
+    , setBodies : List (Layer body) -> memory -> memory
+    }
+    -> Promise (LayerMemory link body) a
+    -> Promise memory (List (ResultOnLayer a))
+onEachLayer param action =
+    bindAndThen
+        (currentState
+            |> map param.getBodies
+        )
+    <|
+        \layers ->
+            bindAndThenAll
+                (List.map
+                    (\layer ->
+                        onLayer
+                            { getLink = param.getLink
+                            , setLink = param.setLink
+                            , getBody =
+                                \m0 ->
+                                    param.getBodies m0
+                                        |> List.filter (\a -> Core.layerIdOf a == Core.layerIdOf layer)
+                                        |> List.head
+                            , setBody =
+                                \l1 m0 ->
+                                    param.setBodies
+                                        (List.map
+                                            (\bodyLayer ->
+                                                if layerStateOf bodyLayer == layerStateOf l1 then
+                                                    l1
+
+                                                else
+                                                    bodyLayer
+                                            )
+                                            (param.getBodies m0)
+                                        )
+                                        m0
+                            }
+                            action
+                    )
+                    layers
+                )
+                succeed
+
+
+{-| Run Procedures for link part of `LayerMemory`
+-}
+onLink :
+    Promise link a
+    -> Promise (LayerMemory link body) a
+onLink =
+    Core.maybeLiftPromiseMemory
+        { get = \(LayerMemory m) -> m.link
+        , set =
+            \link (LayerMemory m) ->
+                LayerMemory <|
+                    { m | link = Just link }
+        }
+
+
+{-| Run Procedures for body part of `LayerMemory`
+-}
+onBody :
+    Promise body a
+    -> Promise (LayerMemory link body) a
+onBody =
+    Core.maybeLiftPromiseMemory
+        { get =
+            \(LayerMemory m) ->
+                m.body
+        , set =
+            \body (LayerMemory m) ->
+                LayerMemory <|
+                    { m | body = Just body }
+        }
+
+
+{-| Helper function to run Procedures for link part sequentially.
+-}
+linkSequence : List (Promise link ()) -> Promise (LayerMemory link body) ()
+linkSequence ps =
+    sequence ps
+        |> onLink
+
+
+{-| Helper function to run Procedures for body part sequentially.
+-}
+bodySequence : List (Promise body ()) -> Promise (LayerMemory link body) ()
+bodySequence ps =
+    sequence ps
+        |> onBody
+
+
+{-| Helper function to modify link part.
+-}
+modifyLink : (link -> link) -> Promise (LayerMemory link body) ()
+modifyLink =
+    onLink << modify
+
+
+{-| Helper function to modify link part.
+-}
+modifyBody : (body -> body) -> Promise (LayerMemory link body) ()
+modifyBody =
+    onBody << modify
+
+
 
 -- Assertion
 
@@ -1563,15 +1802,17 @@ mapViewContext f context =
     sampleProcedure =
         Tepa.bind
             (Tepa.onLayer
-                { get = getMyLayer
-                , set = setMyLayer
+                { getLink = getMyLink
+                , setLink = setMyLink
+                , getBody = getMyBody
+                , setBody = setMyBody
                 }
                 promiseOnLayer
             )
         <|
-            \layerResult ->
-                case layerResult of
-                    Tepa.LayerOk a ->
+            \result ->
+                case result of
+                    Tepa.SucceedOnLayer a ->
                         [ procedureOnSuccess
                         ]
 
@@ -1585,144 +1826,6 @@ mapViewContext f context =
 assertionError : String -> Promise memory ()
 assertionError =
     Core.assertionError
-
-
-
--- Linked Memory Pattern
-
-
-{-| Memory structure for accessing external Memory space from within Layer.
--}
-type alias LinkedMemory link body =
-    { link : link
-    , body : body
-    }
-
-
-{-| Helper function to run Promise on the specified Layer which the Memory is linked to external space.
--}
-onLinkedLayer :
-    { getLink : memory -> Maybe link
-    , setLink : link -> memory -> memory
-    , getBody : memory -> Maybe (Layer body)
-    , setBody : Layer body -> memory -> memory
-    }
-    -> Promise (LinkedMemory link body) a
-    -> Promise memory (LayerResult a)
-onLinkedLayer param =
-    onLayer (linkedLayer param)
-
-
-linkedLayer :
-    { getLink : m -> Maybe link
-    , setLink : link -> m -> m
-    , getBody : m -> Maybe (Layer body)
-    , setBody : Layer body -> m -> m
-    }
-    ->
-        { get : m -> Maybe (Layer (LinkedMemory link body))
-        , set : Layer (LinkedMemory link body) -> m -> m
-        }
-linkedLayer { getLink, setLink, getBody, setBody } =
-    { get =
-        \m ->
-            case ( getBody m, getLink m ) of
-                ( Just layerBody, Just link ) ->
-                    Just <|
-                        mapLayer
-                            (\body ->
-                                { link = link, body = body }
-                            )
-                            layerBody
-
-                _ ->
-                    Nothing
-    , set =
-        \layer m ->
-            let
-                state =
-                    layerState layer
-            in
-            setBody (mapLayer .body layer) m
-                |> setLink state.link
-    }
-
-
-{-| Helper function to run Promise on the specified Layer which the Memory is linked to external space.
--}
-onEachLinkedLayer :
-    { getLink : memory -> Maybe link
-    , setLink : link -> memory -> memory
-    , getBodies : memory -> List (Layer body)
-    , setBodies : List (Layer body) -> memory -> memory
-    }
-    -> Promise (LinkedMemory link body) a
-    -> Promise memory (List (LayerResult a))
-onEachLinkedLayer param action =
-    bindAndThen
-        (currentState
-            |> map param.getBodies
-        )
-    <|
-        \layers ->
-            bindAndThenAll
-                (List.map
-                    (\layer ->
-                        onLayer
-                            { get =
-                                \m ->
-                                    Maybe.map2
-                                        (\link layerBody ->
-                                            mapLayer
-                                                (\body ->
-                                                    { link = link, body = body }
-                                                )
-                                                layerBody
-                                        )
-                                        (param.getLink m)
-                                        (param.getBodies m
-                                            |> List.filter (\a -> isOnSameLayer a layer)
-                                            |> List.head
-                                        )
-                            , set =
-                                \newLayer_ m ->
-                                    param.setBodies
-                                        (param.getBodies m
-                                            |> List.map
-                                                (\a ->
-                                                    if isOnSameLayer a layer then
-                                                        mapLayer .body newLayer_
-
-                                                    else
-                                                        a
-                                                )
-                                        )
-                                        m
-                                        |> param.setLink (layerState newLayer_).link
-                            }
-                            action
-                    )
-                    layers
-                )
-                succeed
-
-
-{-| Helper function to modify link part of `LinkedMemory`
--}
-modifyLink : (link -> link) -> Promise (LinkedMemory link body) ()
-modifyLink f =
-    modify <|
-        \m ->
-            { m | link = f m.link }
-
-
-{-| Helper function to modify body part of `LinkedMemory`
--}
-modifyBody : (body -> body) -> Promise (LinkedMemory link body) ()
-modifyBody f =
-    modify <|
-        \m ->
-            { m | body = f m.body }
 
 
 {-| Entry point for building your applications.
