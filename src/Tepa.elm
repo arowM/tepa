@@ -62,35 +62,32 @@ module Tepa exposing
 {-| This module provides core functionality for TEPA.
 
 
-# Overall application structure
+# Overview of the application structure
 
 TEPA application is written in the [Elm language](https://elm-lang.org/), and is converted to JavaScript, so you import it to use in your JavaScript (or TypeScript) file.
 If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file that contains the `main` function built with `application` as follows:
 
-    <!-- index.html -->
+`index.html`:
 
     <html>
       <body>
-        <script src="./index.js"></script>
+        <script type="module" src="./index.js"></script>
       </body>
     </html>
 
-    // index.js
+`index.js`:
 
     // Specify your file that contains `main` function here.
     import { Elm } from "./Main.elm"
 
     Elm.Main.init({
-      // Create a `div` node in body and pass it as the parent node in which to render your TEPA application.
-      node: document.body.appendChild(document.createElement("div")),
       // Pass some JSON value to TEPA upon initialization.
       flags: {
         "loaded-at": Date.now()
       }
     })
 
-    -- Main.elm
-    -- (Details will be explained later.)
+`Main.elm` (Details will be explained later):
 
     import Json.Decode (Value)
     import Tepa exposing (AppUrl, NavKey, Program, Promise)
@@ -194,8 +191,6 @@ Common uses are passing in API keys, environment variables, and user data.
 The sample `index.js` in the `application` document passes `{ "loaded-at": Data.now() }` as flags.
 
     Elm.Main.init({
-      // Create a `div` node in body and pass it as the parent node in which to render your TEPA application.
-      node: document.body.appendChild(document.createElement("div")),
       // Pass some JSON value to TEPA upon initialization.
       flags: {
         "loaded-at": Date.now()
@@ -491,9 +486,15 @@ For example, you can declare `Memory` for the home page as follows:
     -}
     type alias Memory =
         LayerMemory
-            { profile : Profile
-            }
+            MemoryLink
             MemoryBody
+
+    {-| Link to the external memory spaces.
+    The main use is to share the application state between pages.
+    -}
+    type alias MemoryLink =
+        { profile : Profile
+        }
 
     {-| Memory body
     -}
@@ -522,6 +523,8 @@ Now you can declare your Procedures.
                 [ Tepa.bodySequence
                     [ Tepa.modify <| \m -> { m | clicked = True }
                     ]
+
+                -- This operation affects other pages.
                 , Tepa.linkSequence
                     [ Tepa.modify <|
                         \({ profile } as m) ->
@@ -536,7 +539,7 @@ Now you can declare your Procedures.
 @docs linkSequence, bodySequence
 @docs modifyLink, modifyBody
 
-To call Procedures on `LayerMemory`, you can use `onLayer`.
+To call Procedures for `LayerMemory` on the Procedures for the parent Memory, you can use `onLayer`.
 
 @docs onLayer, onEachLayer, ResultOnLayer
 
@@ -1167,7 +1170,6 @@ In JavaScript side:
 
 ```js
 const app = Elm.Main.init({
-  node: document.body.appendChild(document.createElement("div")),
   flags: {
     "loaded-at": Date.now()
 };
@@ -1506,7 +1508,7 @@ currentLayerId =
     Core.currentLayerId
 
 
-{-| Takes the current Memory state of a Layer.
+{-| Takes the current Memory state of the Layer.
 -}
 layerStateOf : Layer m1 -> m1
 layerStateOf (Core.Layer layer) =
@@ -1600,9 +1602,6 @@ type ResultOnLayer a
 
 
 {-| Run Promise on the specified Layer.
-
-It determines the Layer to execute a given Promise with the parameter `get` based on the current memory state.
-
 For example, consider the following situation:
 
     Tepa.bind
@@ -1644,9 +1643,8 @@ For example, consider the following situation:
                     }
             ]
 
-Here, `modify` is called just before `onLayer`, and the `bind` guarantees that the `onLayer` request is generated based on the result of `modify`, even if there is another Promise to be executed in concurrently.
-
-If the target layer disappears during the execution of a given Promise, the rest of the process is aborted, and returns `Nothing`.
+If the target layer disappears during the execution of a given Promise, the rest of the process for the body part is aborted, and returns `BodyExpired`.
+If the link becomes to be unreachable during the execution of a given Promise, the rest of the process for the link part is aborted, and returns `LinkExpired`.
 
 -}
 onLayer :
