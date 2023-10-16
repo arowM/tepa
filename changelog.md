@@ -1,3 +1,17 @@
+# 3.0.0
+
+Better support for the _Linked Memory Pattern_ at the architecture level.
+
+- Remove `layerState`
+  Use `layerStateOf` instead.
+- Remove `isOnSameLayer`
+  Alternatively, compare layer IDs by using `layerIdOf`.
+- Change type for `onLayer` and `onEachLayer`
+  Enforce Linked Memory Pattern to use Layer.
+- Add `LayerMemory`, `onLink`, `onBody`, and following helper functions
+  - `linkSequence`, `bodySequence`
+  - `modifyLink`, `modifyBody`
+
 # 2.0.0
 
 Makes it easier to access the memory shared by each page of the SPA. 🎉
