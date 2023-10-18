@@ -35,6 +35,7 @@ module Tepa exposing
     , linkSequence, bodySequence
     , modifyLink, modifyBody
     , onLayer, onEachLayer, ResultOnLayer(..)
+    , onChildLayer, onEachChildLayer
     , Html
     , Mixin
     , layerView
@@ -542,6 +543,10 @@ Now you can declare your Procedures.
 To call Procedures for `LayerMemory` on the Procedures for the parent Memory, you can use `onLayer`.
 
 @docs onLayer, onEachLayer, ResultOnLayer
+
+To call Procedures for `LayerMemory` on the Procedures for the parent `LayerMemory`, you can use `onChildLayer`.
+
+@docs onChildLayer, onEachChildLayer
 
 
 ## View
@@ -1677,6 +1682,49 @@ onLayer param proc =
             )
 
 
+{-| Similar to `onLayer`, but run on the parent Layer.
+-}
+onChildLayer :
+    { getLink :
+        { link : Maybe link0
+        , body : Maybe body0
+        }
+        -> Maybe link1
+    , setLink :
+        link1
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+    , getBody : body0 -> Maybe (Layer body1)
+    , setBody : Layer body1 -> body0 -> body0
+    }
+    -> Promise (LayerMemory link1 body1) a
+    -> Promise (LayerMemory link0 body0) (ResultOnLayer a)
+onChildLayer param =
+    onLayer
+        { getLink =
+            \(LayerMemory lm) ->
+                param.getLink lm
+        , setLink =
+            \link1 (LayerMemory lm) ->
+                LayerMemory <| param.setLink link1 lm
+        , getBody =
+            \(LayerMemory lm) ->
+                lm.body |> Maybe.andThen param.getBody
+        , setBody =
+            \lb1 (LayerMemory lm) ->
+                LayerMemory
+                    { link = lm.link
+                    , body = Maybe.map (param.setBody lb1) lm.body
+                    }
+        }
+
+
 {-| Helper function to run Promises on the specified Layers concurrently.
 -}
 onEachLayer :
@@ -1725,6 +1773,52 @@ onEachLayer param action =
                     layers
                 )
                 succeed
+
+
+{-| Similar to `onEachLayer`, but run on the parent Layer.
+-}
+onEachChildLayer :
+    { getLink :
+        { link : Maybe link0
+        , body : Maybe body0
+        }
+        -> Maybe link1
+    , setLink :
+        link1
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+    , getBodies : body0 -> List (Layer body1)
+    , setBodies : List (Layer body1) -> body0 -> body0
+    }
+    -> Promise (LayerMemory link1 body1) a
+    -> Promise (LayerMemory link0 body0) (List (ResultOnLayer a))
+onEachChildLayer param =
+    onEachLayer
+        { getLink = \(LayerMemory lm) -> param.getLink lm
+        , setLink =
+            \link1 (LayerMemory lm) ->
+                LayerMemory <| param.setLink link1 lm
+        , getBodies =
+            \(LayerMemory lm) ->
+                case lm.body of
+                    Nothing ->
+                        []
+
+                    Just body0 ->
+                        param.getBodies body0
+        , setBodies =
+            \lb1s (LayerMemory lm) ->
+                LayerMemory
+                    { link = lm.link
+                    , body = Maybe.map (param.setBodies lb1s) lm.body
+                    }
+        }
 
 
 {-| Run Procedures for link part of `LayerMemory`
