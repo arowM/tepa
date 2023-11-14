@@ -682,7 +682,7 @@ Note that the Procedure can only capture events in Views on the same Layer that 
 
 ### Freshness of input values
 
-The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
+The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` or `blur` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
 Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/Element/input/search) or capture the `input` event with `awaitCustomViewEvent` to handle this situation.
 
 
@@ -1700,8 +1700,21 @@ onChildLayer :
             { link : Maybe link0
             , body : Maybe body0
             }
-    , getBody : body0 -> Maybe (Layer body1)
-    , setBody : Layer body1 -> body0 -> body0
+    , getBody :
+        { link : Maybe link0
+        , body : Maybe body0
+        }
+        -> Maybe (Layer body1)
+    , setBody :
+        Layer body1
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
     }
     -> Promise (LayerMemory link1 body1) a
     -> Promise (LayerMemory link0 body0) (ResultOnLayer a)
@@ -1715,13 +1728,10 @@ onChildLayer param =
                 LayerMemory <| param.setLink link1 lm
         , getBody =
             \(LayerMemory lm) ->
-                lm.body |> Maybe.andThen param.getBody
+                param.getBody lm
         , setBody =
             \lb1 (LayerMemory lm) ->
-                LayerMemory
-                    { link = lm.link
-                    , body = Maybe.map (param.setBody lb1) lm.body
-                    }
+                LayerMemory <| param.setBody lb1 lm
         }
 
 
@@ -1758,7 +1768,7 @@ onEachLayer param action =
                                     param.setBodies
                                         (List.map
                                             (\bodyLayer ->
-                                                if layerStateOf bodyLayer == layerStateOf l1 then
+                                                if layerIdOf bodyLayer == layerIdOf l1 then
                                                     l1
 
                                                 else
@@ -1793,8 +1803,21 @@ onEachChildLayer :
             { link : Maybe link0
             , body : Maybe body0
             }
-    , getBodies : body0 -> List (Layer body1)
-    , setBodies : List (Layer body1) -> body0 -> body0
+    , getBodies :
+        { link : Maybe link0
+        , body : Maybe body0
+        }
+        -> Maybe (List (Layer body1))
+    , setBodies :
+        List (Layer body1)
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
+        ->
+            { link : Maybe link0
+            , body : Maybe body0
+            }
     }
     -> Promise (LayerMemory link1 body1) a
     -> Promise (LayerMemory link0 body0) (List (ResultOnLayer a))
@@ -1806,18 +1829,11 @@ onEachChildLayer param =
                 LayerMemory <| param.setLink link1 lm
         , getBodies =
             \(LayerMemory lm) ->
-                case lm.body of
-                    Nothing ->
-                        []
-
-                    Just body0 ->
-                        param.getBodies body0
+                param.getBodies lm
+                    |> Maybe.withDefault []
         , setBodies =
             \lb1s (LayerMemory lm) ->
-                LayerMemory
-                    { link = lm.link
-                    , body = Maybe.map (param.setBodies lb1s) lm.body
-                    }
+                LayerMemory <| param.setBodies lb1s lm
         }
 
 

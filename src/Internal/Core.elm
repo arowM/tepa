@@ -1112,7 +1112,7 @@ onLayer_ lid param (Promise prom1) =
                                                 }
                                                 |> (case ( param.getBody m, msg ) of
                                                         ( Just (Layer layer), ViewMsg r ) ->
-                                                            if unwrapThisLayerId layer.id == r.layerId && r.type_ == "change" then
+                                                            if unwrapThisLayerId layer.id == r.layerId && List.member r.type_ [ "change", "blur" ] then
                                                                 monitorChange r
 
                                                             else
@@ -1642,6 +1642,19 @@ viewArgs (Layer layer) =
                             |> Dict.get key
                             |> Maybe.withDefault Dict.empty
                             |> Dict.update "change"
+                                (\ma ->
+                                    case ma of
+                                        Just a ->
+                                            Just a
+
+                                        Nothing ->
+                                            Just <|
+                                                JD.succeed
+                                                    { stopPropagation = False
+                                                    , preventDefault = False
+                                                    }
+                                )
+                            |> Dict.update "blur"
                                 (\ma ->
                                     case ma of
                                         Just a ->
