@@ -27,7 +27,6 @@ module Tepa exposing
     , NavKey
     , UrlRequest(..)
     , Layer
-    , layerStateOf, layerIdOf
     , mapLayer
     , newLayer
     , currentLayerId
@@ -457,7 +456,6 @@ The reason for this unexpected behavior is that the process cannot determine tha
 The new `Page` definition above uses `Layer` to wrap each page memory state. A procedure executed on a Layer will be aborted when the Layer has expired by being overwritten by another Layer. This allows you to avoid running duplicate procedures.
 
 @docs Layer
-@docs layerStateOf, layerIdOf
 @docs mapLayer
 @docs newLayer
 @docs currentLayerId
@@ -567,14 +565,13 @@ To define `view` function, you use `layerView`.
 
 @docs layerView
 @docs ViewContext
-@docs mapViewContext
 
     import Tepa exposing (Document, Layer)
 
     view : Layer Memory -> Document
     view =
         Tepa.layerView <|
-            \{ state } ->
+            \_ state ->
                 { title = "Sample App"
                 , body =
                     [ case state.page of
@@ -603,7 +600,7 @@ Key is used to specify a specific View element.
     formView : Layer Memory -> Html
     formView =
         Tepa.layerView <|
-            \{ setKey, values } ->
+            \{ setKey, values } _ ->
                 Html.node "form"
                     [ Mixin.attribute "novalidate" "true"
                     ]
@@ -1503,10 +1500,6 @@ newLayer =
 
 
 {-| Takes the unique ID for the Layer.
-One of the use cases is to find the target element from the list of layers.
-
-See [`Widget.Toast`](https://github.com/arowM/tepa-sample/blob/main/src/Widget/Toast.elm) in the sample application for detail.
-
 -}
 layerIdOf : Layer m -> String
 layerIdOf =
@@ -1519,13 +1512,6 @@ The value is equivalent to the `layerId` value of the `ViewContext`.
 currentLayerId : Promise m String
 currentLayerId =
     Core.currentLayerId
-
-
-{-| Takes the current Memory state of the Layer.
--}
-layerStateOf : Layer m1 -> m1
-layerStateOf (Core.Layer layer) =
-    layer.state
 
 
 {-| -}
