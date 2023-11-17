@@ -41,7 +41,6 @@ module Tepa exposing
     , Mixin
     , layerView
     , ViewContext
-    , mapViewContext
     , getValue, getValues
     , setValue
     , getCheck, getChecks, setCheck
@@ -1537,11 +1536,22 @@ mapLayer =
 
 {-| -}
 layerView :
-    (ViewContext m -> view)
+    (ViewContext -> m -> view)
     -> Layer m
     -> view
 layerView f layer =
-    f <| Core.viewArgs layer
+    let
+        args =
+            Core.viewArgs layer
+    in
+    f
+        { setKey = args.setKey
+        , values = args.values
+        , checks = args.checks
+        , layerId = args.layerId
+        , setKey_ = args.setKey_
+        }
+        args.state
 
 
 {-| -}
@@ -1556,8 +1566,6 @@ type alias Mixin =
 
 {-|
 
-  - `state`: Current Memory state.
-
   - `setKey`: Set a key to the element.
 
   - `values`: Current values of the control elements, keyed by its key strings set with `setKey`.
@@ -1571,25 +1579,12 @@ type alias Mixin =
   - `setKey_`: _(Only for TEA users) TEA version of `setKey`._
 
 -}
-type alias ViewContext m =
-    { state : m
-    , setKey : String -> Mixin
+type alias ViewContext =
+    { setKey : String -> Mixin
     , values : Dict String String
     , checks : Dict String Bool
     , layerId : String
     , setKey_ : String -> List (Attribute Msg)
-    }
-
-
-{-| -}
-mapViewContext : (m -> m1) -> ViewContext m -> ViewContext m1
-mapViewContext f context =
-    { state = f context.state
-    , setKey = context.setKey
-    , values = context.values
-    , checks = context.checks
-    , layerId = context.layerId
-    , setKey_ = context.setKey_
     }
 
 
