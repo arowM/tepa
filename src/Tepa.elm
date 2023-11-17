@@ -17,6 +17,7 @@ module Tepa exposing
     , unless
     , withMaybe
     , syncAll
+    , forEach
     , portRequest
     , PortRequest, PortResponse
     , portStream
@@ -282,6 +283,7 @@ However, this code may cause run out of stack memory. To optimize memory usage, 
 @docs unless
 @docs withMaybe
 @docs syncAll
+@docs forEach
 
 
 #### DOM events
@@ -1080,6 +1082,13 @@ syncAll proms =
         |> Core.mapPromise (\_ -> Core.LayerExist ())
 
 
+{-| Run the Procedure concurrently on each list element, and await all to be completed.
+-}
+forEach : List a -> (a -> List (Promise m ())) -> Promise m ()
+forEach ls f =
+    syncAll (List.map (f >> sequence) ls)
+
+
 {-| Construct a Promise that modifies the Memory state.
 
 Note that the update operation, passed as the second argument, is performed atomically; it means that the state of the Memory is not updated by another process during it is read and written by the `modify`.
@@ -1739,7 +1748,7 @@ onChildLayer param =
 -}
 onEachLayer :
     { getLink : memory -> Maybe link
-    , setLink : link -> memory -> memory
+    , setLink : Layer link -> memory -> memory
     , getBodies : memory -> List (Layer body)
     , setBodies : List (Layer body) -> memory -> memory
     }
@@ -1757,7 +1766,9 @@ onEachLayer param action =
                     (\layer ->
                         onLayer
                             { getLink = param.getLink
-                            , setLink = param.setLink
+                            , setLink =
+                                \l ->
+                                    param.setLink <| mapLayer (\_ -> l) layer
                             , getBody =
                                 \m0 ->
                                     param.getBodies m0
@@ -1794,7 +1805,7 @@ onEachChildLayer :
         }
         -> Maybe link1
     , setLink :
-        link1
+        Layer link1
         ->
             { link : Maybe link0
             , body : Maybe body0
@@ -1825,8 +1836,8 @@ onEachChildLayer param =
     onEachLayer
         { getLink = \(LayerMemory lm) -> param.getLink lm
         , setLink =
-            \link1 (LayerMemory lm) ->
-                LayerMemory <| param.setLink link1 lm
+            \linkLayer1 (LayerMemory lm) ->
+                LayerMemory <| param.setLink linkLayer1 lm
         , getBodies =
             \(LayerMemory lm) ->
                 param.getBodies lm
