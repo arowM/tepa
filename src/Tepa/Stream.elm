@@ -713,10 +713,12 @@ break promise f =
                 { key = "twoStepButton"
                 , type_ = "click"
                 }
+                |> Tepa.map
+                    (Stream.indexedMap (\n _ -> n + 1))
             )
         <|
-            \() curr ->
-                if curr.counter < 2 then
+            \n ->
+                if n < 2 then
                     { break = False
                     , procedure =
                         [ Tepa.modify <|
@@ -735,7 +737,6 @@ customCase :
     Promise m (Stream a)
     ->
         (a
-         -> m
          ->
             { break : Bool
             , procedure : List (Promise m ())
@@ -744,12 +745,12 @@ customCase :
     -> Case m
 customCase promise f =
     Tepa.succeed
-        (\stream state ->
+        (\stream ->
             map
                 (\a ->
                     let
                         res =
-                            f a state
+                            f a
                     in
                     if res.break then
                         Err <| Tepa.sequence res.procedure
@@ -760,5 +761,4 @@ customCase promise f =
                 stream
         )
         |> Tepa.sync promise
-        |> Tepa.sync Tepa.currentState
         |> Case
