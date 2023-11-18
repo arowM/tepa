@@ -5,7 +5,7 @@ module Tepa.Stream exposing
     , awaitWhile, awaitUnless
     , run
     , while
-    , map
+    , map, indexedMap
     , filter
     , filterMap
     , take
@@ -25,7 +25,7 @@ module Tepa.Stream exposing
 @docs awaitWhile, awaitUnless
 @docs run
 @docs while
-@docs map
+@docs map, indexedMap
 @docs filter
 @docs filterMap
 @docs take
@@ -67,6 +67,35 @@ map f stream =
                         in
                         ( List.map f data
                         , map f next
+                        )
+                , dependencies = param.dependencies
+                , released = param.released
+                }
+
+        Core.EndOfStream param ->
+            Core.EndOfStream param
+
+
+{-| -}
+indexedMap : (Int -> a -> b) -> Stream a -> Stream b
+indexedMap =
+    indexedMap_ 0
+
+
+indexedMap_ : Int -> (Int -> a -> b) -> Stream a -> Stream b
+indexedMap_ n f stream =
+    -- IGNORE TCO
+    case stream of
+        Core.ActiveStream param ->
+            Core.ActiveStream
+                { unwrapMsg =
+                    \msg ->
+                        let
+                            ( data, next ) =
+                                param.unwrapMsg msg
+                        in
+                        ( List.map (f n) data
+                        , indexedMap_ (n + 1) f next
                         )
                 , dependencies = param.dependencies
                 , released = param.released
