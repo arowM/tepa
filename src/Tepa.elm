@@ -34,8 +34,8 @@ module Tepa exposing
     , onLink, onBody
     , linkSequence, bodySequence
     , modifyLink, modifyBody
-    , onLayer, onEachLayer, ResultOnLayer(..)
-    , onChildLayer, onEachChildLayer
+    , onLayer, ResultOnLayer(..)
+    , onChildLayer
     , Html
     , Mixin
     , layerView
@@ -541,11 +541,11 @@ Now you can declare your Procedures.
 
 To call Procedures for `LayerMemory` on the Procedures for the parent Memory, you can use `onLayer`.
 
-@docs onLayer, onEachLayer, ResultOnLayer
+@docs onLayer, ResultOnLayer
 
 To call Procedures for `LayerMemory` on the Procedures for the parent `LayerMemory`, you can use `onChildLayer`.
 
-@docs onChildLayer, onEachChildLayer
+@docs onChildLayer
 
 
 ## View
@@ -1499,13 +1499,6 @@ newLayer =
     Core.newLayer
 
 
-{-| Takes the unique ID for the Layer.
--}
-layerIdOf : Layer m -> String
-layerIdOf =
-    Core.layerIdStringOf
-
-
 {-| Request unique string for current Layer.
 The value is equivalent to the `layerId` value of the `ViewContext`.
 -}
@@ -1722,110 +1715,6 @@ onChildLayer param =
         , setBody =
             \lb1 (LayerMemory lm) ->
                 LayerMemory <| param.setBody lb1 lm
-        }
-
-
-{-| Helper function to run Promises on the specified Layers concurrently.
--}
-onEachLayer :
-    { getLink : memory -> Maybe link
-    , setLink : Layer link -> memory -> memory
-    , getBodies : memory -> List (Layer body)
-    , setBodies : List (Layer body) -> memory -> memory
-    }
-    -> Promise (LayerMemory link body) a
-    -> Promise memory (List (ResultOnLayer a))
-onEachLayer param action =
-    bindAndThen
-        (currentState
-            |> map param.getBodies
-        )
-    <|
-        \layers ->
-            bindAndThenAll
-                (List.map
-                    (\layer ->
-                        onLayer
-                            { getLink = param.getLink
-                            , setLink =
-                                \l ->
-                                    param.setLink <| mapLayer (\_ -> l) layer
-                            , getBody =
-                                \m0 ->
-                                    param.getBodies m0
-                                        |> List.filter (\a -> Core.layerIdOf a == Core.layerIdOf layer)
-                                        |> List.head
-                            , setBody =
-                                \l1 m0 ->
-                                    param.setBodies
-                                        (List.map
-                                            (\bodyLayer ->
-                                                if layerIdOf bodyLayer == layerIdOf l1 then
-                                                    l1
-
-                                                else
-                                                    bodyLayer
-                                            )
-                                            (param.getBodies m0)
-                                        )
-                                        m0
-                            }
-                            action
-                    )
-                    layers
-                )
-                succeed
-
-
-{-| Similar to `onEachLayer`, but run on the parent Layer.
--}
-onEachChildLayer :
-    { getLink :
-        { link : Maybe link0
-        , body : Maybe body0
-        }
-        -> Maybe link1
-    , setLink :
-        Layer link1
-        ->
-            { link : Maybe link0
-            , body : Maybe body0
-            }
-        ->
-            { link : Maybe link0
-            , body : Maybe body0
-            }
-    , getBodies :
-        { link : Maybe link0
-        , body : Maybe body0
-        }
-        -> Maybe (List (Layer body1))
-    , setBodies :
-        List (Layer body1)
-        ->
-            { link : Maybe link0
-            , body : Maybe body0
-            }
-        ->
-            { link : Maybe link0
-            , body : Maybe body0
-            }
-    }
-    -> Promise (LayerMemory link1 body1) a
-    -> Promise (LayerMemory link0 body0) (List (ResultOnLayer a))
-onEachChildLayer param =
-    onEachLayer
-        { getLink = \(LayerMemory lm) -> param.getLink lm
-        , setLink =
-            \linkLayer1 (LayerMemory lm) ->
-                LayerMemory <| param.setLink linkLayer1 lm
-        , getBodies =
-            \(LayerMemory lm) ->
-                param.getBodies lm
-                    |> Maybe.withDefault []
-        , setBodies =
-            \lb1s (LayerMemory lm) ->
-                LayerMemory <| param.setBodies lb1s lm
         }
 
 

@@ -18,7 +18,7 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), layerIdOf, layerIdStringOf, Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence
@@ -66,7 +66,7 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, layerIdOf, layerIdStringOf, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence
@@ -1492,18 +1492,6 @@ lazy f =
 {-| -}
 type Layer m
     = Layer (Layer_ m)
-
-
-{-| -}
-layerIdOf : Layer m -> LayerId
-layerIdOf (Layer layer) =
-    unwrapThisLayerId layer.id
-
-
-{-| -}
-layerIdStringOf : Layer m -> String
-layerIdStringOf (Layer layer) =
-    stringifyThisLayerId layer.id
 
 
 {-| -}
