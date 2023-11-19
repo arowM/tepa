@@ -1,3 +1,25 @@
+# 4.0.0
+
+Simplify architecture, and support structures that has `Layer` in other `Layer`.
+
+- Remove functions:
+    - `Tepa.mapViewContext`
+    - `Tepa.layerStateOf`
+    - `Tepa.layerIdOf`
+    - `Tapa.onEachLayer`
+    - `Tepa.neverResolved`
+    - `Tepa.mapLayer`
+    - `Tepa.currentLayerId`
+    - `Tepa.getFormState`
+    - `Tepa.FormState`
+- Add functions:
+    - `Tepa.forEach`
+    - `Tepa.onChildLayer`
+    - `Tepa.Stream.indexedMap`
+- Changed:
+    - `layerId` and `state` field of `ViewContext` is removed.
+    - Changed the callback for `Tepa.Stream.customCase` so that it does not receive current state.
+
 # 3.0.0
 
 Better support for the _Linked Memory Pattern_ at the architecture level.
