@@ -18,11 +18,11 @@ module Internal.Core exposing
     , getCheck, getChecks, setCheck
     , customRequest
     , awaitCustomViewEvent, customViewEventStream
-    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+    , Layer(..), LayerId(..), Layer_, ThisLayerId(..), mapLayerQuery, unwrapThisLayerId, maybeMapLayer
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence
-    , modify, push, currentState, currentLayerId, lazy
+    , modify, push, currentState, lazy
     , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
     , assertionError
@@ -66,7 +66,7 @@ module Internal.Core exposing
 @docs getCheck, getChecks, setCheck
 @docs customRequest
 @docs awaitCustomViewEvent, customViewEventStream
-@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, mapLayer, maybeMapLayer
+@docs Layer, LayerId, Layer_, ThisLayerId, mapLayerQuery, unwrapThisLayerId, maybeMapLayer
 @docs ThisLayerEvents, ThisLayerValues
 @docs viewArgs
 @docs none, sequence
@@ -74,7 +74,7 @@ module Internal.Core exposing
 
 # Primitive Procedures
 
-@docs modify, push, currentState, currentLayerId, lazy
+@docs modify, push, currentState, lazy
 @docs sleep, listenTimeEvery, tick, listenMsg
 @docs load, reload
 @docs assertionError
@@ -1420,22 +1420,6 @@ currentState =
 
 
 {-| -}
-currentLayerId : Promise m String
-currentLayerId =
-    Promise <|
-        \context ->
-            { newContext = context
-            , realCmds = []
-            , logs = []
-            , state =
-                context.layer.id
-                    |> stringifyThisLayerId
-                    |> LayerExist
-                    |> Resolved
-            }
-
-
-{-| -}
 onGoingProcedure : (PromiseEffect m () -> PromiseEffect m ()) -> Promise m ()
 onGoingProcedure f =
     Promise <|
@@ -1529,29 +1513,6 @@ mapLayerQuery f parent =
                                 |> ThisLayerChecks
                         }
                 )
-
-
-{-| -}
-mapLayer :
-    (m1 -> m2)
-    -> Layer m1
-    -> Layer m2
-mapLayer f (Layer layer) =
-    Layer
-        { id =
-            unwrapThisLayerId layer.id
-                |> wrapThisLayerId
-        , state = f layer.state
-        , events =
-            unwrapThisLayerEvents layer.events
-                |> ThisLayerEvents
-        , values =
-            unwrapThisLayerValues layer.values
-                |> ThisLayerValues
-        , checks =
-            unwrapThisLayerChecks layer.checks
-                |> ThisLayerChecks
-        }
 
 
 {-| -}

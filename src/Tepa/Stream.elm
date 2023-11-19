@@ -391,7 +391,7 @@ awaitFirst stream =
             (\ls ->
                 case ls of
                     [] ->
-                        Tepa.neverResolved
+                        Core.neverResolved
 
                     a :: _ ->
                         Tepa.succeed a

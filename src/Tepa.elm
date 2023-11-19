@@ -8,7 +8,6 @@ module Tepa exposing
     , modify
     , none
     , currentState
-    , neverResolved
     , bind, bind2, bind3, bindAll
     , succeed, sync
     , lazy
@@ -27,9 +26,7 @@ module Tepa exposing
     , NavKey
     , UrlRequest(..)
     , Layer
-    , mapLayer
     , newLayer
-    , currentLayerId
     , LayerMemory
     , onLink, onBody
     , linkSequence, bodySequence
@@ -43,7 +40,6 @@ module Tepa exposing
     , getValue, getValues
     , setValue
     , getCheck, getChecks, setCheck
-    , getFormState, FormState
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
     , assertionError
@@ -220,7 +216,6 @@ The rejection of JavaScript Promise is a sort of Exception, which drops context.
 @docs modify
 @docs none
 @docs currentState
-@docs neverResolved
 
 
 #### Bind results
@@ -456,9 +451,7 @@ The reason for this unexpected behavior is that the process cannot determine tha
 The new `Page` definition above uses `Layer` to wrap each page memory state. A procedure executed on a Layer will be aborted when the Layer has expired by being overwritten by another Layer. This allows you to avoid running duplicate procedures.
 
 @docs Layer
-@docs mapLayer
 @docs newLayer
-@docs currentLayerId
 
 
 ### Layer Memory
@@ -658,11 +651,6 @@ You can get/set `checked` property values of radio/checkbox elements.
 @docs getCheck, getChecks, setCheck
 
 Note that the Procedure can only get/set check state in Views on the same Layer that the Procedure is executed.
-
-
-### Helpers to handle form state
-
-@docs getFormState, FormState
 
 
 ### Handle View events on Procedure
@@ -1097,7 +1085,7 @@ modify =
 
 {-| Lower level function to push TEA Commands.
 
-For detailed documentation and testing, do not use this. We recommend using special functions like `Tepa.Http.Request`.
+For detailed documentation and testing, do not use this. We recommend to use special functions like `Tepa.Http.Request`.
 
 If you think you need to use this function, please check the following points:
 
@@ -1160,14 +1148,6 @@ withMaybe ma f =
 currentState : Promise m m
 currentState =
     Core.currentState
-
-
-{-| Promise that never be resolved.
-You can use `neverResolved` to prevent the current _Layer_ (See [Layer](#layer)) from expiring.
--}
-neverResolved : Promise m a
-neverResolved =
-    Core.neverResolved
 
 
 {-| Build a Promise to send a _port_ request and receive a single response for it.
@@ -1470,25 +1450,6 @@ setCheck =
     Core.setCheck
 
 
-{-| Helper type alias representing a form state.
--}
-type alias FormState =
-    { values : Dict String String
-    , checks : Dict String Bool
-    }
-
-
-{-| Helper function to run `getValues` and `getChecks` concurrently.
--}
-getFormState : Promise m FormState
-getFormState =
-    getValues
-        |> andThen
-            (\values ->
-                map (\checks -> FormState values checks) getChecks
-            )
-
-
 
 -- Layer
 
@@ -1497,20 +1458,6 @@ getFormState =
 newLayer : m1 -> Promise m (Layer m1)
 newLayer =
     Core.newLayer
-
-
-{-| Request unique string for current Layer.
-The value is equivalent to the `layerId` value of the `ViewContext`.
--}
-currentLayerId : Promise m String
-currentLayerId =
-    Core.currentLayerId
-
-
-{-| -}
-mapLayer : (a -> b) -> Layer a -> Layer b
-mapLayer =
-    Core.mapLayer
 
 
 {-| -}
@@ -1527,7 +1474,6 @@ layerView f layer =
         { setKey = args.setKey
         , values = args.values
         , checks = args.checks
-        , layerId = args.layerId
         , setKey_ = args.setKey_
         }
         args.state
@@ -1551,10 +1497,6 @@ type alias Mixin =
 
   - `checks`: Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
 
-  - `layerId`: Unique string that identifies current Layer.
-    The string consists of characters in the code point range U+0020 to U+D7FF.
-    Because it contains no ASCII whitespace, it is safe to use as a part of the ID attribute value in [HTML5](https://html.spec.whatwg.org/multipage/dom.html#the-id-attribute).
-
   - `setKey_`: _(Only for TEA users) TEA version of `setKey`._
 
 -}
@@ -1562,7 +1504,6 @@ type alias ViewContext =
     { setKey : String -> Mixin
     , values : Dict String String
     , checks : Dict String Bool
-    , layerId : String
     , setKey_ : String -> List (Attribute Msg)
     }
 
