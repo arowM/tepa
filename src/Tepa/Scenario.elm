@@ -1777,7 +1777,7 @@ userOperation (Session session) (Markup markup_) param =
 
 {-| Wait for given micro seconds.
 
-_For TEA users: It only affects Promises defined in [Tepa.Time](./Tepa-Time), so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA._
+It only affects Promises defined in [Tepa.Time](./Tepa-Time), so you should not use [`Time` module](https://package.elm-lang.org/packages/elm/time/latest/Time) and [`Process.sleep`](https://package.elm-lang.org/packages/elm/core/latest/Process#sleep) with TEPA.\_
 
 -}
 sleep :

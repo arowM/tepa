@@ -44,15 +44,7 @@ module Tepa exposing
     , viewEventStream, customViewEventStream
     , assertionError
     , headless
-    , init
-    , view
-    , update
-    , subscriptions
-    , onUrlRequest
-    , onUrlChange
     , Msg
-    , Model
-    , unsafePush
     )
 
 {-| This module provides core functionality for TEPA.
@@ -158,8 +150,6 @@ If you are a [Parcel](https://parceljs.org/) user, you can load the Elm file tha
 If you are not familiar with Elm language, we recommend you to check [Core Language](https://guide.elm-lang.org/core_language), [Types](https://guide.elm-lang.org/types/), and [Error Handling](https://guide.elm-lang.org/error_handling/) section of the Elm guide.
 API documentation for the core libraries of the language can be found on the [package site](https://package.elm-lang.org/packages/elm/core/latest/).
 Among the core libraries, `Platform`, `Platform.Cmd`, `Platform.Sub`, `Process`, and `Task` modules are not used by TEPA, so you can just ignore them.
-
-_For TEA users: If you have an existing TEA application, you can use the [low level API](#connect-to-tea-app) to partially integrate TEPA into your TEA application._
 
 @docs application
 @docs ApplicationProps
@@ -591,7 +581,7 @@ The `state` field of the `ViewContext` indicates current memory state of the Lay
 
 Key is used to specify a specific View element.
 
-    import Tepa exposing (Layer, Msg)
+    import Tepa exposing (Layer)
     import Tepa.Html as Html exposing (Html)
     import Tepa.Mixin as Mixin
 
@@ -633,7 +623,7 @@ This example uses the `setKey` of the `ViewContext` to set the Key named "form\_
 
 Note that Keys on the same Layer must be unique.
 
-_For TEA users: You can use `setKey` alternative for `Html.Attribute` that elm/html expose. It means you can use layout libraries such as neat-layout or elm-ui._
+_For advanced use: You can use `setKey` alternative for `Html.Attribute` that elm/html exposes. This means you can use layout libraries like [neat-layout](https://package.elm-lang.org/packages/arowM/elm-neat-layout/latest/) or elm-ui._
 
 
 ### Handle form value on Procedure
@@ -696,23 +686,9 @@ To create user scenarios and generate tests for them, see the [`Tepa.Scenario`](
 @docs headless
 
 
-# Connect to TEA app
+# Internal
 
-_For TEA users: If you have an existing application built with TEA, you can partially replace it with TEPA._
-
-@docs init
-@docs view
-@docs update
-@docs subscriptions
-@docs onUrlRequest
-@docs onUrlChange
 @docs Msg
-@docs Model
-
-
-# Unsafe functions
-
-@docs unsafePush
 
 -}
 
@@ -1086,22 +1062,6 @@ Note that the update operation, passed as the second argument, is performed atom
 modify : (m -> m) -> Promise m ()
 modify =
     Core.modify
-
-
-{-| Lower level function to push TEA Commands.
-
-For detailed documentation and testing, do not use this. We recommend to use special functions like `Tepa.Http.Request`.
-
-If you think you need to use this function, please check the following points:
-
-1.  Check to see if there is an alternative function for TEPA that does what you want to do
-2.  If not, report it in an issue on GitHub.
-3.  If you still want to use it, use it at your own risk and do not ask any questions or bother the TEPA developers.
-
--}
-unsafePush : (m -> Cmd Msg) -> Promise m ()
-unsafePush =
-    Core.push
 
 
 {-| -}
@@ -1502,7 +1462,7 @@ type alias Mixin =
 
   - `checks`: Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
 
-  - `setKey_`: _(Only for TEA users) TEA version of `setKey`._
+  - `setKey_`: _(For advanced use) `setKey` for `elm/html` nodes._
 
 -}
 type alias ViewContext =

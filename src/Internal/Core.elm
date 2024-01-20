@@ -22,7 +22,7 @@ module Internal.Core exposing
     , ThisLayerEvents(..), ThisLayerValues(..)
     , viewArgs
     , none, sequence
-    , modify, push, currentState, lazy
+    , modify, currentState, lazy
     , sleep, listenTimeEvery, tick, listenMsg
     , load, reload
     , assertionError
@@ -74,7 +74,7 @@ module Internal.Core exposing
 
 # Primitive Procedures
 
-@docs modify, push, currentState, lazy
+@docs modify, currentState, lazy
 @docs sleep, listenTimeEvery, tick, listenMsg
 @docs load, reload
 @docs assertionError
@@ -1451,14 +1451,6 @@ modify f =
                             { layer | state = f layer.state }
                     }
             }
-
-
-{-| -}
-push : (m -> Cmd Msg) -> Promise m ()
-push f =
-    onGoingProcedure <|
-        \eff ->
-            { eff | realCmds = f eff.newContext.layer.state :: eff.realCmds }
 
 
 {-| -}

@@ -121,7 +121,7 @@ batch =
             [ text "Hello!"
             ]
 
-_For TEA users: Unlike [`Html.Attributes.style`](https://package.elm-lang.org/packages/elm/html/latest/Html-Attributes#style), this `style` can also handle [CSS custom properties](https://developer.mozilla.org/docs/Web/CSS/Using_CSS_custom_properties) well._
+This `style` can also handle [CSS custom properties](https://developer.mozilla.org/docs/Web/CSS/Using_CSS_custom_properties) well.\_
 
 -}
 style : String -> String -> Mixin
