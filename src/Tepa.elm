@@ -57,6 +57,11 @@ module Tepa exposing
 
 {-| This module provides core functionality for TEPA.
 
+⚠⚠⚠⚠⚠⚠
+If you haven't read the [README](https://github.com/arowM/tepa/blob/main/README.md), read the README first.
+If you want to know how to use it first, then learning TEPA is of no value to you. Go home.
+⚠⚠⚠⚠⚠⚠
+
 
 # Overview of the application structure
 
