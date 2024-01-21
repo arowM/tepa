@@ -14,10 +14,15 @@ TEPA (pronounced /tíːpə/) is a framework for building robust, user-centric W
 TEPA is **extremely boring for tech geeks**. If you are interested in TEPA for any of the following reasons, please leave **before you waste your time**.
 
 - Because TEPA uses my favorite programming language
+
   Unfortunately, we **did not** adopt the programming language because we liked it. We did not want to use such a language, but we had no choice but to adopt it because the advantages were slightly greater than adopting other languages under the current circumstances. We **did not** create TEPA for the language. Please leave before you feel bad.
+
 - Because I am interested in the XX paradigm / Because I want to learn about the XX paradigm
+
   Unfortunately, you will not get any interesting information or experience about the XX paradigm. TEPA's only goal is "to create bug-free web applications that provide good user experiences", so it uses an appropriate, but boring, and non-novel method to achieve the goal.
+
 - Because I am interested in the difference between the XX Architecture and TEPA
+
   Is the comparison really made up for with the exact same purpose as TEPA? If you are building data-centric applications that can be built with the XX Architecture, then you are wasting your time learning TEPA. If you are not most interested in thinking about the user experience, there is no need to learn TEPA.
 
 **Please understand the meaning why this is at the beginning of the README. **
@@ -30,9 +35,9 @@ on social networking sites; you can politely create an issue on GitHub as follow
 
 > For TEPA's purposes, the existing method has these possible advantages and disadvantages. In contrast, my proposed method seems to have greater advantages, but on what grounds does TEPA adopt this method?
 
-## Who is the Web Application for?
+## Who are Web applications for?
 
-Are components the main actors in a Web application? Or objects? Functions? Data?
+Are components the main actors in Web applications? Or objects? Functions? Data?
 Web applications are for the _users_ who use them. Sure, the owner is the service provider, but if you want the users to behave the way you want, you have to pay attention to how users think and feel.
 
 **If you don't think so, leave this page now. You should love your favorite technology. **
