@@ -1,24 +1,28 @@
+# 5.0.0
+
+Drop support for TEA to get out tech geeks.
+
 # 4.0.0
 
 Simplify architecture, and support structures that has `Layer` in other `Layer`.
 
 - Remove functions:
-    - `Tepa.mapViewContext`
-    - `Tepa.layerStateOf`
-    - `Tepa.layerIdOf`
-    - `Tapa.onEachLayer`
-    - `Tepa.neverResolved`
-    - `Tepa.mapLayer`
-    - `Tepa.currentLayerId`
-    - `Tepa.getFormState`
-    - `Tepa.FormState`
+  - `Tepa.mapViewContext`
+  - `Tepa.layerStateOf`
+  - `Tepa.layerIdOf`
+  - `Tapa.onEachLayer`
+  - `Tepa.neverResolved`
+  - `Tepa.mapLayer`
+  - `Tepa.currentLayerId`
+  - `Tepa.getFormState`
+  - `Tepa.FormState`
 - Add functions:
-    - `Tepa.forEach`
-    - `Tepa.onChildLayer`
-    - `Tepa.Stream.indexedMap`
+  - `Tepa.forEach`
+  - `Tepa.onChildLayer`
+  - `Tepa.Stream.indexedMap`
 - Changed:
-    - `layerId` and `state` field of `ViewContext` is removed.
-    - Changed the callback for `Tepa.Stream.customCase` so that it does not receive current state.
+  - `layerId` and `state` field of `ViewContext` is removed.
+  - Changed the callback for `Tepa.Stream.customCase` so that it does not receive current state.
 
 # 3.0.0
 
