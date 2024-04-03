@@ -6,7 +6,7 @@
         "start:internal": "cd internal && elm-doc-preview --port=8111",
         "review": "elm-review --fix",
         "test": "npm run test:lib && npm run test:internal",
-        "test:lib": "elm-review && elm-format --validate src && elm-verify-examples -r && test ! -d ./tests/VerifyExamples && elm make --docs=/tmp/docs.json",
+        "test:lib": "elm-review && elm-format --validate src tests && elm-verify-examples -r && test ! -d ./tests/VerifyExamples && elm make --docs=/tmp/docs.json",
         "test:internal": "cd internal && elm make --docs=/tmp/docs.json"
     },
     "devDependencies": {
