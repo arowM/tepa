@@ -42,6 +42,7 @@ module Tepa exposing
     , getCheck, getChecks, setCheck
     , awaitViewEvent, awaitCustomViewEvent
     , viewEventStream, customViewEventStream
+    , pushKeyPrefix
     , assertionError
     , headless
     , Msg
@@ -665,6 +666,148 @@ Note that the Procedure can only capture events in Views on the same Layer that 
 
 The user input values obtained by the `value` field of the `ViewContext` and `getValue` / `getValues` in the Procedure are updated whenever the `change` or `blur` event of the target element occurs. So if you want to implement something like an incremental search, getting values in this ways will not give you the latest input values.
 Use [search type of input element](https://developer.mozilla.org/docs/Web/HTML/Element/input/search) or capture the `input` event with `awaitCustomViewEvent` to handle this situation.
+
+
+### Pseudo-namespace for keys
+
+You may sometimes find yourself using an element many times in a page. In such cases, it is useful to give key a pseudo-namespace.
+
+In the following bad example, a View called `userCard` is reused many times.
+
+    import Tepa exposing (ViewContext)
+    import Tepa.Html as Html exposing (Html)
+    import Tepa.Mixin as Mixin
+
+    userCards :
+        { users : List User
+        }
+        -> ViewContext
+        -> Html
+    userCards param context =
+        Html.node "ol"
+            []
+            ( List.map
+                (\user ->
+                    userCard
+                        { user = user
+                        }
+                        context
+                )
+                param.users
+            )
+
+    userCard :
+        { user : User
+        }
+        -> ViewContext
+        -> Html
+    userCard param ({ setKey } as context) =
+        Html.div
+            [ Mixin.class "userCard"
+            ]
+            [ if user.isEditing then
+                userNameForm param context
+              else
+                Html.div []
+                    [ Html.span
+                        [ Mixin.class "userCard_name"
+                        ]
+                        [ Html.text param.user.name
+                        ]
+                    , Html.button
+                        [ Mixin.class "userCard_editButton"
+                        , Mixin.attribute "type" "button"
+                        , setKey "editButton"
+                        ]
+                        [ Html.text "Edit"
+                        ]
+                    ]
+            ]
+
+    type alias User = {
+        id : String
+        name : String
+        isEditing : Bool
+    }
+
+This will result in duplicate use of the key named "editButton", which cannot be manipulated properly from the Procedure. Furthermore, since the name "editButton" is too generic, it is possible that a key with the same name is accidentally used in a completely unrelated location.
+In such cases, `pushKeyPrefix` is useful. When passing a `ViewContext` from a parent element to a child element, the `pushKeyPrefix` provides a pseudo-namespace.
+
+    userCards param context =
+        Html.node "ol"
+            []
+            (List.map
+                (\user ->
+                    userCard
+                        { user = user
+                        }
+                        (Tepa.pushKeyPrefix ("userCard_" ++ user.id) context)
+                )
+                param.users
+            )
+
+    userCard param ({ setKey } as context) =
+        Html.div
+            [ Mixin.class "userCard"
+            ]
+            [ if user.isEditing then
+                userNameForm param context
+
+              else
+                Html.div []
+                    [ Html.span
+                        [ Mixin.class "userCard_name"
+                        ]
+                        [ Html.text param.user.name
+                        ]
+                    , Html.button
+                        [ Mixin.class "userCard_editButton"
+                        , Mixin.attribute "type" "button"
+                        , setKey ".editButton"
+                        ]
+                        [ Html.text "Edit"
+                        ]
+                    ]
+            ]
+
+In the above example, the actual key name given to the edit button would be "userCard\_user01.editButton"; that is, you would be able to access the element from the Procedure as follows:
+
+    Procedure.awaitViewEvent
+        { key = "userCard_user01.editButton"
+        , type_ = "click"
+        }
+
+The `pushKeyPrefix` can be stacked; for example, you can use `pushKeyPrefix` further within `userCard` as follows:
+
+    userCard param ({ setKey } as context) =
+        Html.div
+            [ Mixin.class "userCard"
+            ]
+            [ if user.isEditing then
+                userNameForm
+                    param
+                    (Tepa.pushKeyPrefix ".userNameForm" context)
+
+              else
+                Html.div []
+                    [ Html.span
+                        [ Mixin.class "userCard_name"
+                        ]
+                        [ Html.text param.user.name
+                        ]
+                    , Html.button
+                        [ Mixin.class "userCard_editButton"
+                        , Mixin.attribute "type" "button"
+                        , setKey ".editButton"
+                        ]
+                        [ Html.text "Edit"
+                        ]
+                    ]
+            ]
+
+In this case, using `setKey ".foo"` in `userNameForm` will actually give the key name `userCard_user01.userNameForm.foo`.
+
+@docs pushKeyPrefix
 
 
 # Assertion
@@ -1464,7 +1607,7 @@ type alias Mixin =
 
   - `setKey`: Set a key to the element.
 
-  - `setKeyAndId`: Set a key and HTML ID to the element.
+  - `setKeyAndId`: Set a key and HTML ID to the element. Especially usefull when used with `pushKeyPrefix`.
 
   - `values`: Current values of the control elements, keyed by its key strings set with `setKey`.
 
@@ -1479,6 +1622,17 @@ type alias ViewContext =
     , values : Dict String String
     , checks : Dict String Bool
     , setKey_ : String -> List (Attribute Msg)
+    }
+
+
+{-| Push key prefix for the child element.
+-}
+pushKeyPrefix : String -> ViewContext -> ViewContext
+pushKeyPrefix prefix context =
+    { context
+        | setKey = \str -> context.setKey (prefix ++ str)
+        , setKeyAndId = \str -> context.setKeyAndId (prefix ++ str)
+        , setKey_ = \str -> context.setKey_ (prefix ++ str)
     }
 
 
