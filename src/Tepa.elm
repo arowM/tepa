@@ -1437,6 +1437,12 @@ layerView f layer =
     in
     f
         { setKey = args.setKey
+        , setKeyAndId =
+            \str ->
+                Mixin.batch
+                    [ args.setKey str
+                    , Mixin.id str
+                    ]
         , values = args.values
         , checks = args.checks
         , setKey_ = args.setKey_
@@ -1458,6 +1464,8 @@ type alias Mixin =
 
   - `setKey`: Set a key to the element.
 
+  - `setKeyAndId`: Set a key and HTML ID to the element.
+
   - `values`: Current values of the control elements, keyed by its key strings set with `setKey`.
 
   - `checks`: Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
@@ -1467,6 +1475,7 @@ type alias Mixin =
 -}
 type alias ViewContext =
     { setKey : String -> Mixin
+    , setKeyAndId : String -> Mixin
     , values : Dict String String
     , checks : Dict String Bool
     , setKey_ : String -> List (Attribute Msg)
