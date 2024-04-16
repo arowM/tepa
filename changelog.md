@@ -1,3 +1,8 @@
+# 6.0.0
+
+- Add `setKeyAndId` field to `ViewContext`
+- Add `Tepa.pushKeyPrefix`
+
 # 5.0.1
 
 Trivial fix for README.
