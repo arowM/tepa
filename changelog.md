@@ -1,3 +1,11 @@
+# 5.1.0
+
+- Add `Tepa.Next` module for next release
+  - Make `ViewContext` opaque
+  - Support pseudo-namespace
+  - Add `setKeyAndId`, `fullKeyNameFor`, `valueFor`, and `checkFor`
+  - Add `pushNamespace`
+
 # 5.0.1
 
 Trivial fix for README.
