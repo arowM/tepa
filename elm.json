@@ -10,6 +10,7 @@
         "Tepa.Html",
         "Tepa.HtmlSelector",
         "Tepa.Mixin",
+        "Tepa.Next",
         "Tepa.Http",
         "Tepa.Navigation",
         "Tepa.Random",
