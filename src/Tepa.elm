@@ -1757,7 +1757,7 @@ type alias ApplicationProps flags memory =
     , onUrlRequest : flags -> UrlRequest -> NavKey -> Promise memory ()
     , onUrlChange : flags -> AppUrl -> NavKey -> Promise memory ()
     , initView : Document
-    , view : flags -> memory -> Document
+    , view : flags -> AppUrl -> memory -> Document
     }
 
 
@@ -1838,9 +1838,9 @@ headless props =
                             )
                         <|
                             \( flags, memory ) ->
-                                [ modify <| \_ -> AppLoaded flags memory
+                                [ modify <| \_ -> AppLoaded flags (AppUrl.fromPath []) memory
                                 , props.onLoad flags
-                                    |> liftLoadedProcedure flags
+                                    |> liftLoadedProcedure flags (AppUrl.fromPath [])
                                 ]
 
                     newState : Core.NewState (AppState flags memory)
@@ -1877,7 +1877,7 @@ update msg model =
 {-| -}
 view :
     { initView : Document
-    , view : flags -> memory -> Document
+    , view : flags -> AppUrl -> memory -> Document
     }
     -> Model flags memory
     -> Document
@@ -1888,8 +1888,8 @@ view props =
                 AppLoading ->
                     props.initView
 
-                AppLoaded flags m ->
-                    props.view flags m
+                AppLoaded flags url m ->
+                    props.view flags url m
 
 
 {-| TEA subscriptions function to execute your Procedures.
@@ -1930,7 +1930,7 @@ init props rawFlags initialUrl rawKey =
                 )
             <|
                 \( flags, memory ) ->
-                    [ modify <| \_ -> AppLoaded flags memory
+                    [ modify <| \_ -> AppLoaded flags initialPath memory
                     , syncAll
                         [ Core.listenMsg <|
                             \msg ->
@@ -1947,7 +1947,7 @@ init props rawFlags initialUrl rawKey =
                                         []
                         , props.onLoad flags initialPath key
                         ]
-                        |> liftLoadedProcedure flags
+                        |> liftLoadedProcedure flags initialPath
                     ]
 
         newState =
@@ -1959,8 +1959,8 @@ init props rawFlags initialUrl rawKey =
     )
 
 
-liftLoadedProcedure : flags -> Promise m () -> Promise (AppState flags m) ()
-liftLoadedProcedure flags =
+liftLoadedProcedure : flags -> AppUrl -> Promise m () -> Promise (AppState flags m) ()
+liftLoadedProcedure flags url =
     Core.maybeLiftPromiseMemory
         { get =
             \m ->
@@ -1968,11 +1968,11 @@ liftLoadedProcedure flags =
                     AppLoading ->
                         Nothing
 
-                    AppLoaded _ a ->
+                    AppLoaded _ _ a ->
                         Just a
         , set =
             \a _ ->
-                AppLoaded flags a
+                AppLoaded flags url a
         }
         >> void
 

@@ -157,7 +157,7 @@ endOfModel context =
 {-| -}
 type AppState flags memory
     = AppLoading
-    | AppLoaded flags memory
+    | AppLoaded flags AppUrl memory
 
 
 {-| Execution time context for Procedures
