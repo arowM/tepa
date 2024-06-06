@@ -361,11 +361,11 @@ run f stream =
     -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
 
         Core.ActiveStream param ->
             Tepa.sequence
-                [ Core.releasePorts param.released
+                [ Core.releaseStreamResources param.released
                 , Core.justAwaitPromise <|
                     \msg _ ->
                         let
@@ -435,7 +435,7 @@ awaitAll_ reversed stream =
     -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
                 |> Tepa.andThen
                     (\() ->
                         Tepa.succeed <|
@@ -443,7 +443,7 @@ awaitAll_ reversed stream =
                     )
 
         Core.ActiveStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
                 |> Tepa.andThen
                     (\() ->
                         Core.justAwaitPromise <|
@@ -469,7 +469,7 @@ awaitWhile_ reversed p stream =
     -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
                 |> Tepa.andThen
                     (\() ->
                         Tepa.succeed <|
@@ -477,7 +477,7 @@ awaitWhile_ reversed p stream =
                     )
 
         Core.ActiveStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
                 |> Tepa.andThen
                     (\() ->
                         Core.justAwaitPromise <|
@@ -553,10 +553,10 @@ while f stream =
     -- IGNORE TCO
     case stream of
         Core.EndOfStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
 
         Core.ActiveStream param ->
-            Core.releasePorts param.released
+            Core.releaseStreamResources param.released
                 |> Tepa.andThen
                     (\() ->
                         Core.justAwaitPromise <|

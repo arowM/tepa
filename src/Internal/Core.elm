@@ -10,7 +10,7 @@ module Internal.Core exposing
     , syncPromise
     , liftPromiseMemory, maybeLiftPromiseMemory
     , neverResolved
-    , portRequest, portStream, PortRequest, releasePorts
+    , portRequest, portStream, PortRequest
     , httpRequest, httpBytesRequest, HttpRequestError(..), HttpRequest
     , HttpRequestBody(..), RequestId(..)
     , now, here
@@ -28,6 +28,7 @@ module Internal.Core exposing
     , assertionError
     , RandomValue(..), RandomRequest(..), RandomSpec(..), isRequestForSpec
     , Stream(..)
+    , releaseStreamResources
     , onGoingProcedure
     , newLayer, onLayer
     , init, update, NewState, Log(..)
@@ -58,7 +59,7 @@ module Internal.Core exposing
 @docs syncPromise
 @docs liftPromiseMemory, maybeLiftPromiseMemory
 @docs neverResolved
-@docs portRequest, portStream, PortRequest, releasePorts
+@docs portRequest, portStream, PortRequest
 @docs httpRequest, httpBytesRequest, HttpRequestError, HttpRequest
 @docs HttpRequestBody, RequestId
 @docs now, here
@@ -88,6 +89,7 @@ module Internal.Core exposing
 # Stream
 
 @docs Stream
+@docs releaseStreamResources
 
 
 # Helper Procedures
@@ -167,8 +169,16 @@ type alias Context m =
     , nextRequestId : RequestId
     , nextLayerId : LayerId
     , nextIntervalId : Dict Int Int
-    , subs : List (m -> Maybe ( RequestId, Sub Msg ))
+    , ticks : List TickRequest
     , ports : List PortRequest
+    }
+
+
+{-| -}
+type alias TickRequest =
+    { request : RequestId
+    , layer : LayerId
+    , msec : Float
     }
 
 
@@ -925,7 +935,10 @@ onLayer_ lid param (Promise prom1) =
                             , nextLayerId =
                                 context.nextLayerId
                             , nextIntervalId = context.nextIntervalId
-                            , subs = []
+                            , ticks =
+                                List.filter
+                                    (\p -> p.layer /= lid)
+                                    context.ticks
                             , ports =
                                 List.filter
                                     (\p ->
@@ -955,13 +968,8 @@ onLayer_ lid param (Promise prom1) =
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
                         , nextIntervalId = eff1.newContext.nextIntervalId
-                        , subs =
-                            context.subs
-                                ++ List.map
-                                    (\f m ->
-                                        f { link = param.getLink m, body = Nothing }
-                                    )
-                                    eff1.newContext.subs
+                        , ticks =
+                            eff1.newContext.ticks
                         , ports =
                             eff1.newContext.ports
                         }
@@ -1030,7 +1038,7 @@ onLayer_ lid param (Promise prom1) =
                             , nextLayerId =
                                 context.nextLayerId
                             , nextIntervalId = context.nextIntervalId
-                            , subs = []
+                            , ticks = context.ticks
                             , ports = context.ports
                             }
 
@@ -1077,18 +1085,8 @@ onLayer_ lid param (Promise prom1) =
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
                         , nextIntervalId = eff1.newContext.nextIntervalId
-                        , subs =
-                            context.subs
-                                ++ List.map
-                                    (\f m ->
-                                        f
-                                            { link = param.getLink m
-                                            , body =
-                                                param.getBody m
-                                                    |> Maybe.map layerStateOf
-                                            }
-                                    )
-                                    eff1.newContext.subs
+                        , ticks =
+                            eff1.newContext.ticks
                         , ports =
                             eff1.newContext.ports
                         }
@@ -1209,6 +1207,34 @@ releasePorts released =
 
 
 {-| -}
+releaseTicks : List RequestId -> Promise m ()
+releaseTicks released =
+    Promise <|
+        \context ->
+            { newContext =
+                { context
+                    | ticks =
+                        List.filter
+                            (\p -> not <| List.member p.request released)
+                            context.ticks
+                }
+            , realCmds = []
+            , logs = []
+            , state = Resolved (LayerExist ())
+            }
+
+
+{-| -}
+releaseStreamResources : List RequestId -> Promise m ()
+releaseStreamResources released =
+    releasePorts released
+        |> andThenPromise
+            (\_ ->
+                releaseTicks released
+            )
+
+
+{-| -}
 maybeLiftPromiseMemory :
     { get : m -> Maybe m1
     , set : m1 -> m -> m
@@ -1248,7 +1274,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                                 , nextRequestId = context.nextRequestId
                                 , nextLayerId = context.nextLayerId
                                 , nextIntervalId = context.nextIntervalId
-                                , subs = []
+                                , ticks = context.ticks
                                 , ports = context.ports
                                 }
                     in
@@ -1269,13 +1295,7 @@ maybeLiftPromiseMemory o (Promise prom1) =
                         , nextRequestId = eff1.newContext.nextRequestId
                         , nextLayerId = eff1.newContext.nextLayerId
                         , nextIntervalId = eff1.newContext.nextIntervalId
-                        , subs =
-                            context.subs
-                                ++ List.map
-                                    (\f m ->
-                                        o.get m |> Maybe.andThen f
-                                    )
-                                    eff1.newContext.subs
+                        , ticks = eff1.newContext.ticks
                         , ports = eff1.newContext.ports
                         }
                     , realCmds = eff1.realCmds
@@ -1331,7 +1351,7 @@ liftPromiseMemory o (Promise prom1) =
                         , nextRequestId = context.nextRequestId
                         , nextLayerId = context.nextLayerId
                         , nextIntervalId = context.nextIntervalId
-                        , subs = []
+                        , ticks = context.ticks
                         , ports = context.ports
                         }
             in
@@ -1352,13 +1372,7 @@ liftPromiseMemory o (Promise prom1) =
                 , nextRequestId = eff1.newContext.nextRequestId
                 , nextLayerId = eff1.newContext.nextLayerId
                 , nextIntervalId = eff1.newContext.nextIntervalId
-                , subs =
-                    context.subs
-                        ++ List.map
-                            (\f m ->
-                                o.get m |> f
-                            )
-                            eff1.newContext.subs
+                , ticks = eff1.newContext.ticks
                 , ports = eff1.newContext.ports
                 }
             , realCmds = eff1.realCmds
@@ -1919,21 +1933,13 @@ listenTimeEvery interval handler =
                 newContext =
                     { context
                         | nextRequestId = incRequestId context.nextRequestId
-                        , subs =
-                            (\_ ->
-                                Just
-                                    ( myRequestId
-                                    , Time.every (toFloat interval) toIntervalMsg
-                                    )
-                            )
-                                :: context.subs
+                        , ticks =
+                            { request = myRequestId
+                            , layer = thisLayerId
+                            , msec = toFloat interval
+                            }
+                                :: context.ticks
                     }
-
-                toIntervalMsg timestamp =
-                    IntervalMsg
-                        { requestId = myRequestId
-                        , timestamp = timestamp
-                        }
 
                 awaitForever : Msg -> m -> Promise m ()
                 awaitForever msg _ =
@@ -1985,14 +1991,12 @@ tick interval =
                     { context
                         | nextRequestId = incRequestId context.nextRequestId
                         , nextIntervalId = Dict.insert interval (thisIntervalId + 1) context.nextIntervalId
-                        , subs =
-                            (\_ ->
-                                Just
-                                    ( myRequestId
-                                    , Time.every (toKeyedInterval interval) toIntervalMsg
-                                    )
-                            )
-                                :: context.subs
+                        , ticks =
+                            { request = myRequestId
+                            , layer = thisLayerId
+                            , msec = toKeyedInterval interval
+                            }
+                                :: context.ticks
                     }
 
                 -- Work around for bug about `Time.every`.
@@ -2001,12 +2005,6 @@ tick interval =
                 toKeyedInterval : Int -> Float
                 toKeyedInterval n =
                     toFloat n + (toFloat thisIntervalId * 1.0e-6)
-
-                toIntervalMsg timestamp =
-                    IntervalMsg
-                        { requestId = myRequestId
-                        , timestamp = timestamp
-                        }
 
                 nextStream : () -> Stream Posix
                 nextStream () =
@@ -2728,7 +2726,7 @@ initContext memory =
     , nextRequestId = initRequestId
     , nextLayerId = incLayerId initLayerId
     , nextIntervalId = Dict.empty
-    , subs = []
+    , ticks = []
     , ports = []
     }
 
@@ -2808,12 +2806,16 @@ documentView f model =
 {-| -}
 subscriptions : Model memory -> Sub Msg
 subscriptions (Model model) =
-    [ List.filterMap
-        (\f ->
-            f model.context.layer.state
+    [ List.map
+        (\req ->
+            Time.every req.msec <|
+                \timestamp ->
+                    IntervalMsg
+                        { requestId = req.request
+                        , timestamp = timestamp
+                        }
         )
-        model.context.subs
-        |> List.map Tuple.second
+        model.context.ticks
     , List.map .sub model.context.ports
     ]
         |> List.concat
