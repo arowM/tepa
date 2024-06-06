@@ -1,3 +1,7 @@
+# 5.1.1
+
+Bugfix about `Tepa.Time.tick`.
+
 # 5.1.0
 
 - Add `Tepa.Next` module for next release
