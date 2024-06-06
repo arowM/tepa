@@ -964,7 +964,7 @@ maybeLoadedLayer sessionContext =
                 AppLoading ->
                     Nothing
 
-                AppLoaded _ m ->
+                AppLoaded _ _ m ->
                     Just m
         )
         (Core.layerState sessionContext.model)
@@ -2491,8 +2491,8 @@ toTest o =
                                                 o.props.initView.body
                                                     |> Html.div []
 
-                                            Core.AppLoaded flags state ->
-                                                o.props.view flags state
+                                            Core.AppLoaded flags appurl state ->
+                                                o.props.view flags appurl state
                                                     |> .body
                                                     |> Html.div []
                                 }
@@ -2517,8 +2517,8 @@ toTest o =
                                                 Core.AppLoading ->
                                                     o.props.initView
 
-                                                Core.AppLoaded flags state ->
-                                                    o.props.view flags state
+                                                Core.AppLoaded flags appurl state ->
+                                                    o.props.view flags appurl state
                                     , init =
                                         \rawFlags initialPath ->
                                             let
@@ -2532,7 +2532,7 @@ toTest o =
                                                         )
                                                     <|
                                                         \( flags, memory ) ->
-                                                            [ Tepa.modify <| \_ -> Core.AppLoaded flags memory
+                                                            [ Tepa.modify <| \_ -> Core.AppLoaded flags initialPath memory
                                                             , Tepa.syncAll
                                                                 [ Core.listenMsg <|
                                                                     \msg ->
@@ -2549,7 +2549,7 @@ toTest o =
                                                                                 []
                                                                 , o.props.onLoad flags initialPath Core.SimKey
                                                                 ]
-                                                                |> liftLoadedProcedure flags
+                                                                |> liftLoadedProcedure flags initialPath
                                                             ]
 
                                                 newState =
@@ -2579,8 +2579,8 @@ toTest o =
         |> SeqTest.run "Scenario tests"
 
 
-liftLoadedProcedure : flags -> Tepa.Promise m () -> Tepa.Promise (Core.AppState flags m) ()
-liftLoadedProcedure flags =
+liftLoadedProcedure : flags -> AppUrl -> Tepa.Promise m () -> Tepa.Promise (Core.AppState flags m) ()
+liftLoadedProcedure flags appUrl =
     Core.maybeLiftPromiseMemory
         { get =
             \m ->
@@ -2588,11 +2588,11 @@ liftLoadedProcedure flags =
                     Core.AppLoading ->
                         Nothing
 
-                    Core.AppLoaded _ a ->
+                    Core.AppLoaded _ _ a ->
                         Just a
         , set =
             \a _ ->
-                Core.AppLoaded flags a
+                Core.AppLoaded flags appUrl a
         }
         >> Tepa.void
 
