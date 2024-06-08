@@ -1,3 +1,7 @@
+# 5.1.2
+
+Fix memory leak for port handlers.
+
 # 5.1.1
 
 Bugfix about `Tepa.Time.tick`.
