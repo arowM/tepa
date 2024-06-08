@@ -9,7 +9,7 @@ module Tepa exposing
     , none
     , currentState
     , bind, bind2, bind3, bindAll
-    , succeed, sync
+    , succeed, sync, hardcoded
     , lazy
     , void
     , when
@@ -218,7 +218,7 @@ The rejection of JavaScript Promise is a sort of Exception, which drops context.
 `currentState` is resolved with the current state, but how to retrieve the value? You can use `bind` to pass the result into another sequence of procedures.
 
 @docs bind, bind2, bind3, bindAll
-@docs succeed, sync
+@docs succeed, sync, hardcoded
 
 
 #### Recursive procedures
@@ -900,6 +900,27 @@ bindAndThenAll ps f =
 sync : Promise m a -> Promise m (a -> b) -> Promise m b
 sync =
     Core.syncPromise
+
+
+{-| Alias for `sync << succeed`, especially useful when defining `init` functions:
+
+    type alias MemoryBody =
+        { field1 : Widget1.MemoryBody
+        , field2 : Bool
+        , field3 : Int
+        }
+
+    init : Promise MemoryBody
+    init =
+        succeed MemoryBody
+            |> sync Widget1.init
+            |> hardcoded False
+            |> hardcoded 0
+
+-}
+hardcoded : a -> Promise m (a -> b) -> Promise m b
+hardcoded =
+    sync << succeed
 
 
 
