@@ -2254,7 +2254,19 @@ portRequest o =
                     case msg of
                         PortResponseMsg param ->
                             if param.requestId == myRequestId then
-                                succeedPromise (LayerExist param.response)
+                                Promise <|
+                                    \nextContext ->
+                                        { newContext =
+                                            { nextContext
+                                                | ports =
+                                                    List.filter
+                                                        (\p -> p.request /= myRequestId)
+                                                        context.ports
+                                            }
+                                        , realCmds = []
+                                        , logs = []
+                                        , state = Resolved (LayerExist param.response)
+                                        }
 
                             else
                                 justAwaitPromise nextPromise
