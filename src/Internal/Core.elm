@@ -2261,7 +2261,7 @@ portRequest o =
                                                 | ports =
                                                     List.filter
                                                         (\p -> p.request /= myRequestId)
-                                                        context.ports
+                                                        nextContext.ports
                                             }
                                         , realCmds = []
                                         , logs = []
