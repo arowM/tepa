@@ -1,3 +1,7 @@
+# 5.1.3
+
+Fix bug about `Tepa.portStream` and `Tepa.customPortStream`.
+
 # 5.1.2
 
 Fix memory leak for port handlers.
