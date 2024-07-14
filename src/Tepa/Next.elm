@@ -2,8 +2,9 @@ module Tepa.Next exposing
     ( layerView
     , ViewContext
     , pushNamespace
-    , setKey, setKeyAndId, fullKeyNameFor, values, checks
-    , valueFor, checkFor
+    , setKey, setKeyAndId, fullKeyNameFor, values, checks_
+    , valueFor, checkFor_
+    , checks, checkFor
     )
 
 {-| Provide functionality that will be introduced or changed in the next version.
@@ -231,24 +232,55 @@ values (ViewContext context) =
 {-| Current value of the control element specified by the key.
 -}
 valueFor : ViewContext -> String -> Maybe String
-valueFor context key =
-    values context
-        |> Dict.get key
+valueFor (ViewContext context) key =
+    context.values
+        |> Dict.get (context.prefix ++ key)
+
+
+{-| DEPRECATED
+-}
+checks : ViewContext -> Dict String String
+checks (ViewContext context) =
+    Dict.map
+        (\_ v ->
+            if v then
+                "true"
+
+            else
+                "false"
+        )
+        context.checks
 
 
 {-| Current check state of the radio/check elements, keyed by its key strings set with `setKey`.
 -}
-checks : ViewContext -> Dict String String
-checks (ViewContext context) =
-    context.values
+checks_ : ViewContext -> Dict String Bool
+checks_ (ViewContext context) =
+    context.checks
+
+
+{-| DEPRECATED
+-}
+checkFor : ViewContext -> String -> Maybe String
+checkFor (ViewContext context) key =
+    context.checks
+        |> Dict.get (context.prefix ++ key)
+        |> Maybe.map
+            (\b ->
+                if b then
+                    "true"
+
+                else
+                    "false"
+            )
 
 
 {-| Current check state of the radio/check element specified by the key.
 -}
-checkFor : ViewContext -> String -> Maybe String
-checkFor context key =
-    checks context
-        |> Dict.get key
+checkFor_ : ViewContext -> String -> Maybe Bool
+checkFor_ (ViewContext context) key =
+    context.checks
+        |> Dict.get (context.prefix ++ key)
 
 
 {-| Helper function to set the value of the same name to the HTML ID attribute value as well as key for convenience.
