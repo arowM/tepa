@@ -11,7 +11,7 @@ module Tepa.Stream exposing
     , take
     , union
     , scan
-    , oneOf, Case, continue, break, customCase
+    , oneOf, Case, continue, break, customCase, cases
     )
 
 {-| Handle data stream.
@@ -35,7 +35,7 @@ module Tepa.Stream exposing
 
 # Handle cases
 
-@docs oneOf, Case, continue, break, customCase
+@docs oneOf, Case, continue, break, customCase, cases
 
 -}
 
@@ -190,7 +190,7 @@ take n stream =
             Core.EndOfStream param
 
 
-{-| Combine two streams.
+{-| Combine streams.
 
     import Json.Decoder as JD
     import Tepa exposing (Promise)
@@ -665,7 +665,7 @@ For such cases, `oneOf` and `continue` and `break` are useful.
 -}
 oneOf : List (Case m) -> Promise m ()
 oneOf ls =
-    Tepa.bindAll (List.map (\(Case p) -> p) ls) <|
+    Tepa.bindAll (List.concatMap (\(Case p) -> p) ls) <|
         \streams ->
             [ union streams
                 |> while
@@ -682,7 +682,10 @@ oneOf ls =
 
 {-| -}
 type Case m
-    = Case (Promise m (Stream (Result (Promise m ()) (Promise m ()))))
+    = Case
+        (List
+            (Promise m (Stream (Result (Promise m ()) (Promise m ()))))
+        )
 
 
 {-| Wait for other data, and execute the given procedure asynchronously.
@@ -690,6 +693,7 @@ type Case m
 continue : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
 continue promise f =
     Tepa.map (map (f >> Tepa.sequence >> Ok)) promise
+        |> List.singleton
         |> Case
 
 
@@ -698,6 +702,15 @@ continue promise f =
 break : Promise m (Stream a) -> (a -> List (Promise m ())) -> Case m
 break promise f =
     Tepa.map (map (f >> Tepa.sequence >> Err)) promise
+        |> List.singleton
+        |> Case
+
+
+{-| Group multiple `Case`s together into a single `Case`.
+-}
+cases : List (Case m) -> Case m
+cases cs =
+    List.concatMap (\(Case c) -> c) cs
         |> Case
 
 
@@ -761,4 +774,5 @@ customCase promise f =
                 stream
         )
         |> Tepa.sync promise
+        |> List.singleton
         |> Case
