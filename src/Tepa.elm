@@ -1267,7 +1267,7 @@ portStream param =
         }
 
 
-{-| Tepa.Stream
+{-| `Tepa.Stream` version of `awaitViewEvent`.
 -}
 viewEventStream :
     { key : String
@@ -1317,7 +1317,13 @@ awaitCustomViewEvent =
     Core.awaitCustomViewEvent
 
 
-{-| -}
+{-| `Tepa.Stream` version of `awaitCustomViewEvent`.
+
+When multiple `customViewEventStreams` are observed simultaneously for the same type of event on the same element, if `stopPropagation` is set to `True` for any one of them, TEPA calls `Event.stopPropagation()` for that element.
+Similarly, if one or more `customViewEventStream` sets `preventDefault` to `True`, TEPA calls `Event.preventDefault()` method for that element.
+o, and the same for `preventDefault`.
+
+-}
 customViewEventStream :
     { key : String
     , type_ : String

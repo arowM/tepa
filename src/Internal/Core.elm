@@ -239,13 +239,16 @@ type ThisLayerEvents m
             (Dict
                 String
                 -- event type
-                (Decoder
-                    { stopPropagation : Bool
-                    , preventDefault : Bool
-                    }
-                )
+                (Decoder DomEvent)
             )
         )
+
+
+type alias DomEvent =
+    { stopPropagation : Bool
+    , preventDefault : Bool
+    , requestIds : List RequestId
+    }
 
 
 unwrapThisLayerEvents :
@@ -256,11 +259,7 @@ unwrapThisLayerEvents :
             (Dict
                 String
                 -- event type
-                (Decoder
-                    { stopPropagation : Bool
-                    , preventDefault : Bool
-                    }
-                )
+                (Decoder DomEvent)
             )
 unwrapThisLayerEvents (ThisLayerEvents dict) =
     dict
@@ -461,14 +460,12 @@ type Msg
         }
     | ViewMsg
         { layerId : LayerId
+        , requestIds : List RequestId
         , key : String
         , type_ : String
         , value : Value
-        , decoder :
-            Decoder
-                { stopPropagation : Bool
-                , preventDefault : Bool
-                }
+        , stopPropagation : Bool
+        , preventDefault : Bool
         }
     | WakeUpMsg
         { requestId : RequestId
@@ -1125,14 +1122,12 @@ onLayer_ lid param (Promise prom1) =
 
 monitorChange :
     { layerId : LayerId
+    , requestIds : List RequestId
     , key : String
     , type_ : String
     , value : Value
-    , decoder :
-        Decoder
-            { stopPropagation : Bool
-            , preventDefault : Bool
-            }
+    , stopPropagation : Bool
+    , preventDefault : Bool
     }
     -> Promise (LayerMemory link body) a
     -> Promise (LayerMemory link body) a
@@ -1603,10 +1598,12 @@ viewArgs (Layer layer) =
                                             Just a
 
                                         Nothing ->
+                                            -- To track the `value` property value.
                                             Just <|
                                                 JD.succeed
                                                     { stopPropagation = False
                                                     , preventDefault = False
+                                                    , requestIds = []
                                                     }
                                 )
                             |> Dict.update "blur"
@@ -1616,10 +1613,12 @@ viewArgs (Layer layer) =
                                             Just a
 
                                         Nothing ->
+                                            -- To track the `value` property value.
                                             Just <|
                                                 JD.succeed
                                                     { stopPropagation = False
                                                     , preventDefault = False
+                                                    , requestIds = []
                                                     }
                                 )
                 in
@@ -1628,14 +1627,16 @@ viewArgs (Layer layer) =
                         (\( type_, decoder ) ->
                             Html.Events.custom type_ <|
                                 JD.map2
-                                    (\v { stopPropagation, preventDefault } ->
+                                    (\v { stopPropagation, preventDefault, requestIds } ->
                                         { message =
                                             ViewMsg
                                                 { layerId = unwrapThisLayerId layer.id
+                                                , requestIds = requestIds
                                                 , key = key
                                                 , type_ = type_
                                                 , value = v
-                                                , decoder = decoder
+                                                , stopPropagation = stopPropagation
+                                                , preventDefault = preventDefault
                                                 }
                                         , stopPropagation = stopPropagation
                                         , preventDefault = preventDefault
@@ -2581,6 +2582,10 @@ awaitCustomViewEvent param =
     Promise <|
         \context ->
             let
+                myRequestId : RequestId
+                myRequestId =
+                    context.nextRequestId
+
                 thisLayerId =
                     unwrapThisLayerId
                         context.layer.id
@@ -2589,7 +2594,7 @@ awaitCustomViewEvent param =
                 state msg _ =
                     case msg of
                         ViewMsg r ->
-                            if r.layerId == thisLayerId && r.type_ == param.type_ && r.key == param.key then
+                            if r.layerId == thisLayerId && List.member myRequestId r.requestIds then
                                 case JD.decodeValue param.decoder r.value of
                                     Err _ ->
                                         justAwaitPromise state
@@ -2605,7 +2610,8 @@ awaitCustomViewEvent param =
             in
             { newContext =
                 { context
-                    | layer =
+                    | nextRequestId = incRequestId context.nextRequestId
+                    , layer =
                         let
                             layer =
                                 context.layer
@@ -2616,14 +2622,30 @@ awaitCustomViewEvent param =
                                     |> Dict.update param.key
                                         (\mdict ->
                                             Maybe.withDefault Dict.empty mdict
-                                                |> Dict.insert param.type_
-                                                    (param.decoder
-                                                        |> JD.map
-                                                            (\{ stopPropagation, preventDefault } ->
-                                                                { stopPropagation = stopPropagation
-                                                                , preventDefault = preventDefault
+                                                |> Dict.update param.type_
+                                                    (\mdecoder ->
+                                                        JD.map2
+                                                            (\acc new ->
+                                                                { stopPropagation = acc.stopPropagation || new.stopPropagation
+                                                                , preventDefault = acc.preventDefault || new.preventDefault
+                                                                , requestIds = acc.requestIds ++ new.requestIds
                                                                 }
                                                             )
+                                                            (mdecoder
+                                                                |> Maybe.map withDefaultDomEvent
+                                                                |> Maybe.withDefault (JD.succeed initialDomEvent)
+                                                            )
+                                                            (param.decoder
+                                                                |> JD.map
+                                                                    (\{ stopPropagation, preventDefault } ->
+                                                                        { stopPropagation = stopPropagation
+                                                                        , preventDefault = preventDefault
+                                                                        , requestIds = [ myRequestId ]
+                                                                        }
+                                                                    )
+                                                                |> withDefaultDomEvent
+                                                            )
+                                                            |> Just
                                                     )
                                                 |> Just
                                         )
@@ -2634,6 +2656,22 @@ awaitCustomViewEvent param =
             , logs = []
             , state = AwaitMsg state
             }
+
+
+withDefaultDomEvent : JD.Decoder DomEvent -> JD.Decoder DomEvent
+withDefaultDomEvent mayFail =
+    JD.oneOf
+        [ mayFail
+        , JD.succeed initialDomEvent
+        ]
+
+
+initialDomEvent : DomEvent
+initialDomEvent =
+    { stopPropagation = False
+    , preventDefault = False
+    , requestIds = []
+    }
 
 
 {-| -}
@@ -2652,6 +2690,10 @@ customViewEventStream param =
     Promise <|
         \context ->
             let
+                myRequestId : RequestId
+                myRequestId =
+                    context.nextRequestId
+
                 thisLayerId =
                     unwrapThisLayerId
                         context.layer.id
@@ -2663,7 +2705,7 @@ customViewEventStream param =
                             \msg ->
                                 case msg of
                                     ViewMsg r ->
-                                        if r.layerId == thisLayerId && r.type_ == param.type_ && r.key == param.key then
+                                        if r.layerId == thisLayerId && List.member myRequestId r.requestIds then
                                             case JD.decodeValue param.decoder r.value of
                                                 Err _ ->
                                                     ( [], nextStream () )
@@ -2682,7 +2724,8 @@ customViewEventStream param =
             in
             { newContext =
                 { context
-                    | layer =
+                    | nextRequestId = incRequestId context.nextRequestId
+                    , layer =
                         let
                             layer =
                                 context.layer
@@ -2693,14 +2736,30 @@ customViewEventStream param =
                                     |> Dict.update param.key
                                         (\mdict ->
                                             Maybe.withDefault Dict.empty mdict
-                                                |> Dict.insert param.type_
-                                                    (param.decoder
-                                                        |> JD.map
-                                                            (\{ stopPropagation, preventDefault } ->
-                                                                { stopPropagation = stopPropagation
-                                                                , preventDefault = preventDefault
+                                                |> Dict.update param.type_
+                                                    (\mdecoder ->
+                                                        JD.map2
+                                                            (\acc new ->
+                                                                { stopPropagation = acc.stopPropagation || new.stopPropagation
+                                                                , preventDefault = acc.preventDefault || new.preventDefault
+                                                                , requestIds = acc.requestIds ++ new.requestIds
                                                                 }
                                                             )
+                                                            (mdecoder
+                                                                |> Maybe.map withDefaultDomEvent
+                                                                |> Maybe.withDefault (JD.succeed initialDomEvent)
+                                                            )
+                                                            (param.decoder
+                                                                |> JD.map
+                                                                    (\{ stopPropagation, preventDefault } ->
+                                                                        { stopPropagation = stopPropagation
+                                                                        , preventDefault = preventDefault
+                                                                        , requestIds = [ myRequestId ]
+                                                                        }
+                                                                    )
+                                                                |> withDefaultDomEvent
+                                                            )
+                                                            |> Just
                                                     )
                                                 |> Just
                                         )
