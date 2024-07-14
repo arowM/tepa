@@ -1,5 +1,6 @@
 module Tepa.Next exposing
-    ( layerView
+    ( map2, map3, mapAll
+    , layerView
     , ViewContext
     , pushNamespace
     , setKey, setKeyAndId, fullKeyNameFor, values, checks_
@@ -8,6 +9,11 @@ module Tepa.Next exposing
     )
 
 {-| Provide functionality that will be introduced or changed in the next version.
+
+
+### New functions for convenience
+
+@docs map2, map3, mapAll
 
 
 ### Pseudo-namespace for keys
@@ -157,14 +163,67 @@ In this case, using `setKey context ".foo"` in `userNameForm` will actually give
 @docs layerView
 @docs ViewContext
 @docs pushNamespace
-@docs setKey, setKeyAndId, fullKeyNameFor, values, checks
-@docs valueFor, checkFor
+@docs setKey, setKeyAndId, fullKeyNameFor, values, checks_
+@docs valueFor, checkFor_
+
+DEPRECATED
+
+@docs checks, checkFor
 
 -}
 
 import Dict exposing (Dict)
 import Mixin
-import Tepa
+import Tepa exposing (Promise)
+
+
+{-| Run two Promises concurrently, and append a function to the results when both are complete.
+-}
+map2 :
+    (a -> b -> c)
+    -> Promise m a
+    -> Promise m b
+    -> Promise m c
+map2 f promA promB =
+    Tepa.succeed f
+        |> Tepa.sync promA
+        |> Tepa.sync promB
+
+
+{-| Run three Promises concurrently, and append a function to the results when all are complete.
+
+If you need to handle more Promises, use `mapAll` or `sync`.
+
+-}
+map3 :
+    (a -> b -> c -> d)
+    -> Promise m a
+    -> Promise m b
+    -> Promise m c
+    -> Promise m d
+map3 f promA promB promC =
+    Tepa.succeed f
+        |> Tepa.sync promA
+        |> Tepa.sync promB
+        |> Tepa.sync promC
+
+
+{-| Run Promises concurrently, and apply a function to the results when all are complete.
+-}
+mapAll :
+    (List a -> b)
+    -> List (Promise m a)
+    -> Promise m b
+mapAll f ps =
+    List.foldl
+        (\p acc ->
+            Tepa.succeed (::)
+                |> Tepa.sync p
+                |> Tepa.sync acc
+        )
+        (Tepa.succeed [])
+        ps
+        |> Tepa.map f
 
 
 {-| Context about the current View, including its namespace.
