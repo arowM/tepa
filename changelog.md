@@ -1,3 +1,12 @@
+# 5.2.0
+
+- Add `Tepa.hardcoded`
+- Bugfix about `Tepa.portStream`
+- Support for concurrent use of `Tepa.customViewEvent` for events of the same type on the same element
+- Add `Tepa.Stream.cases`
+- Bugfix about `Tepa.Next.valueFor`, `Tepa.Next.checks`, `Tepa.Next.checkFor`
+- Add `Tepa.Next.map2`, `Tepa.Next.map3`, and `Tepa.Next.mapAll`
+
 # 5.1.3
 
 Fix bug about `Tepa.portStream` and `Tepa.customPortStream`.
